@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!-- Offline helper for the RaceAiPlugin: simulator, grid extraction, car data check. No AssettoServer dependency. -->
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net11.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RootNamespace>RaceAiTool</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="..\RaceAiPlugin\Core\**\*.cs" Link="Core\%(RecursiveDir)%(Filename)%(Extension)" />
+    </ItemGroup>
+
+</Project>

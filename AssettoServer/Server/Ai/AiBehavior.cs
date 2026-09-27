@@ -176,6 +176,8 @@ public class AiBehavior : BackgroundService
 
         foreach (var entryCar in _entryCarManager.EntryCars)
         {
+            if (entryCar.ExternalAiController != null) continue;
+
             var (currentSplinePointId, _) = _spline.WorldToSpline(entryCar.Status.Position);
             var drivingTheRightWay = Vector3.Dot(_spline.Operations.GetForwardVector(currentSplinePointId), entryCar.Status.Velocity) > 0;
 
@@ -442,7 +444,7 @@ public class AiBehavior : BackgroundService
     private void AdjustOverbooking()
     {
         int playerCount = _entryCarManager.EntryCars.Count(car => car.Client != null && car.Client.IsConnected);
-        var aiSlots = _entryCarManager.EntryCars.Where(car => car.Client == null && car.AiControlled).ToList(); // client null check is necessary here so that slots where someone is connecting don't count
+        var aiSlots = _entryCarManager.EntryCars.Where(car => car.Client == null && car.AiControlled && car.ExternalAiController == null).ToList(); // client null check is necessary here so that slots where someone is connecting don't count
 
         if (aiSlots.Count == 0)
         {

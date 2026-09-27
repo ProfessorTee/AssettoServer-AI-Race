@@ -834,7 +834,7 @@ public class ACTcpClient : IClient
         _configuration.Server.DynamicTrack.TotalLapCount++;
         if (_sessionManager.OnLapCompleted(this, lapPacket))
         {
-            LapCompletedOutgoing packet = CreateLapCompletedPacket(SessionId, lapPacket.LapTime, lapPacket.Cuts);
+            LapCompletedOutgoing packet = _sessionManager.CreateLapCompletedPacket(SessionId, lapPacket.LapTime, lapPacket.Cuts);
             _entryCarManager.BroadcastPacket(packet);
             LapCompleted?.Invoke(this, new LapCompletedEventArgs(packet));
         }
@@ -921,7 +921,7 @@ public class ACTcpClient : IClient
                 });
             }
 
-            _entryCarManager.BroadcastPacket(CreateLapCompletedPacket(0xFF, 0, 0));
+            _entryCarManager.BroadcastPacket(_sessionManager.CreateLapCompletedPacket(0xFF, 0, 0));
             FirstUpdateSent?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex)
@@ -931,35 +931,6 @@ public class ACTcpClient : IClient
     }
 
     private void KickForFailedChecksum() => _ = _entryCarManager.KickAsync(this, KickReason.ChecksumFailed, null, null, $"{Name} failed the checksum check and has been kicked.");
-
-    private LapCompletedOutgoing CreateLapCompletedPacket(byte sessionId, uint lapTime, int cuts)
-    {
-        // TODO: double check and rewrite this
-        if (_sessionManager.CurrentSession.Results == null)
-            throw new ArgumentNullException(nameof(_sessionManager.CurrentSession.Results));
-
-        var laps = _sessionManager.CurrentSession.Results
-            .OrderBy(result => string.IsNullOrEmpty(result.Value.Name))
-            .ThenBy(result => result.Value.Name)
-            .Select(result => new LapCompletedOutgoing.CompletedLap
-            {
-                SessionId = result.Key,
-                LapTime = _sessionManager.CurrentSession.Configuration.Type == SessionType.Race ? result.Value.TotalTime : result.Value.BestLap,
-                NumLaps = (ushort)result.Value.NumLaps,
-                HasCompletedLastLap = (byte)(result.Value.HasCompletedLastLap ? 1 : 0),
-                RacePos = (byte)result.Value.RacePos,
-            })
-            .OrderBy(lap => lap.LapTime);
-
-        return new LapCompletedOutgoing
-        {
-            SessionId = sessionId,
-            LapTime = lapTime,
-            Cuts = (byte)cuts,
-            Laps = laps.ToArray(),
-            TrackGrip = _weatherManager.CurrentWeather.TrackGrip
-        };
-    }
 
     internal bool TryAssociateUdp(SocketAddress endpoint)
     {

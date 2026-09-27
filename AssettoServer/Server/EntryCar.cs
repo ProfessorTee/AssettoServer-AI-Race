@@ -238,7 +238,18 @@ public partial class EntryCar : IEntryCar<ACTcpClient>
         }
 
         CarStatus status;
-        if (AiControlled)
+        if (AiControlled && ExternalAiController != null)
+        {
+            var externalStatus = ExternalAiController.GetStatusForCar(toCar);
+            if (externalStatus == null)
+            {
+                positionUpdateOut = default;
+                return false;
+            }
+
+            status = externalStatus;
+        }
+        else if (AiControlled)
         {
             var aiState = GetBestStateForPlayer(targetCarStatus);
 

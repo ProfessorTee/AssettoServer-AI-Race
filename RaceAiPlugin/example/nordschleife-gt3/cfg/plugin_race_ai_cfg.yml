@@ -1,0 +1,36 @@
+# Race AI plugin - Nordschleife (without GP track) with GT3 cars
+# Empty = every entry with AI=fixed in entry_list.ini is a bot (here CAR_4 .. CAR_19)
+BotSlots: []
+# Content Manager style AI settings
+AiLevel: 95
+AiLevelVariation: 6
+AiAggression: 55
+AiAggressionVariation: 15
+# Where the players start in a race that doesn't follow a qualifying: Default, First, Last, Middle, Random
+PlayerGridPosition: Middle
+RandomizeBotGrid: true
+Practice: Drive
+Qualifying: Drive
+# Your Assetto Corsa folder: car data (data.acd), racing line (fast_lane.ai), ai_hints.ini, sections.ini and the start grid are read from here
+# when they are not in the server's content folder
+AssettoCorsaPath: /mnt/GameDrive/SteamLibrary/steamapps/common/assettocorsa
+GridFile: cfg/ks_nordschleife-nordschleife-grid.json
+UseTrackHints: true
+SlipstreamStrength: 0.35
+EdgeMargin: 0.4
+SideMargin: 0.5
+HeightOffset: 0
+CoolDownPace: 0.6
+DaytimeLights: false
+AnnounceOvertakes: true
+LogLaps: true
+NamePrefix: ''
+Names: []
+Drivers: []
+# Example for a fixed driver:
+# Drivers:
+#   - Slot: 4
+#     Name: Max Reuter
+#     Nation: AUT
+#     Level: 99
+#     Aggression: 70

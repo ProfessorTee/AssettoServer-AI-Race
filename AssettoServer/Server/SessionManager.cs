@@ -44,6 +44,11 @@ public class SessionManager : BackgroundService, IHostedLifecycleService
     /// </summary>
     public event EventHandler<SessionManager, SessionChangedEventArgs>? SessionChanged;
 
+    /// <summary>
+    /// Fires when a lap of a server-driven AI slot was registered via <see cref="OnAiLapCompleted"/>
+    /// </summary>
+    public event EventHandler<EntryCar, LapCompletedEventArgs>? AiLapCompleted;
+
     public SessionManager(ACServerConfiguration configuration,
         Func<SessionConfiguration, SessionState> sessionStateFactory,
         EntryCarManager entryCarManager,
@@ -121,14 +126,37 @@ public class SessionManager : BackgroundService, IHostedLifecycleService
     }
 
     public bool OnLapCompleted(ACTcpClient client, LapCompletedIncoming lap)
+        => OnLapCompleted(client.EntryCar, client.Name, lap.LapTime, lap.Cuts);
+
+    /// <summary>
+    /// Registers a completed lap for a slot that is driven by the server (e.g. a racing AI plugin) and
+    /// broadcasts the updated lap/leaderboard to all clients.
+    /// </summary>
+    public bool OnAiLapCompleted(EntryCar entryCar, uint lapTime, int cuts = 0)
+    {
+        if (CurrentSession.Results != null && CurrentSession.Results.TryGetValue(entryCar.SessionId, out var result))
+        {
+            result.Name = entryCar.AiName ?? result.Name;
+        }
+
+        if (!OnLapCompleted(entryCar, entryCar.AiName, lapTime, cuts))
+            return false;
+
+        var packet = CreateLapCompletedPacket(entryCar.SessionId, lapTime, cuts);
+        _entryCarManager.BroadcastPacket(packet);
+        AiLapCompleted?.Invoke(entryCar, new LapCompletedEventArgs(packet));
+        return true;
+    }
+
+    private bool OnLapCompleted(EntryCar entryCar, string? name, uint lapTime, int cuts)
     {
         int timestamp = (int)ServerTimeMilliseconds;
 
-        var entryCarResult = CurrentSession.Results?[client.SessionId] ?? throw new InvalidOperationException("Current session does not have results set");
+        var entryCarResult = CurrentSession.Results?[entryCar.SessionId] ?? throw new InvalidOperationException("Current session does not have results set");
 
         if (entryCarResult.HasCompletedLastLap)
         {
-            Log.Debug("Lap rejected by {ClientName}, already finished", client.Name);
+            Log.Debug("Lap rejected by {ClientName}, already finished", name);
             return false;
         }
 
@@ -136,21 +164,21 @@ public class SessionManager : BackgroundService, IHostedLifecycleService
             && entryCarResult.NumLaps >= CurrentSession.Configuration.Laps
             && !CurrentSession.Configuration.IsTimedRace)
         {
-            Log.Debug("Lap rejected by {ClientName}, race over", client.Name);
+            Log.Debug("Lap rejected by {ClientName}, race over", name);
             return false;
         }
 
-        Log.Information("Lap completed by {ClientName}, {NumCuts} cuts, laptime {LapTime}", client.Name, lap.Cuts, TimeSpan.FromMilliseconds(lap.LapTime).ToString(@"mm\:ss\.ffff"));
+        Log.Information("Lap completed by {ClientName}, {NumCuts} cuts, laptime {LapTime}", name, cuts, TimeSpan.FromMilliseconds(lapTime).ToString(@"mm\:ss\.ffff"));
 
-        if (CurrentSession.Configuration.Type == SessionType.Race || lap.Cuts == 0)
+        if (CurrentSession.Configuration.Type == SessionType.Race || cuts == 0)
         {
-            entryCarResult.LastLap = lap.LapTime;
+            entryCarResult.LastLap = lapTime;
             entryCarResult.NumLaps++;
-            entryCarResult.TotalTime = (uint)(CurrentSession.SessionTimeMilliseconds - client.EntryCar.Ping / 2);
+            entryCarResult.TotalTime = (uint)(CurrentSession.SessionTimeMilliseconds - entryCar.Ping / 2);
 
-            if (lap.LapTime < entryCarResult.BestLap)
+            if (lapTime < entryCarResult.BestLap)
             {
-                entryCarResult.BestLap = lap.LapTime;
+                entryCarResult.BestLap = lapTime;
             }
 
             var oldLeaderLapCount = CurrentSession.LeaderLapCount;
@@ -253,6 +281,35 @@ public class SessionManager : BackgroundService, IHostedLifecycleService
         return false;
     }
 
+    public LapCompletedOutgoing CreateLapCompletedPacket(byte sessionId, uint lapTime, int cuts)
+    {
+        // TODO: double check and rewrite this
+        if (CurrentSession.Results == null)
+            throw new ArgumentNullException(nameof(CurrentSession.Results));
+
+        var laps = CurrentSession.Results
+            .OrderBy(result => string.IsNullOrEmpty(result.Value.Name))
+            .ThenBy(result => result.Value.Name)
+            .Select(result => new LapCompletedOutgoing.CompletedLap
+            {
+                SessionId = result.Key,
+                LapTime = CurrentSession.Configuration.Type == SessionType.Race ? result.Value.TotalTime : result.Value.BestLap,
+                NumLaps = (ushort)result.Value.NumLaps,
+                HasCompletedLastLap = (byte)(result.Value.HasCompletedLastLap ? 1 : 0),
+                RacePos = (byte)result.Value.RacePos,
+            })
+            .OrderBy(lap => lap.LapTime);
+
+        return new LapCompletedOutgoing
+        {
+            SessionId = sessionId,
+            LapTime = lapTime,
+            Cuts = (byte)cuts,
+            Laps = laps.ToArray(),
+            TrackGrip = _weatherManager.Value.CurrentWeather.TrackGrip
+        };
+    }
+
     private bool IsSessionOver()
     {
         if (CurrentSession.Configuration.Infinite)
@@ -272,15 +329,18 @@ public class SessionManager : BackgroundService, IHostedLifecycleService
         }
 
         var connectedCount = _entryCarManager.ConnectedCars.Count;
+        // Server-driven AI slots (e.g. racing AI plugins) count as participants as soon as one player is connected,
+        // so a single player can race against them. Without any player the race is skipped as before.
+        var participantCount = connectedCount == 0 ? 0 : connectedCount + _entryCarManager.EntryCars.Count(c => c.Client == null && c.ExternalAiController != null);
         
         switch (CurrentSession.Configuration.IsOpen)
         {
-            case IsOpenMode.Closed when connectedCount < 2:
-                Log.Information("Skipping race session: didn't reach minimum player count before cutoff ({PlayerCount}/2). Use 'IS_OPEN=1' to allow joining during the race", connectedCount);
+            case IsOpenMode.Closed when participantCount < 2:
+                Log.Information("Skipping race session: didn't reach minimum player count before cutoff ({PlayerCount}/2). Use 'IS_OPEN=1' to allow joining during the race", participantCount);
                 return true;
             case IsOpenMode.Closed:
                 return false;
-            case IsOpenMode.CloseAtStart when connectedCount >= 2 ||
+            case IsOpenMode.CloseAtStart when participantCount >= 2 ||
                                               ServerTimeMilliseconds <= CurrentSession.StartTimeMilliseconds:
                 return false;
             case IsOpenMode.Open when connectedCount > 0 ||

@@ -1,0 +1,5 @@
+# AssettoServer extra configuration for the Race AI example (only the relevant keys, everything else uses the defaults)
+# The traffic AI must stay off: the racing bots use the AI=fixed slots of entry_list.ini
+EnableAi: false
+EnablePlugins:
+  - RaceAiPlugin

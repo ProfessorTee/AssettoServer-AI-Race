@@ -26,7 +26,11 @@ public partial class EntryCar
     public byte[] LastSeenAiSpawn { get; }
     public byte[] AiPakSequenceIds { get; }
     public AiState?[] LastSeenAiState { get; }
-    public string? AiName { get; private set; }
+    public string? AiName { get; set; }
+    /// <summary>
+    /// When set, this slot is driven by a plugin instead of the built-in traffic AI.
+    /// </summary>
+    public IExternalAiController? ExternalAiController { get; set; }
     public bool AiEnableColorChanges { get; set; } = false;
     public int AiIdleEngineRpm { get; set; } = 800;
     public int AiMaxEngineRpm { get; set; } = 3000;
@@ -149,6 +153,7 @@ public partial class EntryCar
 
     public void AiUpdate()
     {
+        if (ExternalAiController != null) return;
         foreach (var aiState in AiStatesSpan)
         {
             aiState?.Update();
@@ -157,6 +162,7 @@ public partial class EntryCar
 
     public void AiObstacleDetection()
     {
+        if (ExternalAiController != null) return;
         foreach (var aiState in AiStatesSpan)
         {
             aiState?.DetectObstacles();
