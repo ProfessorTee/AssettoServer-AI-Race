@@ -380,8 +380,6 @@ public sealed partial class RaceWorld
         me.Offset = Math.Clamp(me.Offset, -Line.RoomMinus[i] + half - allow, Line.RoomPlus[i] - half + allow);
     }
 
-    /// <summary>Range in which a car ahead would be dazzled by high beams (m).</summary>
-    public float HighBeamRange { get; set; } = 250f;
 
     /// <summary>High beams only with nobody ahead (players or bots); switch back at once when somebody shows up.</summary>
     private void UpdateClearAhead(RaceBot me, float myS)
@@ -394,7 +392,7 @@ public sealed partial class RaceWorld
                 if (o.IsBot && o.Id == me.Id) continue;
                 if (o.IsBot && o.Bot!.InPitLane) continue;
                 float ds = Line.Delta(myS, o.S);
-                if (ds > -3 && ds < HighBeamRange) { clear = false; break; }
+                if (ds > -3 && ds < Settings.HighBeamRange) { clear = false; break; }
             }
         }
         if (!clear) { me.ClearAhead = false; me.ClearAheadSince = double.NaN; return; }

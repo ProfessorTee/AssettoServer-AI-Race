@@ -230,8 +230,11 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     [YamlMember(Description = "On slicks in the wet the bots drive more carefully, make more mistakes and can aquaplane on standing water")]
     public bool RainCaution { get; set; } = true;
 
-    [YamlMember(Description = "At night bots use their high beams when nobody (player or bot) is within about 250 m ahead, and dip them as soon as somebody is")]
+    [YamlMember(Description = "At night bots use their high beams when nobody (player or bot) is within HighBeamRange ahead, and dip them as soon as somebody is")]
     public bool HighBeams { get; set; } = true;
+
+    [YamlMember(Description = "Distance ahead (m) that has to be free for high beams")]
+    public float HighBeamRange { get; set; } = 85;
 
     [YamlMember(Description = "Height correction for bots parked in their pit box (m, + = higher, - = lower)")]
     public float ParkHeightAdjust { get; set; } = 0;

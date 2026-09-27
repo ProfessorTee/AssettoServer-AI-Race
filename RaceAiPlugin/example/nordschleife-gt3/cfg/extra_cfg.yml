@@ -5,8 +5,8 @@ EnablePlugins:
   - RaceAiPlugin
 # CSP weather (Sol/Pure): rain, smooth transitions. Needed for RealWeather in plugin_race_ai_cfg.yml
 EnableWeatherFx: true
-# Extra grip loss on a wet track for everybody (0..0.5). Only needed for players whose CSP has no Rain FX physics
-# (rain is only visual for them). With CSP Rain FX (rain tyres available in CM) leave it at 0, else it's twice as slippery.
-RainTrackGripReductionPercent: 0
+# Grip loss on a wet track for everybody (0..0.5). Online, CSP rain is usually only visual (tested: wet = dry),
+# so the server makes the wet track slippery. 0 if your players really have CSP rain physics online.
+RainTrackGripReductionPercent: 0.15
 # Real time of day at the track (with RealWeather: day/night and weather match the Nürburgring right now)
 EnableRealTime: false

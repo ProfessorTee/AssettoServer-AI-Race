@@ -128,6 +128,7 @@ public sealed class RaceAiService : IHostedService
         {
             StartLineS = _track.StartLineS,
             ParkHeightAdjust = _config.ParkHeightAdjust,
+            HighBeamRange = _config.HighBeamRange,
             SpotHeightOffset = RaceWorld.MeasureSpotHeight(_track.Line, _track.Info.StartGrid.Select(g => g.Position)),
             EdgeMargin = _config.EdgeMargin,
             SideMargin = _config.SideMargin,

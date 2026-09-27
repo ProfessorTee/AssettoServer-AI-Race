@@ -68,6 +68,8 @@ VirtualWetTyres: false
 RainCaution: true
 # High beams at night when nobody is ahead
 HighBeams: true
+# ... when nobody is within this distance ahead (m)
+HighBeamRange: 85
 # Race craft
 # Seconds stuck behind a slower car until a bot is fully impatient (tries harder to overtake, follows closer, flashes its lights)
 ImpatienceSeconds: 25

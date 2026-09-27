@@ -64,7 +64,7 @@
   sonst mit eigener Nässe-Kurve. `WantsWets` mit Hysterese, Strategie-Grund `wets`/`slicks`, Start auf passenden Reifen.
   `CarSpec.WetCompound` aus `tyres.ini` (Name wet/rain/inter). `VirtualWetTyres` für Autos ohne Regenmischung.
 - `RainCaution`: Skill-Abzug und mehr Fehler im Nassen (auf Slicks stark), Aufschwimmen auf stehendem Wasser (`Aquaplaning`).
-- Fernlicht: `UpdateClearAhead` (250 m frei, 1,5 s Verzögerung) → `BotPose.HighBeam` → `BotSlot` nimmt `HighBeamsOff` weg.
+- Fernlicht: `UpdateClearAhead` (`HighBeamRange` frei, Standard 85 m, 1,5 s Verzögerung) → `BotPose.HighBeam` → `BotSlot` nimmt `HighBeamsOff` weg.
   Die Lichthupe schaltet um. Der Licht-Test hat Phase 6 „high beams“.
 - `RealWeatherService` lässt sich zur Laufzeit ein- und ausschalten (`/raceai_set realweather off`).
 

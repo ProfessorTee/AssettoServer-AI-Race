@@ -14,6 +14,7 @@ public class RaceAiConfigurationValidator : AbstractValidator<RaceAiConfiguratio
         RuleFor(cfg => cfg.HumanErrorsBelow).InclusiveBetween(0, 110);
         RuleFor(cfg => cfg.HumanErrorsFull).InclusiveBetween(0, 110);
         RuleFor(cfg => cfg.BotDamageFactor).InclusiveBetween(0, 10);
+        RuleFor(cfg => cfg.HighBeamRange).InclusiveBetween(10, 1000);
         RuleFor(cfg => cfg.RainGripLoss).InclusiveBetween(0, 3);
         RuleFor(cfg => cfg.ImpatienceSeconds).InclusiveBetween(0, 600);
         RuleFor(cfg => cfg.RealWeatherUpdateMinutes).InclusiveBetween(1, 1440);

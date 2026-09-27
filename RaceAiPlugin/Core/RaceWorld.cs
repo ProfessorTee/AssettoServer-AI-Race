@@ -291,6 +291,8 @@ public sealed class RaceWorldSettings
     public float SpeedHintScale { get; set; } = 0f;
     /// <summary>Height of the track's AC_START_x / AC_PIT_x dummies above the ground (m), subtracted when parking in the pit box.</summary>
     public float SpotHeightOffset { get; set; }
+    /// <summary>High beams only when nobody is within this distance ahead (m).</summary>
+    public float HighBeamRange { get; set; } = 85f;
     /// <summary>Fine tuning of the height of cars parked in the pit box (m, + = higher).</summary>
     public float ParkHeightAdjust { get; set; }
     /// <summary>Lift the car this far above the line (m).</summary>

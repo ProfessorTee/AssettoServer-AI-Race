@@ -67,7 +67,7 @@ Das Plugin besteht aus zwei Teilen:
     auf 0, sonst wird es doppelt rutschig. Die Bots rechnen beides ein.
 - **Echtes Wetter** (`RealWeather`): Das aktuelle Wetter am Nürburgring kommt von Open-Meteo (kostenlos, ohne API-Key). Der Server
   schickt es als CSP-WeatherFX an die Clients, Sol und Pure zeigen es an. Mit `EnableRealTime: true` passt auch die Tageszeit.
-- Scheinwerfer bei Dunkelheit, **Fernlicht**, solange etwa 250 m davor frei sind (`HighBeams`), und sofort Abblendlicht, sobald ein
+- Scheinwerfer bei Dunkelheit, **Fernlicht**, solange `HighBeamRange` (85 m) davor frei ist (`HighBeams`), und sofort Abblendlicht, sobald ein
   Spieler oder Bot davor ist. Dazu Scheibenwischer bei Regen, Bremslichter und Warnblinker bei Stillstand.
 - Namen und Nationen im Client, in der Rangliste und in den Ergebnissen
 
