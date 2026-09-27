@@ -1,4 +1,4 @@
-# Race-AI für AssettoServer: Übergabe (Stand 27.09.2026, 2. Sitzung, Teil 3)
+# Race-AI für AssettoServer: Übergabe (Stand 27.09.2026, 2. Sitzung, Teil 5)
 
 ## Status
 - Der Core-Patch und das Plugin **kompilieren** gegen AssettoServer master (Basis `e92d253`, entspricht Release `v0.0.55-pre42`).
@@ -35,6 +35,29 @@
 - `PlayersCanTakeBotSlots` (Standard true): `RaceAiSlotFilter` öffnet die Bot-Slots für Spieler. AssettoServer probiert die Slots eines Modells
   in der Reihenfolge der Entry List, freie Spieler-Slots (oben) also zuerst. Beim Connect räumt der Bot den Slot (Chat: „X made room for Y“),
   beim Disconnect kommt er zurück. E2E getestet (Mercedes → Spieler-Slot 0, Audi → Bot-Slot 11, Bot kommt zurück).
+
+## Neu in Teil 5 (nach Testfahrten mit dem echten Client)
+- Bug beim Nutzer: Keine Bot-Zeiten und ein verschwundener Führender. Ursache: Die Plugin-DLL wurde bei laufendem Server überschrieben,
+  danach kam in jeder Bot-Runde eine `BadImageFormatException`. Seitdem wird immer atomar installiert (`.new` + `mv`).
+  E2E erneut geprüft: Bot-Runden stehen mit Zeit, Rundenzahl und Zielflagge im Leaderboard-Paket (0x49).
+- Pace aufgeteilt (`DriverProfile.CornerSkill/BrakeSkill/ThrottleSkill`): Schwächere Bots bremsen früher und weicher und sind später
+  am Gas. In der Kurve sind sie nur halb so viel langsamer wie vorher.
+- `RaceWorld.Human.cs`: menschliche Fehler (`DriverProfile.Errors`, aus der Stärke über `ErrorsFor`)
+  - `LateBrake`: plant mit zu viel Bremsleistung, blockierende Vorderräder über `FrontTyreFactor`, schiebt in der Kurve nach außen
+    (Überschuss der Querbeschleunigung), ggf. aufs Gras
+  - Zu früh gebremst: `MistakeUntil`
+  - `Slide`: Heck kommt am Ausgang (Yaw, Gegenlenken, Hinterräder drehen durch)
+  - `Spin`: Stehen mit Warnblinker, wartet auf eine Lücke, dreht um, fährt wieder los
+  - `Grass`: zwei Räder neben der Strecke (`EdgeAllowance`)
+- Kontakte zwischen Bots (`BotContact`, nur bei echter Annäherungsgeschwindigkeit). Verschätzen in Zweikämpfen über
+  `MarginOverrideUntil`/`MisjudgeTowards`.
+- Schaden: AC-Schadenszonen (≈ Aufprall-km/h, `damage.ini` animiert zwischen MIN_SPEED und FULL_SPEED) und Aufhängung.
+  Grip- und Luftwiderstandsverlust, Reparatur beim Stopp mit `BODY_REPAIR_TIME_SEC`/`SUSP_REPAIR_TIME_SEC`, Strategie-Grund
+  `damage`. `DamageUpdate`-Pakete an die Clients.
+- Kalibrierung misst den Zeitverlust durch Fehler (Fehlerlevel 0,5 und 1, je 5 Runden). `PaceFor(strength, ref, errors)` zieht ihn ab.
+- Admin: `/raceai_set <feature> on|off`, `/raceai_lighttest` (Blinker links/rechts, Warnblinker, Lichthupe, Bremslicht).
+- Offen: Mit dem echten Client prüfen, wie die Schadenszonen aussehen (Skalierung geschätzt), ob die blockierenden bzw.
+  durchdrehenden Räder bei Remote-Autos sichtbar sind und wie Rutscher und Dreher bei 18 Hz wirken.
 
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:

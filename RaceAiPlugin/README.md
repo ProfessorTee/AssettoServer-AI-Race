@@ -19,8 +19,20 @@ Das Plugin besteht aus zwei Teilen:
 - Fahren auf der Kunos-Ideallinie mit Streckenbreite, Kurven- und Kuppenlimit (Flugplatz, Pflanzgarten) und Bremspunkten
 - **Fahrzeugdaten wie Content Manager** direkt aus `data.acd`: Gewicht, Drehmomentkurve, Turbo, Übersetzungen, Reifenradius und -grip,
   Abtrieb und Luftwiderstand aus `aero.ini`, Schaltdrehzahlen aus `ai.ini`. Ballast und Restriktor aus der Entry List werden berücksichtigt.
-- **Schwächere Bots verlieren ihre Zeit in Kurven:** Sie bremsen früher, fahren langsamer durch die Kurve und gehen später
-  aufs Gas. Auf der Geraden hat jedes Auto seine volle Leistung.
+- **Schwächere Bots fahren wie schwächere Menschen:** Sie bremsen früher und weicher und gehen später aufs Gas. Durch die Kurve
+  selbst sind sie nur wenig langsamer. Auf der Geraden hat jedes Auto seine volle Leistung.
+- **Menschliche Fehler** (`HumanErrors`, unter `HumanErrorsBelow` = 87 %, bei 75 % am meisten): zu spät gebremst (blockierende
+  Vorderräder, das Auto schiebt nach außen, manchmal übers Gras), zu früh gebremst, zu viel Gas am Kurvenausgang (das Heck kommt,
+  Gegenlenken, kurzes Pendeln). Ein Teil der Rundenzeit geht so durch Fehler verloren, der Rest durch das vorsichtigere Fahren.
+  Die Kalibrierung rechnet beides ein.
+- **Dreher** (`Spins`): Aus einem bösen Rutscher wird manchmal ein Dreher. Der Bot bleibt mit Warnblinker stehen, wartet eine Lücke ab,
+  dreht um und fährt vorsichtig wieder los. Die anderen sehen die gelbe Flagge.
+- **Gras** (`GrassMoments`): Ab und zu kommt ein Bot mit zwei Rädern aufs Gras und verliert dabei etwas Tempo.
+- **Leichte Berührungen** (`BotContacts`): In engen Zweikämpfen verschätzt sich ein Bot manchmal und lehnt sich an den anderen.
+  Es gibt einen Rempler, beide wackeln kurz, aber keine großen Unfälle.
+- **Schaden** (`BotDamage`, nach `DAMAGE_MULTIPLIER`): Berührungen mit Bots und Spielern beschädigen Karosserie und Aufhängung.
+  Die Schadenszonen gehen wie bei Spielern an alle Clients. Das Auto hat weniger Grip und mehr Luftwiderstand. Lohnt es sich,
+  kommt der Bot zur Reparatur in die Box (Zeiten aus `car.ini`: `BODY_REPAIR_TIME_SEC`, `SUSP_REPAIR_TIME_SEC`).
 - **Kunos-AI-Hints** der Strecke (`data/ai_hints.ini`: langsamere Abschnitte, Max-Speed)
 - Windschatten, Folgen, Angriff (Pressure in Kurven und Bremszonen, Windschatten auf Geraden), Nebeneinanderfahren mit
   Innenbahn-Vorrecht, Verteidigen, Fahrfehler je nach Konstanz, Formschwankungen
@@ -67,10 +79,20 @@ Weitere Optionen: `Practice`/`Qualifying` (`Drive` oder `Parked`), `SlipstreamSt
 Renn-Verhalten: `ImpatienceSeconds`, `FlashLights`, `FlashLightsDaytime`, `BlueFlags`, `YellowFlags`, `RainGripLoss`,
 `RealWeather`, `RealWeatherUpdateMinutes`, `RealWeatherTransitionSeconds`.
 
+Menschliches Verhalten: `HumanErrors`, `HumanErrorsBelow`, `HumanErrorsFull`, `Spins`, `GrassMoments`, `BotContacts`, `BotDamage`,
+`BotDamageFactor`. Jede dieser Funktionen lässt sich mit `false` abschalten, während der Sitzung auch per Chat (siehe unten).
+
 Weitere Endurance-Optionen: `Fuel`, `TyreWear`, `TyreWearFactor`, `TyreChangeGrip`, `PitStops`, `PitSpeedKmh`, `PracticeFuelLaps`,
 `QualifyingFuelLaps`, `AnnouncePitStops`.
 
-Chat-Befehle: `/raceai` (Bots mit Stärke, Sprit, Reifen, Stopps), als Admin `/raceai_strength <%> [spread]` und `/raceai_aggression <0-100>`.
+Chat-Befehle:
+- `/raceai`: Bots mit Stärke, Sprit, Reifen, Stopps, Fehlern und Schaden
+- Als Admin (`/admin <Passwort>`):
+  - `/raceai_strength <%> [spread]` und `/raceai_aggression <0-100>`
+  - `/raceai_set <Funktion> on|off` schaltet bis zum Neustart ein und aus: `errors`, `spins`, `grass`, `contacts`, `damage`,
+    `blueflags`, `yellowflags`, `flash`
+  - `/raceai_lighttest`: Licht-Test. Alle Bots zeigen nacheinander je etwa 6 s linken Blinker, rechten Blinker, Warnblinker,
+    Lichthupe und Bremslicht, mit eingeschaltetem Licht. Für Nacht vorher `/settime 22:00`.
 
 ## Einrichtung
 
@@ -116,6 +138,7 @@ Im Rennen mit vollem Tank sind die Bots ein paar Sekunden langsamer.
 
 ## Grenzen (Stand jetzt)
 
-- Die Bots sind kinematisch (keine echte Fahrphysik). Kontakte lösen sie auf, indem sie nachgeben, und nicht über Kollisionen.
+- Die Bots sind kinematisch (keine echte Fahrphysik). Rutscher, Dreher und Rempler sind nachgebildet, nicht physikalisch berechnet.
+- Beim Start misst das Plugin pro Auto einige simulierte Runden, auch mit Fehlern. Das dauert etwa 3 s pro Automodell.
 - Kein fliegender Start, keine Schäden und Reparaturen. Die Reifen werden nicht warm gefahren (nur ein Kaltstart-Abschlag nach dem Wechsel).
 - Mit dem echten AC-Client getestet: Fahren und Aussehen. Blinker, Lichthupe und echtes Wetter sind noch nicht mit dem echten Client geprüft.

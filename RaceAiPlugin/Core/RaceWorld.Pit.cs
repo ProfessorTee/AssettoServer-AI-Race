@@ -53,6 +53,12 @@ public sealed partial class RaceWorld
         bot.FuelAtLapStart = -1;
         bot.FuelAddedThisLap = 0;
         bot.LastLapFuel = 0;
+        Array.Clear(bot.DamageZones);
+        bot.Suspension = 0;
+        bot.DamageVersion++;
+        bot.PitRepair = false;
+        if (bot.Mistake != MistakeKind.None) EndMistake(bot);
+        bot.EdgeAllowance = 0;
         UpdateGrip(bot);
     }
 
@@ -106,7 +112,7 @@ public sealed partial class RaceWorld
         float mass = car.ReferenceMass - 25 * FuelDensity + bot.Fuel * FuelDensity;
         bot.MassRatio = Settings.FuelRate > 0 ? Math.Clamp(mass / car.ReferenceMass, 0.8f, 1.3f) : 1f;
         float massGrip = 1 - 0.3f * (bot.MassRatio - 1);
-        bot.CarGrip = tyre * cold * massGrip;
+        bot.CarGrip = tyre * cold * massGrip * (Settings.Damage ? DamageGrip(bot) : 1f);
     }
 
     // ------------------------------------------------------------------ strategy
@@ -170,6 +176,14 @@ public sealed partial class RaceWorld
                 reason = "tyres";
         }
 
+        // damage: time lost until the end against the repair time
+        if (reason == "" && Settings.Damage && HasDamage(bot))
+        {
+            float lossPerLap = lapTime * ((1 - MathF.Sqrt(DamageGrip(bot))) + 0.25f * (MathF.Sqrt(DamageDrag(bot)) - 1));
+            if (lossPerLap * lapsAfterThis > RepairTime(bot) + 30 || DamageGrip(bot) < 0.8f)
+                reason = "damage";
+        }
+
         // mandatory stop in the pit window (race)
         if (reason == "" && Settings.PitWindowEnd > Settings.PitWindowStart && !bot.MandatoryPitDone && !openEnd)
         {
@@ -194,6 +208,8 @@ public sealed partial class RaceWorld
             : FuelForLaps(bot, remaining - 1 + 0.3f);
         bot.PitFuelToAdd = Settings.FuelRate > 0 ? Math.Clamp(target - bot.Fuel, 0, bot.Car.FuelCapacity - bot.Fuel) : 0;
         bot.PitChangeTyres = changeTyres || Settings.FuelRate <= 0;
+        // repair when there is something worth repairing (a player would tick "repair" too)
+        bot.PitRepair = Settings.Damage && HasDamage(bot);
         _ = perLap;
     }
 
@@ -236,6 +252,7 @@ public sealed partial class RaceWorld
                     bot.TyreVirtualKm = 0;
                     bot.TyreKm = 0;
                 }
+                if (bot.PitRepair) RepairDamage(bot);
                 bot.PitStops++;
                 if (Settings.PitWindowEnd > Settings.PitWindowStart && bot.LapsCompleted + 1 >= Settings.PitWindowStart)
                     bot.MandatoryPitDone = true;
@@ -247,7 +264,7 @@ public sealed partial class RaceWorld
         }
 
         var car = bot.Car;
-        float pace = bot.Driver.Pace * Settings.GripFactor * bot.CarGrip;
+        float pace = DriverProfile.CornerSkill(bot.Driver.Pace) * Settings.GripFactor * bot.CarGrip;
         float v = bot.Speed;
         float decel = car.BrakeAt(v, pace) * 0.8f;
         float target = car.TopSpeed;
@@ -276,7 +293,9 @@ public sealed partial class RaceWorld
                 bot.Accel = 0;
                 bot.Pit = PitPhase.Stopped;
                 bot.PitStoppedAt = _now;
-                float service = (bot.PitChangeTyres ? car.TyreChangeTime : 0) + bot.PitFuelToAdd * car.FuelLiterTime + 3;
+                bot.PitRepair = Settings.Damage && HasDamage(bot);
+                float service = (bot.PitChangeTyres ? car.TyreChangeTime : 0) + bot.PitFuelToAdd * car.FuelLiterTime + 3
+                                + (bot.PitRepair ? RepairTime(bot) : 0);
                 bot.PitServiceUntil = _now + service;
                 return;
             }

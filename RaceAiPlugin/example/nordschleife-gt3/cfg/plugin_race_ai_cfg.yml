@@ -43,6 +43,20 @@ QualifyingFuelLaps: 2
 AnnouncePitStops: true
 # Players can pick every car: if all player slots of a car are taken, a bot leaves and comes back when the player leaves
 PlayersCanTakeBotSlots: true
+# Human behaviour (each can be switched off; admins can also use /raceai_set <feature> on|off)
+# Weaker bots (below HumanErrorsBelow %) make mistakes: braking too late / too early, too much throttle on the exit
+HumanErrors: true
+HumanErrorsBelow: 87
+HumanErrorsFull: 75
+# A bad slide can end in a spin (hazards on, waits for a gap, rejoins)
+Spins: true
+# Two wheels on the grass now and then
+GrassMoments: true
+# Light touches in close fights
+BotContacts: true
+# Damage from contacts (uses DAMAGE_MULTIPLIER), repaired in the pits; 1.0 = 100 %
+BotDamage: true
+BotDamageFactor: 1.0
 # Race craft
 # Seconds stuck behind a slower car until a bot is fully impatient (tries harder to overtake, follows closer, flashes its lights)
 ImpatienceSeconds: 25

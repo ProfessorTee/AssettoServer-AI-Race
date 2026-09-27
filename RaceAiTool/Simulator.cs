@@ -41,8 +41,15 @@ public static class Simulator
             FuelRate = o.Float("fuel-rate", 1),
             TyreWearRate = o.Float("wear-rate", 1),
             PitWindowStart = o.Int("pit-window-start", 0),
-            PitWindowEnd = o.Int("pit-window-end", 0)
+            PitWindowEnd = o.Int("pit-window-end", 0),
+            RaceStartTime = 0,
+            HumanErrors = !o.Has("no-errors"),
+            Spins = !o.Has("no-spins"),
+            GrassMoments = !o.Has("no-grass"),
+            BotContacts = !o.Has("no-contacts"),
+            Damage = !o.Has("no-damage"),
         };
+        float errorsBelow = o.Float("errors-below", 87), errorsFull = o.Float("errors-full", 75);
         if (info.StartFinish is { } sf) settings.StartLineS = line.Project(sf).S;
         var world = new RaceWorld(line, settings);
         var pitPath = Path.Join(Path.GetDirectoryName(Program.FastLanePath(trackRoot, layout))!, "pit_lane.ai");
@@ -76,15 +83,17 @@ public static class Simulator
             {
                 cal = StrengthCalibration.Measure(line, spec, settings);
                 calibrations[spec] = cal;
-                Console.WriteLine($"  {spec.Model}: 100 % = {Fmt(cal.BestLap)}");
+                Console.WriteLine($"  {spec.Model}: 100 % = {Fmt(cal.BestLap)}, mistakes cost {cal.ErrorLossHalf:F1} s/lap at level 0.5, {cal.ErrorLossFull:F1} s at 1");
             }
             var bot = new RaceBot
             {
                 Id = i,
                 Name = $"{BotNames.Default[i % BotNames.Default.Length]}",
                 Car = spec,
-                Driver = DriverProfile.FromStrength(strengths[i], cal.PaceFor(strengths[i]), aggression)
+                Driver = DriverProfile.FromStrength(strengths[i], 0, aggression)
             };
+            bot.Driver.Errors = settings.HumanErrors ? DriverProfile.ErrorsFor(strengths[i], errorsBelow, errorsFull) : 0;
+            bot.Driver.Pace = cal.PaceFor(strengths[i], null, bot.Driver.Errors);
             world.Bots.Add(bot);
             if (info.PitBoxes.FirstOrDefault(p => p.Index == i) is { } box && info.PitBoxes.Count > i)
                 world.SetPitBox(bot, box.Position);
@@ -282,7 +291,7 @@ public static class Simulator
             foreach (var b in _w.Bots.OrderByDescending(b => b.LapsCompleted).ThenBy(b => b.TotalTime))
             {
                 Console.WriteLine($"{pos++,-4}{b.Name,-22}{b.Driver.Level,5:F0}{b.LapsCompleted,5}{(b.BestLapSeconds < 1e6 ? Fmt(b.BestLapSeconds) : "-"),11}" +
-                                  $"{(b.LastLapSeconds > 0 ? Fmt(b.LastLapSeconds) : "-"),11}{(b.TotalTime > 0 ? Fmt((float)b.TotalTime) : "-"),11}{b.Overtakes,5}{b.PitStops,4} fuel={b.Fuel,5:F1} grip={b.CarGrip:F3} att={b.OvertakeAttempts} noroom={b.OvertakeNoRoom} giveup={b.OvertakeGiveUps} d={b.Distance,8:F0} v={b.Speed * 3.6f,4:F0} off={b.Offset,5:F1} tgtOff={b.TargetOffset,5:F1} tgtV={b.TargetSpeed * 3.6f,4:F0} {b.Phase}");
+                                  $"{(b.LastLapSeconds > 0 ? Fmt(b.LastLapSeconds) : "-"),11}{(b.TotalTime > 0 ? Fmt((float)b.TotalTime) : "-"),11}{b.Overtakes,5}{b.PitStops,4} err={b.Driver.Errors:F2} pace={b.Driver.Pace:F3} mis={b.MistakeCount} spin={b.SpinCount} cont={b.ContactCount} dmg={RaceWorld.BodyDamagePercent(b):F0}%/{b.Suspension * 100:F0}% fuel={b.Fuel,5:F1} grip={b.CarGrip:F3} att={b.OvertakeAttempts} noroom={b.OvertakeNoRoom} giveup={b.OvertakeGiveUps} d={b.Distance,8:F0} v={b.Speed * 3.6f,4:F0} off={b.Offset,5:F1} tgtOff={b.TargetOffset,5:F1} tgtV={b.TargetSpeed * 3.6f,4:F0} {b.Phase}");
             }
             Console.WriteLine($"overlap frames {_overlapFrames} (max penetration {_maxPenetration:F2} m), off-track frames {_offTrackFrames} (max {_maxOffTrack:F2} m), " +
                               $"position changes {_positionChanges / 2}, max lateral speed {_maxLatSpeed:F1} m/s, frames {_frames}");

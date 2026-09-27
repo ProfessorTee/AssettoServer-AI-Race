@@ -85,6 +85,8 @@ public static partial class CarDataLoader
         spec.DefaultFuel = car.GetFloat("FUEL", "FUEL", 30);
         spec.TyreChangeTime = car.GetFloat("PIT_STOP", "TYRE_CHANGE_TIME_SEC", 20);
         spec.FuelLiterTime = car.GetFloat("PIT_STOP", "FUEL_LITER_TIME_SEC", 0.2f);
+        spec.BodyRepairTime = car.GetFloat("PIT_STOP", "BODY_REPAIR_TIME_SEC", 20);
+        spec.SuspRepairTime = car.GetFloat("PIT_STOP", "SUSP_REPAIR_TIME_SEC", 30);
         if (files.ContainsKey("fuel_cons.ini"))
             spec.KmPerLiter = Math.Clamp(Ini(files, "fuel_cons.ini").GetFloat("FUEL_EVAL", "KM_PER_LITER", 1.6f), 0.3f, 30f);
         else

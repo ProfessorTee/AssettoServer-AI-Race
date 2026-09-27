@@ -23,6 +23,8 @@ public sealed class DriverProfile
     public float Aggression { get; set; } = 0.5f;
     /// <summary>1 = never makes mistakes.</summary>
     public float Consistency { get; set; } = 0.9f;
+    /// <summary>0..1: human errors (late/early braking, sliding on the exit, spins). Weaker bots get more.</summary>
+    public float Errors { get; set; }
 
     /// <summary>AI strength in percent (or AI level 0-100), for display.</summary>
     public float Level { get; set; } = 100;
@@ -42,6 +44,18 @@ public sealed class DriverProfile
             Aggression = Math.Clamp(aggression / 100f, 0, 1),
             Consistency = 0.75f + 0.23f * Math.Clamp((strengthPercent - 70) / 30f, 0, 1)
         };
+
+    /// <summary>
+    /// Error level for a strength: 0 at or above <paramref name="below"/> %, rising to 1 at <paramref name="full"/> %.
+    /// </summary>
+    // A slower driver mostly brakes earlier and softer and is later on the throttle out of a corner;
+    // the speed through the corner itself drops much less (that's how a lap time gap between amateurs and pros looks).
+    public static float CornerSkill(float pace) => pace >= 1 ? pace : 1 - (1 - pace) * 0.5f;
+    public static float BrakeSkill(float pace) => pace >= 1 ? pace : MathF.Max(0.35f, 1 - (1 - pace) * 1.4f);
+    public static float ThrottleSkill(float pace) => pace >= 1 ? pace : MathF.Max(0.3f, 1 - (1 - pace) * 1.3f);
+
+    public static float ErrorsFor(float strengthPercent, float below = 87, float full = 75)
+        => below <= full ? 0 : Math.Clamp((below - strengthPercent) / (below - full), 0, 1);
 
     public static DriverProfile FromLevel(float level, float aggression)
     {
@@ -186,6 +200,49 @@ public sealed class RaceBot
     internal int BlueSide;
     /// <summary>-1 = left indicator, +1 = right indicator, 0 = off.</summary>
     public int Indicator { get; internal set; }
+
+    // ---- human errors, contacts, damage (RaceWorld.Human.cs)
+    public MistakeKind Mistake { get; internal set; }
+    internal double MistakeStart, MistakeEnd, LockStart = double.NaN;
+    internal float MistakeSide, MistakeSeverity, MistakeTargetOffset, MistakeDuration, SpinAngle;
+    internal double SpinStandUntil, SpinClearSince = double.NaN;
+    internal int SpinPhase;
+    internal bool InCorner, CornerExitRolled, Overspeed, CornerSeen;
+    /// <summary>Extra room beyond the track edge the car may use right now (grass), decays after a mistake.</summary>
+    internal float EdgeAllowance;
+    /// <summary>Visual yaw of the car body relative to its direction of travel (rad, + = towards +offset).</summary>
+    public float Yaw { get; internal set; }
+    internal float SteerExtraDeg, RearSlip = 1f;
+    internal bool FrontLock;
+    internal double MarginOverrideUntil;
+    internal float MisjudgeTowards;
+    internal double LastContactAt = double.NegativeInfinity;
+    internal int LastContactWith = -1;
+    public int MistakeCount { get; internal set; }
+    public int SpinCount { get; internal set; }
+    public int ContactCount { get; internal set; }
+    /// <summary>AC damage zones (front, rear, left, right, centre) in AC damage units (~impact km/h).</summary>
+    public float[] DamageZones { get; } = new float[5];
+    /// <summary>Suspension damage 0..1.</summary>
+    public float Suspension { get; internal set; }
+    /// <summary>Changes whenever the damage changes (so the server knows when to send an update).</summary>
+    public int DamageVersion { get; internal set; }
+    internal bool PitRepair;
+    /// <summary>Signal test: overrides indicator / hazards / flash for the night test.</summary>
+    internal int ForcedSignal;
+}
+
+public enum MistakeKind
+{
+    None,
+    /// <summary>Braked too late: arrives too fast, runs wide (maybe over the kerb onto the grass).</summary>
+    LateBrake,
+    /// <summary>Too much throttle on the exit: the rear steps out, countersteer, lift.</summary>
+    Slide,
+    /// <summary>Slide that turned into a spin: stops, hazards on, waits for a gap, turns round and rejoins.</summary>
+    Spin,
+    /// <summary>Ran wide on the exit with two wheels on the grass.</summary>
+    Grass
 }
 
 public enum PitPhase
@@ -211,7 +268,9 @@ public readonly record struct BotPose(
     byte Throttle = 0,
     bool Hazards = false,
     int Indicator = 0,
-    bool Flash = false);
+    bool Flash = false,
+    float FrontTyreFactor = 1,
+    float RearTyreFactor = 1);
 
 public sealed class RaceWorldSettings
 {
@@ -261,6 +320,22 @@ public sealed class RaceWorldSettings
     public int PitWindowEnd { get; set; }
     /// <summary>Litres a bot keeps as reserve when planning.</summary>
     public float FuelReserve { get; set; } = 2f;
+
+    // ---- human behaviour (each can be switched off)
+    /// <summary>Use <see cref="DriverProfile.Errors"/>: late/early braking, too much throttle on the exit.</summary>
+    public bool HumanErrors { get; set; } = true;
+    /// <summary>A bad slide can end in a spin.</summary>
+    public bool Spins { get; set; } = true;
+    /// <summary>Bots may run wide with wheels on the grass (beyond the track edge).</summary>
+    public bool GrassMoments { get; set; } = true;
+    /// <summary>How far beyond the track edge (m, car centre) a bot may get.</summary>
+    public float GrassAllowance { get; set; } = 1.2f;
+    /// <summary>Light touches between bots in close fights.</summary>
+    public bool BotContacts { get; set; } = true;
+    /// <summary>Damage from contacts (slower car, repaired in the pits).</summary>
+    public bool Damage { get; set; } = true;
+    /// <summary>Damage multiplier (server DAMAGE_MULTIPLIER / 100).</summary>
+    public float DamageRate { get; set; } = 1f;
 }
 
 /// <summary>
@@ -592,14 +667,18 @@ public sealed partial class RaceWorld
     public float LineSpeedLimit(RaceBot bot, float offset, float extraPaceLoss)
     {
         var car = bot.Car;
-        float pace = (bot.Driver.Pace - extraPaceLoss + bot.PaceNoise) * Settings.GripFactor * bot.CarGrip;
-        if (bot.Phase == BotPhase.CoolDown) pace *= Settings.CoolDownPace;
-        if (_now < bot.MistakeUntil) pace -= 0.06f;
+        float skill = bot.Driver.Pace - extraPaceLoss + bot.PaceNoise;
+        if (_now < bot.MistakeUntil) skill -= 0.08f; // braked too early / too carefully
+        float phys = Settings.GripFactor * bot.CarGrip * (bot.Phase == BotPhase.CoolDown ? Settings.CoolDownPace : 1);
+        float pace = DriverProfile.CornerSkill(skill) * phys;
+        float brakePace = DriverProfile.BrakeSkill(skill) * phys;
 
         float v = MathF.Max(bot.Speed, 10);
-        float horizon = v * v / (2 * car.BrakeAt(0, pace)) + 40;
+        float horizon = v * v / (2 * car.BrakeAt(0, brakePace)) + 40;
         float s0 = Line.WrapS((float)bot.Distance);
-        float best = car.TopSpeed * (1 + 0.12f * bot.Draft) * (bot.Phase == BotPhase.CoolDown ? Settings.CoolDownPace : 1);
+        float best = car.TopSpeed * (1 + 0.12f * bot.Draft) * (bot.Phase == BotPhase.CoolDown ? Settings.CoolDownPace : 1) / MathF.Sqrt(DamageDrag(bot));
+        // braked too late: plans with more braking than the car has
+        float lateBrake = bot.Mistake == MistakeKind.LateBrake ? 1.2f + 0.3f * bot.MistakeSeverity : 1f;
         float step = MathF.Max(Line.Spacing, 2f);
 
         for (float d = 0; d <= horizon; d += step)
@@ -621,7 +700,7 @@ public sealed partial class RaceWorld
 
             if (vLim >= best) continue;
             // attacking drivers brake a little later
-            float decel = car.BrakeAt((vLim + v) * 0.5f, pace) * (bot.OvertakeTargetId >= 0 ? 0.9f + 0.07f * bot.Driver.Aggression : 0.9f);
+            float decel = car.BrakeAt((vLim + v) * 0.5f, brakePace) * (bot.OvertakeTargetId >= 0 ? 0.9f + 0.07f * bot.Driver.Aggression : 0.9f) * lateBrake;
             float allowed = MathF.Sqrt(vLim * vLim + 2 * decel * d);
             if (allowed < best) best = allowed;
         }
@@ -631,6 +710,12 @@ public sealed partial class RaceWorld
 
     private void Think(RaceBot me)
     {
+        if (me.Mistake == MistakeKind.Spin)
+        {
+            me.TargetSpeed = 0;
+            me.Indicator = 0;
+            return;
+        }
         float myS = Line.WrapS((float)me.Distance);
         float half = me.Car.Width / 2;
         var (roomMinus, roomPlus) = Line.MinRoom(myS, 25);
@@ -665,7 +750,8 @@ public sealed partial class RaceWorld
             if (!o.IsBot && ignorePlayers) continue;
             float ds = Line.Delta(myS, o.S);
             float longClear = (me.Car.Length + o.Length) / 2;
-            float latClear = (me.Car.Width + o.Width) / 2 + Settings.SideMargin;
+            float margin = _now < me.MarginOverrideUntil ? -0.2f : Settings.SideMargin;
+            float latClear = (me.Car.Width + o.Width) / 2 + margin;
             float dOff = o.Offset - me.Offset;
             float closing = o.Speed - me.Speed; // > 0: car behind is faster
 
@@ -674,6 +760,13 @@ public sealed partial class RaceWorld
             if (isAlongside)
             {
                 alongside = true;
+                // in a close fight a driver sometimes misjudges the gap and leans on the other car
+                if (Settings.BotContacts && o.IsBot && me.Phase == BotPhase.Racing && _now >= me.MarginOverrideUntil + 8
+                    && _rng.NextSingle() < _stepDt * 0.05f * (me.Driver.Aggression + me.Impatience + 2 * ErrorLevel(me)))
+                {
+                    me.MarginOverrideUntil = _now + 0.7;
+                    me.MisjudgeTowards = MathF.Sign(dOff);
+                }
                 if (MathF.Abs(dOff) > 0.2f)
                 {
                     if (dOff > 0) sideMax = MathF.Min(sideMax, o.Offset - latClear);
@@ -760,12 +853,9 @@ public sealed partial class RaceWorld
         // ---- braking-zone mistakes
         bool braking = vLine < me.Speed - 3;
         if (braking && !me.InBrakingZone && me.Phase == BotPhase.Racing)
-        {
-            float chance = (1 - me.Driver.Consistency) * 0.15f;
-            if (_rng.NextSingle() < chance)
-                me.MistakeUntil = _now + 1.5 + _rng.NextDouble() * 1.5;
-        }
+            RollBrakingMistake(me);
         me.InBrakingZone = braking;
+        CornerExitMistakes(me);
 
         // ---- overtake bookkeeping
         if (me.OvertakeTargetId >= 0 && (_now < me.YellowUntil || _now < me.BlueFlagUntil))
@@ -946,6 +1036,9 @@ public sealed partial class RaceWorld
         if (cautious && me.Speed < 3 && me.Phase == BotPhase.Racing && _now - me.OvertakeSince < 0.3)
             vTarget = MathF.Min(vTarget, 0);
 
+        if (_now < me.MarginOverrideUntil && me.Mistake == MistakeKind.None && lo <= hi)
+            me.TargetOffset = Math.Clamp(me.Offset + me.MisjudgeTowards * 0.5f, lo, hi); // leans on the other car
+        MistakeThink(me, ref vTarget);
         me.TargetSpeed = MathF.Max(0, vTarget);
         if (me.Id == TraceBotId && Trace != null && _now - _lastTrace >= 0.5)
         {
@@ -1024,7 +1117,9 @@ public sealed partial class RaceWorld
 
     private void Integrate(RaceBot me, float dt)
     {
-        float pace = me.Driver.Pace * Settings.GripFactor * me.CarGrip;
+        float phys = Settings.GripFactor * me.CarGrip;
+        float skill = me.Driver.Pace + me.PaceNoise;
+        float pace = DriverProfile.CornerSkill(skill) * phys;
         float v = me.Speed;
         float target = me.TargetSpeed;
 
@@ -1037,36 +1132,38 @@ public sealed partial class RaceWorld
         float sNow = Line.WrapS((float)me.Distance);
         float kNow = MathF.Abs(Line.CurvatureAt(sNow));
         float cornerLoad = Math.Clamp(v * v * kNow / (me.Car.LateralGrip * CarSpec.G) * 1.3f, 0, 1);
-        float throttlePace = 1 - (1 - pace) * cornerLoad;
+        float throttlePace = 1 - (1 - DriverProfile.ThrottleSkill(skill) * phys) * cornerLoad;
 
         float accel;
         if (target > v)
         {
-            accel = me.Car.AccelAt(v, throttlePace) / me.MassRatio + me.Draft * me.Car.DragCoefficient * v * v;
+            accel = me.Car.AccelAt(v, throttlePace) / me.MassRatio + (me.Draft - (DamageDrag(me) - 1)) * me.Car.DragCoefficient * v * v;
             v = MathF.Min(target, v + accel * dt);
         }
         else
         {
-            accel = -me.Car.BrakeAt(v, pace);
+            accel = -me.Car.BrakeAt(v, DriverProfile.BrakeSkill(skill) * phys);
             v = MathF.Max(target, v + accel * dt);
         }
         me.Accel = target > me.Speed ? accel : (target < me.Speed - 0.05f ? accel : 0);
         me.Speed = MathF.Max(0, v);
+        if (MistakeIntegrate(me, dt, pace * 1.04f)) return;
 
-        // lateral movement: smooth, limited lateral speed and acceleration
-        float err = me.TargetOffset - me.Offset;
-        float maxLat = MathF.Min(3.5f, 0.5f + me.Speed * 0.06f);
-        float desiredLat = Math.Clamp(err * 1.4f, -maxLat, maxLat);
-        float latAcc = 5f;
-        float lat = me.LateralSpeed + Math.Clamp(desiredLat - me.LateralSpeed, -latAcc * dt, latAcc * dt);
-        me.LateralSpeed = lat;
-        me.Offset += lat * dt;
+        // lateral movement: smooth, limited lateral speed and acceleration (not while running wide, the car can't turn tighter)
+        if (!me.Overspeed)
+        {
+            float err = me.TargetOffset - me.Offset;
+            float maxLat = MathF.Min(3.5f, 0.5f + me.Speed * 0.06f);
+            float desiredLat = Math.Clamp(err * 1.4f, -maxLat, maxLat);
+            float latAcc = 5f;
+            me.LateralSpeed += Math.Clamp(desiredLat - me.LateralSpeed, -latAcc * dt, latAcc * dt);
+        }
+        me.Offset += me.LateralSpeed * dt;
 
-        // keep on the road
+        // keep on the road (or on the grass next to it after a mistake)
         float s = Line.WrapS((float)me.Distance);
         int i = Line.IndexAt(s);
-        float half = me.Car.Width / 2;
-        me.Offset = Math.Clamp(me.Offset, -Line.RoomMinus[i] + half, Line.RoomPlus[i] - half);
+        ClampOffsetWithAllowance(me);
 
         // progress along the line is faster on the inside of a corner
         float k = Line.Curvature[i];
@@ -1101,6 +1198,12 @@ public sealed partial class RaceWorld
                 float longPen = longClear - MathF.Abs(ds);
                 float latPen = latClear - MathF.Abs(dOff);
 
+                if (o.IsBot && latPen > 0.03f && longPen > 0.05f)
+                {
+                    bool side = latPen < longPen;
+                    if (side || ds > 0) BotContact(me, o.Bot!, side, dOff, ds);
+                    else BotContact(o.Bot!, me, false, -dOff, -ds);
+                }
                 if (latPen < longPen && MathF.Abs(dOff) > 0.05f)
                 {
                     // mostly side by side: slide apart
@@ -1127,7 +1230,8 @@ public sealed partial class RaceWorld
     {
         int i = Line.IndexAt(Line.WrapS((float)bot.Distance));
         float half = bot.Car.Width / 2;
-        return Math.Clamp(offset, -Line.RoomMinus[i] + half, Line.RoomPlus[i] - half);
+        float allow = Settings.GrassMoments ? bot.EdgeAllowance : 0;
+        return Math.Clamp(offset, -Line.RoomMinus[i] + half - allow, Line.RoomPlus[i] - half + allow);
     }
 
     private void UpdateTiming(RaceBot bot)
@@ -1193,7 +1297,8 @@ public sealed partial class RaceWorld
         var fwd = Line.ForwardAt(s);
         var lat = Line.LateralAt(s);
         var vel = fwd * bot.Speed + lat * bot.LateralSpeed;
-        var dir = bot.Speed > 0.5f ? Vector3.Normalize(vel) : fwd;
+        var dir = bot.Speed > 0.5f || bot.LateralSpeed * bot.LateralSpeed > 0.25f ? Vector3.Normalize(vel) : fwd;
+        dir = Rotate(dir, lat, bot.Yaw);
 
         var rotation = new Vector3(
             MathF.Atan2(dir.Z, dir.X) - MathF.PI / 2,
@@ -1207,19 +1312,34 @@ public sealed partial class RaceWorld
             k = MathF.Sign(k) / MathF.Max(r, 4f);
         }
         float wheel = MathF.Atan(bot.Car.Wheelbase * k) * 180 / MathF.PI;
+        wheel = Math.Clamp(wheel + bot.SteerExtraDeg, -32, 32);
 
         var (gear, rpm) = GearAndRpm(bot);
         float full = bot.Car.AccelAt(bot.Speed, bot.Driver.Pace);
         byte throttle = bot.Accel > 0.05f && full > 0.1f ? (byte)Math.Clamp(bot.Accel / full * 255f, 0, 255) : (byte)0;
         if (bot.Phase == BotPhase.Grid) throttle = 40; // blipping on the grid
         bool hazards = (bot.Phase == BotPhase.Racing && bot.Speed < 5 && !double.IsNaN(bot.StoppedSince) && _now - bot.StoppedSince > 3)
-                       || (bot.YellowHazards && bot.Phase == BotPhase.Racing);
+                       || (bot.YellowHazards && bot.Phase == BotPhase.Racing)
+                       || (bot.Mistake == MistakeKind.Spin && bot.SpinPhase >= 1);
         // two short flashes
         bool flash = _now < bot.FlashUntil && (bot.FlashUntil - _now) % 0.45 > 0.22;
+        int indicator = hazards ? 0 : bot.Indicator;
+        bool brake = bot.Accel < -1f || (bot.Phase == BotPhase.Grid);
+        if (bot.Mistake == MistakeKind.Slide && _now - bot.MistakeStart < bot.MistakeDuration * 0.5) throttle = 230; // too much gas
+        switch (SignalTestPhase(_now))
+        {
+            case 1: indicator = -1; hazards = false; break;
+            case 2: indicator = 1; hazards = false; break;
+            case 3: hazards = true; indicator = 0; break;
+            case 4: flash = (_now - SignalTestStart) % 0.9 < 0.3; break;
+            case 5: brake = true; break;
+        }
+        float spinning = bot.Mistake == MistakeKind.Spin && bot.SpinPhase == 0 ? 0.3f : 1f;
         return new BotPose(pos, rotation, vel, bot.Speed, wheel, gear, rpm,
-            bot.Accel < -1f || (bot.Phase == BotPhase.Grid),
+            brake,
             Line.WrapS(s - Settings.StartLineS) / Line.Length,
-            throttle, hazards, hazards ? 0 : bot.Indicator, flash);
+            throttle, hazards, indicator, flash,
+            bot.FrontLock ? 0f : spinning, bot.RearSlip * spinning);
     }
 
     internal static (int Gear, int Rpm) GearAndRpm(RaceBot bot)

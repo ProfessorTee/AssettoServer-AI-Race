@@ -140,8 +140,17 @@ public sealed class RaceAiService : IHostedService
             TyreWearScale = 0.15f * _config.TyreWearFactor,
             TyreChangeGrip = _config.TyreChangeGrip,
             PitStops = _config.PitStops,
-            PitSpeedLimit = _config.PitSpeedKmh / 3.6f
+            PitSpeedLimit = _config.PitSpeedKmh / 3.6f,
+            HumanErrors = _config.HumanErrors,
+            Spins = _config.HumanErrors && _config.Spins,
+            GrassMoments = _config.GrassMoments,
+            BotContacts = _config.BotContacts,
+            Damage = _config.BotDamage && _serverConfig.Server.MechanicalDamageRate > 0,
+            DamageRate = _serverConfig.Server.MechanicalDamageRate * _config.BotDamageFactor
         };
+        Log.Information("Race AI: human errors {Errors} (below {Below} %), spins {Spins}, grass {Grass}, contacts {Contacts}, damage {Damage} ({Rate:P0})",
+            settings.HumanErrors ? "on" : "off", _config.HumanErrorsBelow, settings.Spins ? "on" : "off", settings.GrassMoments ? "on" : "off",
+            settings.BotContacts ? "on" : "off", settings.Damage ? "on" : "off", settings.DamageRate);
         var world = new RaceWorld(_track.Line, settings) { PitLane = _config.PitStops ? _track.PitLane : null };
         if (_config.PitStops && _track.PitLane == null)
             Log.Warning("Race AI: no pit_lane.ai found, bots will not make pit stops");
@@ -171,8 +180,8 @@ public sealed class RaceAiService : IHostedService
                 specCache[key] = spec;
                 var cal = StrengthCalibration.Measure(_track.Line, spec, settings);
                 _calibrations[spec] = cal;
-                Log.Information("Race AI: car {Model} ({Source}): top {Top:F0} km/h, grip {Grip:F2} g, 100 % = {Best}, {Fuel:F1} l/lap, tyres {Compound}",
-                    spec.Model, spec.Source, spec.TopSpeed * 3.6f, spec.LateralGrip, FormatLap(cal.BestLap), spec.CalibratedFuelPerLap, spec.TyreCompound);
+                Log.Information("Race AI: car {Model} ({Source}): top {Top:F0} km/h, grip {Grip:F2} g, 100 % = {Best}, {Fuel:F1} l/lap, tyres {Compound}, mistakes {Loss:F0} s/lap at most",
+                    spec.Model, spec.Source, spec.TopSpeed * 3.6f, spec.LateralGrip, FormatLap(cal.BestLap), spec.CalibratedFuelPerLap, spec.TyreCompound, cal.ErrorLossFull);
             }
 
             float strength = driverCfg?.Strength ?? strengths[botIndex++];
@@ -196,8 +205,9 @@ public sealed class RaceAiService : IHostedService
                 Id = entryCar.SessionId,
                 Name = _config.NamePrefix + name,
                 Car = spec,
-                Driver = DriverProfile.FromStrength(strength, calibration.PaceFor(strength), aggression)
+                Driver = DriverProfile.FromStrength(strength, 0, aggression)
             };
+            ApplyStrength(bot, strength, calibration);
             world.Bots.Add(bot);
             if (_track.Info.PitBoxes.FirstOrDefault(p => p.Index == slotIndex) is var box && box.Index == slotIndex && _track.Info.PitBoxes.Count > 0)
                 world.SetPitBox(bot, box.Position);
@@ -216,14 +226,15 @@ public sealed class RaceAiService : IHostedService
             var bests = _calibrations.Values.Select(c => c.BestLap).OrderBy(x => x).ToList();
             _referenceBestLap = bests[bests.Count / 2];
             foreach (var bot in world.Bots)
-                bot.Driver.Pace = _calibrations[bot.Car].PaceFor(bot.Driver.Level, _referenceBestLap);
+                ApplyStrength(bot, bot.Driver.Level, _calibrations[bot.Car]);
             Log.Information("Race AI: 100 % = {Lap} (median best lap of the bot cars); e.g. 95 % = {Lap95}, 90 % = {Lap90}",
                 FormatLap(_referenceBestLap.Value), FormatLap(_referenceBestLap.Value / 0.95f), FormatLap(_referenceBestLap.Value / 0.9f));
         }
 
         foreach (var bot in world.Bots.OrderByDescending(b => b.Driver.Level))
-            Log.Information("Race AI:   {Name,-22} {Strength,5:F1} %  target lap {Lap}", bot.Name, bot.Driver.Level,
-                FormatLap(_calibrations[bot.Car].LapTimeFor(bot.Driver.Level, _referenceBestLap)));
+            Log.Information("Race AI:   {Name,-22} {Strength,5:F1} %  target lap {Lap}{Errors}", bot.Name, bot.Driver.Level,
+                FormatLap(_calibrations[bot.Car].LapTimeFor(bot.Driver.Level, _referenceBestLap)),
+                bot.Driver.Errors > 0 ? $"  (human errors {bot.Driver.Errors:P0})" : "");
 
         world.LapCompleted += OnBotLapCompleted;
         world.PitStopCompleted += OnBotPitStop;
@@ -540,7 +551,10 @@ public sealed class RaceAiService : IHostedService
         while (_contacts.TryDequeue(out var c))
         {
             if (_slotsBySessionId.TryGetValue(c.BotSessionId, out var slot) && slot.Active)
+            {
                 world.OnContact(slot.Bot, c.OtherPosition, c.Speed);
+                world.AddDamage(slot.Bot, ContactZone(world, slot.Bot, c.OtherPosition), c.Speed * 3.6f);
+            }
         }
 
         // human cars
@@ -586,21 +600,76 @@ public sealed class RaceAiService : IHostedService
 
         long serverTime = _sessionManager.ServerTimeMilliseconds;
         var lights = Lights();
+        if (world.SignalTestPhase(now) != 0) lights = CarStatusFlags.LightsOn | CarStatusFlags.HighBeamsOff;
         var wipers = Wipers();
         foreach (var slot in _slots)
         {
             if (!slot.Active) continue;
             var pose = world.GetPose(slot.Bot);
-            slot.WriteStatus(pose, serverTime, lights, wipers, _config.FlashLights, _config.FlashLightsDaytime);
+            slot.WriteStatus(pose, serverTime, lights, wipers, _config.FlashLights || world.SignalTestPhase(now) != 0, _config.FlashLightsDaytime);
+            if (slot.SentDamageVersion != slot.Bot.DamageVersion)
+            {
+                slot.SentDamageVersion = slot.Bot.DamageVersion;
+                SendDamage(slot);
+            }
         }
+        AnnounceSignalTest(world, now);
 
         if (_config.AnnounceOvertakes && _sessionType == SessionType.Race && _raceStarted)
             AnnounceOvertakes(world);
     }
 
+    private void SendDamage(BotSlot slot)
+    {
+        var zones = new DamageZoneLevel();
+        for (int i = 0; i < DamageZoneLevel.Length; i++) zones[i] = slot.Bot.DamageZones[i];
+        slot.EntryCar.Status.DamageZoneLevel = zones;
+        _entryCarManager.BroadcastPacket(new DamageUpdate { SessionId = slot.EntryCar.SessionId, DamageZoneLevel = zones });
+    }
+
+    /// <summary>Damage zone of a hit from <paramref name="other"/>: 0 front, 1 rear, 2 left, 3 right.</summary>
+    private static int ContactZone(RaceWorld world, RaceBot bot, Vector3 other)
+    {
+        var line = world.Line;
+        var p = line.Project(other, line.IndexAt(line.WrapS((float)bot.Distance)));
+        float ds = line.Delta(line.WrapS((float)bot.Distance), p.S);
+        float dOff = p.Offset - bot.Offset;
+        if (MathF.Abs(ds) > bot.Car.Length * 0.35f) return ds > 0 ? 0 : 1;
+        return (dOff > 0) == line.RightIsPlus ? 3 : 2;
+    }
+
+    private int _lastSignalPhase;
+
+    public bool StartSignalTest()
+    {
+        lock (_lock)
+        {
+            if (_world == null) return false;
+            _world.StartSignalTest(Now);
+            return true;
+        }
+    }
+
+    private void AnnounceSignalTest(RaceWorld world, double now)
+    {
+        int phase = world.SignalTestPhase(now);
+        if (phase == _lastSignalPhase) return;
+        _lastSignalPhase = phase;
+        string? what = phase switch
+        {
+            1 => "left indicator",
+            2 => "right indicator",
+            3 => "hazard lights",
+            4 => "headlight flash",
+            5 => "brake lights",
+            _ => null
+        };
+        _entryCarManager.BroadcastChat(what != null ? $"Race AI signal test: {what}" : "Race AI signal test finished");
+    }
+
     private void OnBotPitStop(RaceBot bot, float seconds, float litres, bool tyres)
     {
-        string what = string.Join(" + ", new[] { tyres ? "tyres" : null, litres >= 0.5f ? $"{litres:F0} l" : null }.Where(x => x != null));
+        string what = string.Join(" + ", new[] { tyres ? "tyres" : null, litres >= 0.5f ? $"{litres:F0} l" : null, bot.PitRepair ? "repair" : null }.Where(x => x != null));
         Log.Information("Race AI: {Name} pit stop ({Reason}): {What}, {Seconds:F1} s", bot.Name, bot.PitReason, what, seconds);
         if (_config.AnnouncePitStops && _sessionType == SessionType.Race)
             _entryCarManager.BroadcastChat($"{bot.Name} pit stop: {what} ({seconds:F1} s)");
@@ -692,15 +761,49 @@ public sealed class RaceAiService : IHostedService
             {
                 var bot = _slots[i].Bot;
                 if (!_calibrations.TryGetValue(bot.Car, out var cal)) continue;
-                var d = DriverProfile.FromStrength(values[i], cal.PaceFor(values[i], _referenceBestLap), bot.Driver.Aggression * 100);
-                bot.Driver.Level = d.Level;
-                bot.Driver.Pace = d.Pace;
-                bot.Driver.Consistency = d.Consistency;
+                ApplyStrength(bot, values[i], cal);
             }
         }
     }
 
+    /// <summary>Strength in % -> consistency, human error level and the pace that gives the target lap time including the mistakes.</summary>
+    private void ApplyStrength(RaceBot bot, float strength, StrengthCalibration cal)
+    {
+        var d = DriverProfile.FromStrength(strength, 0, 0);
+        bot.Driver.Level = strength;
+        bot.Driver.Consistency = d.Consistency;
+        bot.Driver.Errors = _config.HumanErrors ? DriverProfile.ErrorsFor(strength, _config.HumanErrorsBelow, _config.HumanErrorsFull) : 0;
+        bot.Driver.Pace = cal.PaceFor(strength, _referenceBestLap, bot.Driver.Errors);
+    }
+
     public string? BestLapFor(CarSpec car) => _calibrations.TryGetValue(car, out var cal) ? FormatLap(cal.BestLap) : null;
+
+    public bool SetFeature(string feature, bool on)
+    {
+        lock (_lock)
+        {
+            var s = _world?.Settings;
+            if (s == null) return false;
+            switch (feature)
+            {
+                case "errors" or "humanerrors":
+                    _config.HumanErrors = on;
+                    s.HumanErrors = on;
+                    foreach (var slot in _slots)
+                        if (_calibrations.TryGetValue(slot.Bot.Car, out var cal)) ApplyStrength(slot.Bot, slot.Bot.Driver.Level, cal);
+                    break;
+                case "spins": s.Spins = on; break;
+                case "grass": s.GrassMoments = on; break;
+                case "contacts": s.BotContacts = on; break;
+                case "damage": s.Damage = on && s.DamageRate > 0; break;
+                case "blueflags": _config.BlueFlags = on; s.BlueFlags = on && _sessionType == SessionType.Race; break;
+                case "yellowflags": s.YellowFlags = on; break;
+                case "flash": _config.FlashLights = on; break;
+                default: return false;
+            }
+            return true;
+        }
+    }
 
     public void SetAggression(float aggression)
     {

@@ -20,6 +20,9 @@ public sealed class BotSlot : IExternalAiController
     /// <summary>Grid position index (AC_START_x) for the current race.</summary>
     public int GridIndex { get; set; }
 
+    /// <summary>Last <see cref="RaceBot.DamageVersion"/> sent to the clients.</summary>
+    public int SentDamageVersion { get; set; } = -1;
+
     public BotSlot(EntryCar entryCar, RaceBot bot, string nation)
     {
         EntryCar = entryCar;
@@ -38,11 +41,13 @@ public sealed class BotSlot : IExternalAiController
         status.Velocity = pose.Velocity;
         status.NormalizedPosition = pose.NormalizedPosition;
 
-        byte tyre = EncodeTyreSpeed(pose.Speed, Bot.Car.TyreDiameter);
-        status.TyreAngularSpeed[0] = tyre;
-        status.TyreAngularSpeed[1] = tyre;
-        status.TyreAngularSpeed[2] = tyre;
-        status.TyreAngularSpeed[3] = tyre;
+        // FL, FR, RL, RR: locked fronts under braking, spinning rears when the car steps out
+        byte front = EncodeTyreSpeed(pose.Speed * pose.FrontTyreFactor, Bot.Car.TyreDiameter);
+        byte rear = EncodeTyreSpeed(pose.Speed * pose.RearTyreFactor, Bot.Car.TyreDiameter);
+        status.TyreAngularSpeed[0] = front;
+        status.TyreAngularSpeed[1] = front;
+        status.TyreAngularSpeed[2] = rear;
+        status.TyreAngularSpeed[3] = rear;
 
         status.WheelAngle = (byte)Math.Clamp(127 + MathF.Round(pose.WheelAngleDeg), 0, 254);
         float steerDeg = pose.WheelAngleDeg * Bot.Car.SteerRatio;

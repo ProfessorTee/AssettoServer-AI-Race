@@ -195,6 +195,31 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
                               "The bot comes back when the player leaves. false = bot slots are closed to players")]
     public bool PlayersCanTakeBotSlots { get; set; } = true;
 
+    [YamlMember(Description = "Human errors for weaker bots: braking too late (running wide) or too early, too much throttle on the exit (the rear steps out). " +
+                              "Weaker bots then lose part of their time to mistakes instead of crawling through the corners")]
+    public bool HumanErrors { get; set; } = true;
+
+    [YamlMember(Description = "Bots below this strength (%) make human errors, more the weaker they are")]
+    public float HumanErrorsBelow { get; set; } = 87;
+
+    [YamlMember(Description = "At this strength (%) and below the errors are at their maximum")]
+    public float HumanErrorsFull { get; set; } = 75;
+
+    [YamlMember(Description = "A bad slide can end in a spin: the bot stops (hazard lights), waits for a gap, turns round and rejoins. Needs HumanErrors")]
+    public bool Spins { get; set; } = true;
+
+    [YamlMember(Description = "Bots sometimes run wide with two wheels on the grass")]
+    public bool GrassMoments { get; set; } = true;
+
+    [YamlMember(Description = "Light touches between bots in close fights (no big crashes)")]
+    public bool BotContacts { get; set; } = true;
+
+    [YamlMember(Description = "Bots take damage from contacts (visible damage zones, slower car) and repair it in the pits. Uses DAMAGE_MULTIPLIER of server_cfg.ini")]
+    public bool BotDamage { get; set; } = true;
+
+    [YamlMember(Description = "Bot damage on top of DAMAGE_MULTIPLIER: 1.0 = 100 %")]
+    public float BotDamageFactor { get; set; } = 1.0f;
+
     [YamlMember(Description = "Announce bot pit stops in chat")]
     public bool AnnouncePitStops { get; set; } = true;
 

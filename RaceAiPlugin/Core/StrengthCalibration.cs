@@ -7,14 +7,25 @@ namespace RaceAiPlugin.Core;
 /// </summary>
 public sealed class StrengthCalibration
 {
-    private static readonly float[] Paces = [0.78f, 0.84f, 0.90f, 0.95f, 1.0f];
+    private static readonly float[] Paces = [0.4f, 0.55f, 0.7f, 0.8f, 0.9f, 0.95f, 1.0f];
     private readonly float[] _lapTimes;
 
     /// <summary>Flying lap at 100 % (seconds).</summary>
     public float BestLap => _lapTimes[^1];
     public IReadOnlyList<float> LapTimes => _lapTimes;
 
+    /// <summary>Seconds per lap lost to human errors at error level 0.5 and 1 (see <see cref="DriverProfile.Errors"/>).</summary>
+    public float ErrorLossHalf { get; private set; }
+    public float ErrorLossFull { get; private set; }
+
     private StrengthCalibration(float[] lapTimes) => _lapTimes = lapTimes;
+
+    /// <summary>Average time lost per lap to mistakes at an error level (0..1).</summary>
+    public float ErrorLoss(float errors)
+    {
+        errors = Math.Clamp(errors, 0, 1);
+        return errors <= 0.5f ? ErrorLossHalf * errors / 0.5f : ErrorLossHalf + (ErrorLossFull - ErrorLossHalf) * (errors - 0.5f) / 0.5f;
+    }
 
     public static StrengthCalibration Measure(RacingLine line, CarSpec car, RaceWorldSettings template)
     {
@@ -32,7 +43,24 @@ public sealed class StrengthCalibration
         // make sure the table is strictly decreasing (guards against noise)
         for (int i = times.Length - 2; i >= 0; i--)
             times[i] = MathF.Max(times[i], times[i + 1] + 0.01f);
-        return new StrengthCalibration(times);
+        var cal = new StrengthCalibration(times);
+
+        if (template.HumanErrors)
+        {
+            // mistakes are random: average a few laps with different seeds, at a typical pace of a weaker bot
+            const float pace = 0.75f;
+            float clean = FlyingLap(line, car, pace, template, out _, out _);
+            float Avg(float errors)
+            {
+                float sum = 0;
+                const int n = 5;
+                for (int k = 0; k < n; k++) sum += FlyingLap(line, car, pace, template, out _, out _, errors, 100 + k * 7);
+                return MathF.Max(0, sum / n - clean);
+            }
+            cal.ErrorLossHalf = Avg(0.5f);
+            cal.ErrorLossFull = MathF.Max(cal.ErrorLossHalf, Avg(1f));
+        }
+        return cal;
     }
 
     /// <summary>Target lap time for a strength in percent.</summary>
@@ -40,9 +68,10 @@ public sealed class StrengthCalibration
         => (referenceBestLap ?? BestLap) / Math.Clamp(strengthPercent / 100f, 0.3f, 1.2f);
 
     /// <summary>Driver pace (share of grip) that gives the lap time of <paramref name="strengthPercent"/>.</summary>
-    public float PaceFor(float strengthPercent, float? referenceBestLap = null)
+    public float PaceFor(float strengthPercent, float? referenceBestLap = null, float errors = 0)
     {
-        float target = LapTimeFor(strengthPercent, referenceBestLap);
+        // part of the time is lost to mistakes, the rest to a slower pace
+        float target = LapTimeFor(strengthPercent, referenceBestLap) - ErrorLoss(errors);
         // lap time falls with pace: interpolate / extrapolate in the table
         for (int i = 0; i < Paces.Length - 1; i++)
         {
@@ -55,7 +84,7 @@ public sealed class StrengthCalibration
         if (target > _lapTimes[0])
         {
             float slope = (Paces[1] - Paces[0]) / MathF.Max(1e-3f, _lapTimes[0] - _lapTimes[1]);
-            return MathF.Max(0.4f, Paces[0] - (target - _lapTimes[0]) * slope);
+            return MathF.Max(0.25f, Paces[0] - (target - _lapTimes[0]) * slope);
         }
         {
             int n = Paces.Length;
@@ -88,7 +117,8 @@ public sealed class StrengthCalibration
     public static float FlyingLap(RacingLine line, CarSpec car, float pace, RaceWorldSettings template)
         => FlyingLap(line, car, pace, template, out _, out _);
 
-    public static float FlyingLap(RacingLine line, CarSpec car, float pace, RaceWorldSettings template, out float fuelPerLap, out float tyreVkmPerLap)
+    public static float FlyingLap(RacingLine line, CarSpec car, float pace, RaceWorldSettings template, out float fuelPerLap, out float tyreVkmPerLap,
+        float errors = 0, int seed = 1)
     {
         var settings = new RaceWorldSettings
         {
@@ -96,7 +126,13 @@ public sealed class StrengthCalibration
             UseTrackHints = template.UseTrackHints,
             EdgeMargin = template.EdgeMargin,
             SideMargin = template.SideMargin,
-            Seed = 1,
+            Seed = seed,
+            HumanErrors = errors > 0,
+            Spins = template.Spins,
+            GrassMoments = template.GrassMoments,
+            GrassAllowance = template.GrassAllowance,
+            BotContacts = false,
+            Damage = false,
             FuelRate = 1,
             TyreWearRate = 1,
             TyreWearScale = template.TyreWearScale,
@@ -107,7 +143,7 @@ public sealed class StrengthCalibration
         {
             Id = 0,
             Car = car,
-            Driver = new DriverProfile { Pace = pace, Aggression = 0.5f, Consistency = 1f }
+            Driver = new DriverProfile { Pace = pace, Aggression = 0.5f, Consistency = 1f, Errors = errors }
         };
         world.Bots.Add(bot);
         world.PlaceAt(bot, settings.StartLineS - 1500, 0, BotPhase.Racing);

@@ -62,6 +62,9 @@ public sealed class CarSpec
     /// <summary>Time to change the tyres (car.ini TYRE_CHANGE_TIME_SEC) and to put one litre in (FUEL_LITER_TIME_SEC).</summary>
     public float TyreChangeTime { get; set; } = 20f;
     public float FuelLiterTime { get; set; } = 0.2f;
+    /// <summary>car.ini [PIT_STOP]: seconds to repair 10 % body damage / 10 % suspension damage.</summary>
+    public float BodyRepairTime { get; set; } = 20f;
+    public float SuspRepairTime { get; set; } = 30f;
 
     /// <summary>Grip factor of the tyres after <paramref name="virtualKm"/> (1 = new).</summary>
     public float TyreGripAt(float virtualKm)

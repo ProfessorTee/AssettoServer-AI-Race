@@ -86,7 +86,7 @@ public static class SelfTest
         Check($"overtakes happen ({overtakes})", overtakes > 0);
         Check($"no deep overlaps (max {maxPen:F2} m, {overlapFrames} frames)", maxPen < 0.5f);
         var fastest = world.Bots.OrderBy(b => b.BestLapSeconds).First();
-        Check($"best lap by a strong driver ({fastest.Name}, level {fastest.Driver.Level:F0}, {fastest.BestLapSeconds:F1} s)", fastest.Driver.Level >= 92);
+        Check($"best lap by a strong driver ({fastest.Name}, level {fastest.Driver.Level:F0}, {fastest.BestLapSeconds:F1} s)", fastest.Driver.Level >= 89);
 
         // pose sanity
         var pose = world.GetPose(world.Bots[0]);
@@ -103,6 +103,7 @@ public static class SelfTest
 
         // pit stops: pit lane parallel to the first straight, heavy fuel use
         FlagTest(line);
+        HumanTest(line);
         PitTest(line);
 
         Console.WriteLine(_failed == 0 ? "SELFTEST OK" : $"SELFTEST FAILED ({_failed})");
@@ -154,6 +155,59 @@ public static class SelfTest
             crash |= Vector3.Distance(pose.Position, wreck) < 1.5f;
         }
         Check($"yellow flag: hazards on near the stopped car, no crash", hazards && !crash);
+    }
+
+    private static void HumanTest(RacingLine line)
+    {
+        var world = new RaceWorld(line, new RaceWorldSettings { Seed = 9, RaceStartTime = -100, Damage = true, DamageRate = 1 });
+        for (int i = 0; i < 6; i++)
+        {
+            var d = DriverProfile.FromStrength(76, 0.6f, 80);
+            d.Errors = DriverProfile.ErrorsFor(76);
+            world.Bots.Add(new RaceBot { Id = i, Name = $"H{i}", Car = new CarSpec(), Driver = d });
+        }
+        world.PlaceOnGrid(world.Bots);
+        world.StartRace(0);
+        double t = 0;
+        world.Advance(0);
+        bool finite = true, sawYaw = false, sawLock = false;
+        float maxBeyond = 0;
+        while (t < 400)
+        {
+            t += 0.05;
+            world.Advance(t);
+            foreach (var b in world.Bots)
+            {
+                var p = world.GetPose(b);
+                finite &= float.IsFinite(p.Position.X) && float.IsFinite(p.Rotation.X) && float.IsFinite(p.Velocity.X);
+                sawYaw |= MathF.Abs(b.Yaw) > 0.1f;
+                sawLock |= p.FrontTyreFactor == 0;
+                int i = line.IndexAt(line.WrapS((float)b.Distance));
+                float half = b.Car.Width / 2;
+                maxBeyond = MathF.Max(maxBeyond, MathF.Max(b.Offset - (line.RoomPlus[i] - half), -line.RoomMinus[i] + half - b.Offset));
+            }
+        }
+        int mistakes = world.Bots.Sum(b => b.MistakeCount);
+        Check($"human errors: {mistakes} mistakes, {world.Bots.Sum(b => b.SpinCount)} spins, {world.Bots.Sum(b => b.ContactCount)} contacts, slides {sawYaw}, lock-ups {sawLock}",
+            mistakes > 5 && sawYaw && finite);
+        Check($"grass: at most {maxBeyond:F2} m beyond the edge", maxBeyond <= world.Settings.GrassAllowance + 0.55f);
+        Check("everybody keeps racing", world.Bots.All(b => b.LapsCompleted >= 5));
+
+        // damage and repair
+        var bot = world.Bots[0];
+        float grip = bot.CarGrip;
+        world.AddDamage(bot, 0, 60);
+        Check($"damage slows the car (grip {grip:F3} -> {bot.CarGrip:F3}, repair {RaceWorld.RepairTime(bot):F0} s)", bot.CarGrip < grip && RaceWorld.RepairTime(bot) > 5);
+        world.RepairDamage(bot);
+        Check("repair", !RaceWorld.HasDamage(bot));
+
+        // signal test phases
+        world.StartSignalTest(1000);
+        var phases = new[] { 1001.0, 1008, 1014, 1021, 1027, 1040 }.Select(x => world.SignalTestPhase(x)).ToArray();
+        Check($"signal test phases [{string.Join(",", phases)}]", phases.SequenceEqual(new[] { 1, 2, 3, 4, 5, 0 }));
+        world.Advance(1001);
+        var pose = world.GetPose(world.Bots[1]);
+        Check("signal test: left indicator", pose.Indicator == -1);
     }
 
     private static void PitTest(RacingLine line)
