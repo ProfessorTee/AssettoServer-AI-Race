@@ -31,7 +31,7 @@ public class RaceAiCommandModule : ACModuleBase
             var b = slot.Bot;
             string best = b.BestLapSeconds < 1e6 ? TimeSpan.FromSeconds(b.BestLapSeconds).ToString(@"m\:ss\.fff") : "-";
             sb.Append($"\n{b.Name} ({slot.EntryCar.Model}) {b.Driver.Level:F0} %, aggr. {b.Driver.Aggression * 100:F0}, laps {b.LapsCompleted}, best {best}, " +
-                      $"fuel {b.Fuel:F0} l, tyres {b.Car.TyreGripAt(b.TyreVirtualKm) * 100:F0} %, stops {b.PitStops}, " +
+                      $"fuel {b.Fuel:F0} l, {(b.OnWets ? "rain tyres" : "slicks")} {b.Car.TyreGripAt(b.TyreVirtualKm) * 100:F0} %, stops {b.PitStops}, " +
                       $"mistakes {b.MistakeCount}, spins {b.SpinCount}, damage {Core.RaceWorld.BodyDamagePercent(b):F0} %");
         }
         Reply(sb.ToString());
@@ -50,18 +50,18 @@ public class RaceAiCommandModule : ACModuleBase
     public void LightTest()
     {
         Reply(_service.StartSignalTest()
-            ? "Race AI signal test: left indicator, right indicator, hazards, flash, brake lights (about 6 s each). Tip: /settime 22:00 for night"
+            ? "Race AI signal test: left indicator, right indicator, hazards, flash, brake lights, high beams (about 6 s each). Tip: /settime 22:00 for night"
             : "Race AI is not active.");
     }
 
-    /// <summary>Switches a feature on or off until the server restarts: errors, spins, grass, contacts, damage, blueflags, yellowflags, flash.</summary>
+    /// <summary>Switches a feature on or off until the server restarts.</summary>
     [Command("raceai_set"), RequireAdmin]
     public void SetFeature(string feature, string value)
     {
         bool on = value.ToLowerInvariant() is "on" or "1" or "true" or "an" or "ein";
         Reply(_service.SetFeature(feature.ToLowerInvariant(), on)
             ? $"Race AI: {feature} {(on ? "on" : "off")}"
-            : "Unknown feature. Use: errors, spins, grass, contacts, damage, blueflags, yellowflags, flash");
+            : "Unknown feature. Use: errors, spins, grass, contacts, damage, blueflags, yellowflags, flash, highbeams, wettyres, virtualwets, raincaution, realweather");
     }
 
     [Command("raceai_aggression"), RequireAdmin]

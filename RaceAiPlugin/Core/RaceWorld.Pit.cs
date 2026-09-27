@@ -59,6 +59,8 @@ public sealed partial class RaceWorld
         bot.PitRepair = false;
         if (bot.Mistake != MistakeKind.None) EndMistake(bot);
         bot.EdgeAllowance = 0;
+        bot.OnWets = false;
+        bot.OnWets = WantsWets(bot); // start on the right tyres for the conditions
         UpdateGrip(bot);
     }
 
@@ -98,7 +100,9 @@ public sealed partial class RaceWorld
             float lat = bot.Speed * bot.Speed * MathF.Abs(k) / (car.LateralGrip * CarSpec.G);
             float lon = MathF.Abs(bot.Accel) / (car.BrakeGrip * CarSpec.G);
             float usage = Math.Clamp(MathF.Max(lat, lon), 0, 1.2f);
-            bot.TyreVirtualKm += ds / 1000f * Settings.TyreWearScale * Settings.TyreWearRate * (0.3f + 1.4f * usage) * (0.9f + 0.2f * bot.Driver.Aggression);
+            // rain tyres wear fast on a drying track
+            float wetsDry = bot.OnWets ? 1 + 2 * (1 - Math.Clamp(Settings.Wetness * 2, 0, 1)) : 1;
+            bot.TyreVirtualKm += wetsDry * ds / 1000f * Settings.TyreWearScale * Settings.TyreWearRate * (0.3f + 1.4f * usage) * (0.9f + 0.2f * bot.Driver.Aggression);
         }
         bot.TyreKm += ds / 1000f;
         UpdateGrip(bot);
@@ -112,7 +116,7 @@ public sealed partial class RaceWorld
         float mass = car.ReferenceMass - 25 * FuelDensity + bot.Fuel * FuelDensity;
         bot.MassRatio = Settings.FuelRate > 0 ? Math.Clamp(mass / car.ReferenceMass, 0.8f, 1.3f) : 1f;
         float massGrip = 1 - 0.3f * (bot.MassRatio - 1);
-        bot.CarGrip = tyre * cold * massGrip * (Settings.Damage ? DamageGrip(bot) : 1f);
+        bot.CarGrip = tyre * cold * massGrip * (Settings.Damage ? DamageGrip(bot) : 1f) * RainGrip(bot);
     }
 
     // ------------------------------------------------------------------ strategy
@@ -152,8 +156,12 @@ public sealed partial class RaceWorld
         float toLine = Line.WrapS(Settings.StartLineS - Line.WrapS((float)bot.Distance)) / Line.Length;
         string reason = "";
 
+        // weather: rain tyres when it gets wet, slicks when it dries (first, it's a safety thing)
+        bool wantWets = WantsWets(bot);
+        if (wantWets != bot.OnWets) reason = wantWets ? "wets" : "slicks";
+
         // fuel: not enough to finish and not enough to come round once more
-        if (Settings.FuelRate > 0)
+        if (reason == "" && Settings.FuelRate > 0)
         {
             float needFinish = openEnd ? float.MaxValue : (lapsAfterThis + toLine) * perLap * 1.02f + 0.5f;
             float needNextLap = (1 + toLine) * perLap * 1.03f + 0.5f;
@@ -207,7 +215,8 @@ public sealed partial class RaceWorld
             ? MathF.Max(bot.Fuel, FuelForLaps(bot, 3))
             : FuelForLaps(bot, remaining - 1 + 0.3f);
         bot.PitFuelToAdd = Settings.FuelRate > 0 ? Math.Clamp(target - bot.Fuel, 0, bot.Car.FuelCapacity - bot.Fuel) : 0;
-        bot.PitChangeTyres = changeTyres || Settings.FuelRate <= 0;
+        bot.PitToWets = WantsWets(bot);
+        bot.PitChangeTyres = changeTyres || Settings.FuelRate <= 0 || bot.PitToWets != bot.OnWets;
         // repair when there is something worth repairing (a player would tick "repair" too)
         bot.PitRepair = Settings.Damage && HasDamage(bot);
         _ = perLap;
@@ -251,6 +260,7 @@ public sealed partial class RaceWorld
                 {
                     bot.TyreVirtualKm = 0;
                     bot.TyreKm = 0;
+                    bot.OnWets = bot.PitToWets;
                 }
                 if (bot.PitRepair) RepairDamage(bot);
                 bot.PitStops++;

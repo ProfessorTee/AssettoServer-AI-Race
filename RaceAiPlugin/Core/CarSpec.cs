@@ -64,6 +64,9 @@ public sealed class CarSpec
     public float FuelLiterTime { get; set; } = 0.2f;
     /// <summary>car.ini [PIT_STOP]: seconds to repair 10 % body damage / 10 % suspension damage.</summary>
     public float BodyRepairTime { get; set; } = 20f;
+    /// <summary>Name of a rain / intermediate compound in tyres.ini, null if the car only has slicks.</summary>
+    public string? WetCompound { get; set; }
+    public bool HasWetTyres => WetCompound != null;
     public float SuspRepairTime { get; set; } = 30f;
 
     /// <summary>Grip factor of the tyres after <paramref name="virtualKm"/> (1 = new).</summary>

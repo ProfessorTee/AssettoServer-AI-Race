@@ -203,11 +203,24 @@ public static class SelfTest
 
         // signal test phases
         world.StartSignalTest(1000);
-        var phases = new[] { 1001.0, 1008, 1014, 1021, 1027, 1040 }.Select(x => world.SignalTestPhase(x)).ToArray();
-        Check($"signal test phases [{string.Join(",", phases)}]", phases.SequenceEqual(new[] { 1, 2, 3, 4, 5, 0 }));
+        var phases = new[] { 1001.0, 1008, 1014, 1021, 1027, 1035, 1040 }.Select(x => world.SignalTestPhase(x)).ToArray();
+        Check($"signal test phases [{string.Join(",", phases)}]", phases.SequenceEqual(new[] { 1, 2, 3, 4, 5, 6, 0 }));
         world.Advance(1001);
         var pose = world.GetPose(world.Bots[1]);
         Check("signal test: left indicator", pose.Indicator == -1);
+
+        // high beams: only with nobody ahead
+        var hb = new RaceWorld(line, new RaceWorldSettings { Seed = 2, HumanErrors = false });
+        var lead = new RaceBot { Id = 0, Name = "Lead", Car = new CarSpec(), Driver = DriverProfile.FromLevel(95, 0) };
+        var follow = new RaceBot { Id = 1, Name = "Follow", Car = new CarSpec(), Driver = DriverProfile.FromLevel(95, 0) };
+        hb.Bots.Add(lead);
+        hb.Bots.Add(follow);
+        hb.PlaceOnGrid(hb.Bots);
+        hb.StartRace(0);
+        hb.Advance(0);
+        for (double x = 0.05; x < 8; x += 0.05) hb.Advance(x);
+        Check($"high beams: leader on ({hb.GetPose(lead).HighBeam}), car right behind dipped ({hb.GetPose(follow).HighBeam})",
+            hb.GetPose(lead).HighBeam && !hb.GetPose(follow).HighBeam);
     }
 
     private static void PitTest(RacingLine line)
@@ -257,6 +270,35 @@ public static class SelfTest
         Check($"pit lane {lane.Length:F0} m, limiter {lane.LimiterStart:F0}-{lane.LimiterEnd:F0}", lane.LimiterEnd > lane.LimiterStart);
         Check($"pit stops made ({stops}), all finished", stops >= 4 && world.Bots.All(b => b.LapsCompleted >= 12));
         Check("nobody ran out of fuel", !dry);
+
+        // rain: grip of slicks and rain tyres, starting on wets, back to slicks when it dries
+        var rain = new RaceWorld(line, new RaceWorldSettings { Seed = 6, FuelRate = 1, TyreWearRate = 1, VirtualWetTyres = true,
+            Wetness = 0.8f, Water = 0.3f, RainIntensity = 0.5f }) { PitLane = lane };
+        for (int i = 0; i < 3; i++)
+        {
+            var bot = new RaceBot { Id = i, Name = $"R{i}", Car = new CarSpec { FuelCapacity = 60, KmPerLiter = 1.6f }, Driver = DriverProfile.FromLevel(95, 50) };
+            rain.Bots.Add(bot);
+            rain.SetPitBox(bot, new Vector3(250 + i * 10, 0, 13));
+        }
+        rain.PlaceOnGrid(rain.Bots);
+        foreach (var b in rain.Bots) rain.ResetCarCondition(b, rain.FuelForLaps(b, 20));
+        var r0 = rain.Bots[0];
+        float wetGrip = rain.RainGrip(r0);
+        r0.OnWets = false;
+        float slickGrip = rain.RainGrip(r0);
+        r0.OnWets = true;
+        Check($"rain: starts on rain tyres, grip wets {wetGrip:F2} vs slicks {slickGrip:F2}", rain.Bots.All(b => b.OnWets) && wetGrip > slickGrip + 0.1f);
+        rain.StartRace(0);
+        t = 0;
+        rain.Advance(0);
+        while (t < 700)
+        {
+            t += 0.05;
+            if (t > 60) { rain.Settings.Wetness = 0.05f; rain.Settings.Water = 0; rain.Settings.RainIntensity = 0; }
+            foreach (var b in rain.Bots) b.RemainingLaps = Math.Max(0, 20 - b.LapsCompleted);
+            rain.Advance(t);
+        }
+        Check($"rain: back on slicks when it dried ({rain.Bots.Count(b => !b.OnWets)}/3, stops {rain.Bots.Sum(b => b.PitStops)})", rain.Bots.All(b => !b.OnWets));
     }
 
     private static void Check(string name, bool ok)

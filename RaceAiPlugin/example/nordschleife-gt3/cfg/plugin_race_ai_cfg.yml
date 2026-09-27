@@ -57,6 +57,14 @@ BotContacts: true
 # Damage from contacts (uses DAMAGE_MULTIPLIER), repaired in the pits; 1.0 = 100 %
 BotDamage: true
 BotDamageFactor: 1.0
+# Rain: bots change to rain tyres and back (only cars with a wet compound; Kunos GT3 have slicks only)
+WetTyres: true
+# Let bots use rain tyres although the car has none (players can't)
+VirtualWetTyres: false
+# On slicks in the wet: more careful, more mistakes, aquaplaning
+RainCaution: true
+# High beams at night when nobody is ahead
+HighBeams: true
 # Race craft
 # Seconds stuck behind a slower car until a bot is fully impatient (tries harder to overtake, follows closer, flashes its lights)
 ImpatienceSeconds: 25

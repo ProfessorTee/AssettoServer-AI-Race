@@ -1,4 +1,4 @@
-# Race-AI für AssettoServer: Übergabe (Stand 27.09.2026, 2. Sitzung, Teil 5)
+# Race-AI für AssettoServer: Übergabe (Stand 27.09.2026, 2. Sitzung, Teil 6)
 
 ## Status
 - Der Core-Patch und das Plugin **kompilieren** gegen AssettoServer master (Basis `e92d253`, entspricht Release `v0.0.55-pre42`).
@@ -58,6 +58,15 @@
 - Admin: `/raceai_set <feature> on|off`, `/raceai_lighttest` (Blinker links/rechts, Warnblinker, Lichthupe, Bremslicht).
 - Offen: Mit dem echten Client prüfen, wie die Schadenszonen aussehen (Skalierung geschätzt), ob die blockierenden bzw.
   durchdrehenden Räder bei Remote-Autos sichtbar sind und wie Rutscher und Dreher bei 18 Hz wirken.
+
+## Neu in Teil 6
+- Regen pro Bot und Reifen (`RaceWorld.RainGrip`): Slicks und Regenreifen, mit `ServerRainReduction` (extra_cfg `RainTrackGripReductionPercent`),
+  sonst mit eigener Nässe-Kurve. `WantsWets` mit Hysterese, Strategie-Grund `wets`/`slicks`, Start auf passenden Reifen.
+  `CarSpec.WetCompound` aus `tyres.ini` (Name wet/rain/inter). `VirtualWetTyres` für Autos ohne Regenmischung.
+- `RainCaution`: Skill-Abzug und mehr Fehler im Nassen (auf Slicks stark), Aufschwimmen auf stehendem Wasser (`Aquaplaning`).
+- Fernlicht: `UpdateClearAhead` (250 m frei, 1,5 s Verzögerung) → `BotPose.HighBeam` → `BotSlot` nimmt `HighBeamsOff` weg.
+  Die Lichthupe schaltet um. Der Licht-Test hat Phase 6 „high beams“.
+- `RealWeatherService` lässt sich zur Laufzeit ein- und ausschalten (`/raceai_set realweather off`).
 
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:

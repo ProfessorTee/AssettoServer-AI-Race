@@ -32,21 +32,36 @@ public sealed class RealWeatherService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!_config.RealWeather) return;
         await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
 
         double lat = _weatherManager.TrackParams?.Latitude ?? NordschleifeLat;
         double lon = _weatherManager.TrackParams?.Longitude ?? NordschleifeLon;
         if (lat == 0 && lon == 0) (lat, lon) = (NordschleifeLat, NordschleifeLon);
-        Log.Information("Race AI: real weather from Open-Meteo for {Lat:F4}, {Lon:F4}, every {Min} min", lat, lon, _config.RealWeatherUpdateMinutes);
+        bool announced = false;
 
-        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(Math.Max(1, _config.RealWeatherUpdateMinutes)));
-        do
+        // RealWeather can be switched on and off while the server runs (/raceai_set realweather on|off)
+        while (!stoppingToken.IsCancellationRequested)
         {
+            if (!_config.RealWeather)
+            {
+                announced = false;
+                await Task.Delay(TimeSpan.FromSeconds(20), stoppingToken);
+                continue;
+            }
+            if (!announced)
+            {
+                Log.Information("Race AI: real weather from Open-Meteo for {Lat:F4}, {Lon:F4}, every {Min} min", lat, lon, _config.RealWeatherUpdateMinutes);
+                announced = true;
+            }
             try { await UpdateAsync(lat, lon, stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception ex) { Log.Warning("Race AI: real weather update failed: {Message}", ex.Message); }
-        } while (await timer.WaitForNextTickAsync(stoppingToken));
+
+            // wait for the next update, but notice when it gets switched off
+            var until = DateTime.UtcNow.AddMinutes(Math.Max(1, _config.RealWeatherUpdateMinutes));
+            while (_config.RealWeather && DateTime.UtcNow < until)
+                await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+        }
     }
 
     private async Task UpdateAsync(double lat, double lon, CancellationToken ct)

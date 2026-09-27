@@ -146,7 +146,12 @@ public sealed class RaceAiService : IHostedService
             GrassMoments = _config.GrassMoments,
             BotContacts = _config.BotContacts,
             Damage = _config.BotDamage && _serverConfig.Server.MechanicalDamageRate > 0,
-            DamageRate = _serverConfig.Server.MechanicalDamageRate * _config.BotDamageFactor
+            DamageRate = _serverConfig.Server.MechanicalDamageRate * _config.BotDamageFactor,
+            RainGripLoss = _config.RainGripLoss,
+            ServerRainReduction = (float)_serverConfig.Extra.RainTrackGripReductionPercent,
+            WetTyres = _config.WetTyres,
+            VirtualWetTyres = _config.VirtualWetTyres,
+            RainCaution = _config.RainCaution
         };
         Log.Information("Race AI: human errors {Errors} (below {Below} %), spins {Spins}, grass {Grass}, contacts {Contacts}, damage {Damage} ({Rate:P0})",
             settings.HumanErrors ? "on" : "off", _config.HumanErrorsBelow, settings.Spins ? "on" : "off", settings.GrassMoments ? "on" : "off",
@@ -584,14 +589,14 @@ public sealed class RaceAiService : IHostedService
             }
         }
 
-        // track grip and rain slow the bots down like everybody else
+        // track grip (dynamic track, and rain if the server's RainTrackGripReductionPercent is set) slows the bots down like everybody else;
+        // the wet grip of their tyres (slicks / rain tyres) is worked out per bot from wetness and standing water
         var weather = _weatherManager.CurrentWeather;
-        float grip = weather.TrackGrip > 0.5f ? weather.TrackGrip : 1f;
-        // AssettoServer only lowers TrackGrip for rain when RainTrackGripReductionPercent is set; otherwise the rain physics runs in CSP
-        // on the clients, so the bots need their own wet-track grip loss
-        if (_serverConfig.Extra.RainTrackGripReductionPercent <= 0 && _config.RainGripLoss > 0)
-            grip *= 1 - _config.RainGripLoss * (0.12f * Math.Clamp(weather.RainWetness, 0, 1) + 0.18f * Math.Clamp(weather.RainWater, 0, 1));
+        float grip = weather.TrackGrip > 0.3f ? weather.TrackGrip : 1f;
         world.Settings.GripFactor = Math.Clamp(grip, 0.4f, 1.05f);
+        world.Settings.Wetness = Math.Clamp(weather.RainWetness, 0, 1);
+        world.Settings.Water = Math.Clamp(weather.RainWater, 0, 1);
+        world.Settings.RainIntensity = Math.Clamp(weather.RainIntensity, 0, 1);
 
         foreach (var slot in _slots)
             slot.Bot.RemainingLaps = RemainingLaps(slot, session);
@@ -606,7 +611,8 @@ public sealed class RaceAiService : IHostedService
         {
             if (!slot.Active) continue;
             var pose = world.GetPose(slot.Bot);
-            slot.WriteStatus(pose, serverTime, lights, wipers, _config.FlashLights || world.SignalTestPhase(now) != 0, _config.FlashLightsDaytime);
+            slot.WriteStatus(pose, serverTime, lights, wipers, _config.FlashLights || world.SignalTestPhase(now) != 0, _config.FlashLightsDaytime,
+                _config.HighBeams || world.SignalTestPhase(now) != 0);
             if (slot.SentDamageVersion != slot.Bot.DamageVersion)
             {
                 slot.SentDamageVersion = slot.Bot.DamageVersion;
@@ -662,6 +668,7 @@ public sealed class RaceAiService : IHostedService
             3 => "hazard lights",
             4 => "headlight flash",
             5 => "brake lights",
+            6 => "high beams",
             _ => null
         };
         _entryCarManager.BroadcastChat(what != null ? $"Race AI signal test: {what}" : "Race AI signal test finished");
@@ -669,7 +676,7 @@ public sealed class RaceAiService : IHostedService
 
     private void OnBotPitStop(RaceBot bot, float seconds, float litres, bool tyres)
     {
-        string what = string.Join(" + ", new[] { tyres ? "tyres" : null, litres >= 0.5f ? $"{litres:F0} l" : null, bot.PitRepair ? "repair" : null }.Where(x => x != null));
+        string what = string.Join(" + ", new[] { tyres ? (bot.OnWets ? "rain tyres" : "slicks") : null, litres >= 0.5f ? $"{litres:F0} l" : null, bot.PitRepair ? "repair" : null }.Where(x => x != null));
         Log.Information("Race AI: {Name} pit stop ({Reason}): {What}, {Seconds:F1} s", bot.Name, bot.PitReason, what, seconds);
         if (_config.AnnouncePitStops && _sessionType == SessionType.Race)
             _entryCarManager.BroadcastChat($"{bot.Name} pit stop: {what} ({seconds:F1} s)");
@@ -799,6 +806,11 @@ public sealed class RaceAiService : IHostedService
                 case "blueflags": _config.BlueFlags = on; s.BlueFlags = on && _sessionType == SessionType.Race; break;
                 case "yellowflags": s.YellowFlags = on; break;
                 case "flash": _config.FlashLights = on; break;
+                case "wettyres": _config.WetTyres = on; s.WetTyres = on; break;
+                case "virtualwets": _config.VirtualWetTyres = on; s.VirtualWetTyres = on; break;
+                case "raincaution": _config.RainCaution = on; s.RainCaution = on; break;
+                case "realweather": _config.RealWeather = on; break;
+                case "highbeams": _config.HighBeams = on; break;
                 default: return false;
             }
             return true;

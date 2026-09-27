@@ -8,7 +8,61 @@ namespace RaceAiPlugin.Core;
 /// </summary>
 public sealed partial class RaceWorld
 {
-    private float ErrorLevel(RaceBot me) => Settings.HumanErrors ? Math.Clamp(me.Driver.Errors, 0, 1) : 0;
+    private float ErrorLevel(RaceBot me)
+    {
+        float e = Settings.HumanErrors ? Math.Clamp(me.Driver.Errors, 0, 1) : 0;
+        // a wet track makes everybody less precise, on slicks a lot
+        if (Settings.RainCaution) e += WetFactor() * (me.OnWets ? 0.1f : 0.45f);
+        return Math.Clamp(e, 0, 1);
+    }
+
+    /// <summary>0 = dry, 1 = soaking wet with standing water.</summary>
+    private float WetFactor() => Math.Clamp(Settings.Wetness * 0.6f + Settings.Water * 1.2f, 0, 1);
+
+    /// <summary>Grip of the bot's tyres on the current track (1 = dry slicks).</summary>
+    public float RainGrip(RaceBot bot)
+    {
+        float w = Math.Clamp(Settings.Wetness, 0, 1), water = Math.Clamp(Settings.Water, 0, 1);
+        float g;
+        if (bot.OnWets)
+        {
+            // rain tyres: little loss in the wet, slower (and overheating) in the dry
+            float dry = 1 - 0.07f * (1 - Math.Clamp(w * 1.5f, 0, 1));
+            if (Settings.ServerRainReduction > 0)
+            {
+                float loss = Settings.ServerRainReduction * (0.3f * w + 0.7f * water);
+                g = dry * (1 - 0.3f * loss) / MathF.Max(0.5f, 1 - loss);
+            }
+            else g = dry * (1 - Settings.RainGripLoss * (0.04f * w + 0.08f * water));
+        }
+        else
+        {
+            // slicks: the server already lowers the track grip for everybody when RainTrackGripReductionPercent is set
+            g = Settings.ServerRainReduction > 0 ? 1 : 1 - Settings.RainGripLoss * (0.15f * w + 0.25f * water);
+        }
+        return Math.Clamp(g, 0.4f, 1.05f);
+    }
+
+    /// <summary>Should this bot be on rain tyres now (with some hysteresis)?</summary>
+    public bool WantsWets(RaceBot bot)
+    {
+        if (!Settings.WetTyres || !(bot.Car.HasWetTyres || Settings.VirtualWetTyres)) return false;
+        float w = Settings.Wetness, water = Settings.Water;
+        if (bot.OnWets) return !(w < 0.2f && water < 0.03f && Settings.RainIntensity < 0.05f);
+        return (w > 0.45f || water > 0.15f) && (Settings.RainIntensity > 0.05f || water > 0.25f);
+    }
+
+    /// <summary>Aquaplaning on standing water at speed (called every Think).</summary>
+    private void Aquaplaning(RaceBot me)
+    {
+        if (!Settings.RainCaution || Settings.Water < 0.2f || me.Speed < 40 || !MistakesAllowed(me)) return;
+        float perSecond = (Settings.Water - 0.2f) * 0.35f * (me.OnWets ? 0.2f : 1f) * (me.Speed / 70f);
+        if (_rng.NextSingle() < perSecond * _stepDt)
+        {
+            StartMistake(me, MistakeKind.Slide, _rng.NextSingle() < 0.5f ? -1 : 1, 0.2f + 0.4f * _rng.NextSingle(), 1.0f);
+            me.MistakeTargetOffset = me.Offset + (_rng.NextSingle() - 0.5f) * 1.2f;
+        }
+    }
 
     private bool MistakesAllowed(RaceBot me)
         => me.Phase == BotPhase.Racing && !me.InPitLane && me.Mistake == MistakeKind.None
@@ -326,6 +380,29 @@ public sealed partial class RaceWorld
         me.Offset = Math.Clamp(me.Offset, -Line.RoomMinus[i] + half - allow, Line.RoomPlus[i] - half + allow);
     }
 
+    /// <summary>Range in which a car ahead would be dazzled by high beams (m).</summary>
+    public float HighBeamRange { get; set; } = 250f;
+
+    /// <summary>High beams only with nobody ahead (players or bots); switch back at once when somebody shows up.</summary>
+    private void UpdateClearAhead(RaceBot me, float myS)
+    {
+        bool clear = !me.InPitLane;
+        if (clear)
+        {
+            foreach (var o in _neighbors)
+            {
+                if (o.IsBot && o.Id == me.Id) continue;
+                if (o.IsBot && o.Bot!.InPitLane) continue;
+                float ds = Line.Delta(myS, o.S);
+                if (ds > -3 && ds < HighBeamRange) { clear = false; break; }
+            }
+        }
+        if (!clear) { me.ClearAhead = false; me.ClearAheadSince = double.NaN; return; }
+        // switch on a moment after the road got free, like a driver would
+        if (double.IsNaN(me.ClearAheadSince)) me.ClearAheadSince = _now;
+        me.ClearAhead = _now - me.ClearAheadSince > 1.5;
+    }
+
     // ------------------------------------------------------------------ contacts and damage
 
     /// <summary>Two bots touched (from ResolveOverlaps). Light bump: speed, a nudge sideways, a wobble, damage.</summary>
@@ -432,16 +509,16 @@ public sealed partial class RaceWorld
     // ------------------------------------------------------------------ signal test (night test of lights, indicators, hazards, flash)
 
     public double SignalTestStart { get; private set; } = double.NegativeInfinity;
-    public const double SignalTestLength = 32;
+    public const double SignalTestLength = 38.4;
 
     public void StartSignalTest(double now) => SignalTestStart = now;
 
-    /// <summary>0 = off, 1 left indicator, 2 right indicator, 3 hazards, 4 flash, 5 brake lights.</summary>
+    /// <summary>0 = off, 1 left indicator, 2 right indicator, 3 hazards, 4 flash, 5 brake lights, 6 high beams.</summary>
     public int SignalTestPhase(double now)
     {
         double t = now - SignalTestStart;
         if (t < 0 || t > SignalTestLength) return 0;
-        return 1 + (int)(t / (SignalTestLength / 5)) % 5;
+        return 1 + (int)(t / (SignalTestLength / 6)) % 6;
     }
 
     private static Vector3 Rotate(Vector3 dir, Vector3 lat, float yaw)

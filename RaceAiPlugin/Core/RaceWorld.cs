@@ -228,6 +228,12 @@ public sealed class RaceBot
     /// <summary>Changes whenever the damage changes (so the server knows when to send an update).</summary>
     public int DamageVersion { get; internal set; }
     internal bool PitRepair;
+    /// <summary>On rain tyres.</summary>
+    public bool OnWets { get; set; }
+    internal bool PitToWets;
+    /// <summary>Nobody ahead within the high beam range: at night the bot may use its high beams.</summary>
+    public bool ClearAhead { get; internal set; }
+    internal double ClearAheadSince;
     /// <summary>Signal test: overrides indicator / hazards / flash for the night test.</summary>
     internal int ForcedSignal;
 }
@@ -269,6 +275,7 @@ public readonly record struct BotPose(
     bool Hazards = false,
     int Indicator = 0,
     bool Flash = false,
+    bool HighBeam = false,
     float FrontTyreFactor = 1,
     float RearTyreFactor = 1);
 
@@ -336,6 +343,22 @@ public sealed class RaceWorldSettings
     public bool Damage { get; set; } = true;
     /// <summary>Damage multiplier (server DAMAGE_MULTIPLIER / 100).</summary>
     public float DamageRate { get; set; } = 1f;
+
+    // ---- rain
+    /// <summary>Track wetness and standing water (0..1, from the server's weather) and how hard it rains right now.</summary>
+    public float Wetness { get; set; }
+    public float Water { get; set; }
+    public float RainIntensity { get; set; }
+    /// <summary>Server extra_cfg RainTrackGripReductionPercent (0..0.5): the server already lowers the grip for everybody (slicks).</summary>
+    public float ServerRainReduction { get; set; }
+    /// <summary>Grip lost on a wet track (1 = normal).</summary>
+    public float RainGripLoss { get; set; } = 1f;
+    /// <summary>Bots change to rain tyres (if the car has a wet compound, or <see cref="VirtualWetTyres"/>) and back to slicks.</summary>
+    public bool WetTyres { get; set; } = true;
+    /// <summary>Bots may use rain tyres even if the car has none (players can't!).</summary>
+    public bool VirtualWetTyres { get; set; }
+    /// <summary>On slicks in the wet the bots drive more carefully, make more mistakes and can aquaplane.</summary>
+    public bool RainCaution { get; set; } = true;
 }
 
 /// <summary>
@@ -669,6 +692,7 @@ public sealed partial class RaceWorld
         var car = bot.Car;
         float skill = bot.Driver.Pace - extraPaceLoss + bot.PaceNoise;
         if (_now < bot.MistakeUntil) skill -= 0.08f; // braked too early / too carefully
+        if (Settings.RainCaution) skill -= WetFactor() * (bot.OnWets ? 0.015f : 0.05f); // careful in the wet, much more on slicks
         float phys = Settings.GripFactor * bot.CarGrip * (bot.Phase == BotPhase.CoolDown ? Settings.CoolDownPace : 1);
         float pace = DriverProfile.CornerSkill(skill) * phys;
         float brakePace = DriverProfile.BrakeSkill(skill) * phys;
@@ -808,6 +832,7 @@ public sealed partial class RaceWorld
         }
 
         me.Draft = draft;
+        UpdateClearAhead(me, myS);
         float vLine = LineSpeedLimit(me, me.TargetOffset, 0);
         float vTarget = vLine;
 
@@ -856,6 +881,7 @@ public sealed partial class RaceWorld
             RollBrakingMistake(me);
         me.InBrakingZone = braking;
         CornerExitMistakes(me);
+        Aquaplaning(me);
 
         // ---- overtake bookkeeping
         if (me.OvertakeTargetId >= 0 && (_now < me.YellowUntil || _now < me.BlueFlagUntil))
@@ -1339,6 +1365,7 @@ public sealed partial class RaceWorld
             brake,
             Line.WrapS(s - Settings.StartLineS) / Line.Length,
             throttle, hazards, indicator, flash,
+            SignalTestPhase(_now) is var ph && ph != 0 ? ph == 6 : bot.ClearAhead && bot.Mistake != MistakeKind.Spin,
             bot.FrontLock ? 0f : spinning, bot.RearSlip * spinning);
     }
 

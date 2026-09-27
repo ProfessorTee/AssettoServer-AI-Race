@@ -53,10 +53,20 @@ Das Plugin besteht aus zwei Teilen:
 - **Blaue Flagge:** Ein überrundeter Bot fährt an den Rand, setzt den Blinker zu dieser Seite und nimmt etwas Gas weg. Der Führende
   fährt auf der anderen Seite vorbei.
 - **Gelbe Flagge:** Steht ein Auto auf der Strecke, schalten die Bots in der Nähe den Warnblinker ein, fahren langsamer und überholen nicht.
-- **Regen:** Nasse Strecke = weniger Grip für die Bots (`RainGripLoss`), passend zur CSP-Regenphysik der Spieler.
+- **Regen:**
+  - Nasse Strecke und stehendes Wasser kosten Grip, je nach Reifen: Slicks verlieren viel, Regenreifen wenig. Dafür sind
+    Regenreifen im Trockenen langsamer und verschleißen schnell.
+  - Auf Slicks im Nassen fahren die Bots vorsichtiger, machen mehr Fehler und schwimmen auf stehendem Wasser auch mal auf
+    (`RainCaution`).
+  - Reifenwechsel (`WetTyres`): Bei Regen wechseln die Bots in der Box auf Regenreifen und beim Abtrocknen zurück auf Slicks,
+    sofern das Auto eine Regenmischung in `tyres.ini` hat. Die Kunos-GT3 haben nur Slicks. Mit `VirtualWetTyres: true` dürfen die Bots
+    trotzdem Regenreifen nehmen, die Spieler aber nicht.
+  - Für die Spieler: Ohne die Regenphysik der CSP-Preview-Versionen ist Regen nur optisch. Mit `RainTrackGripReductionPercent`
+    (0–0.5) in `extra_cfg.yml` senkt der Server bei Nässe den Grip für alle. Die Bots rechnen das mit ein.
 - **Echtes Wetter** (`RealWeather`): Das aktuelle Wetter am Nürburgring kommt von Open-Meteo (kostenlos, ohne API-Key). Der Server
   schickt es als CSP-WeatherFX an die Clients, Sol und Pure zeigen es an. Mit `EnableRealTime: true` passt auch die Tageszeit.
-- Scheinwerfer bei Dunkelheit, Scheibenwischer bei Regen, Bremslichter, Warnblinker bei Stillstand
+- Scheinwerfer bei Dunkelheit, **Fernlicht**, solange etwa 250 m davor frei sind (`HighBeams`), und sofort Abblendlicht, sobald ein
+  Spieler oder Bot davor ist. Dazu Scheibenwischer bei Regen, Bremslichter und Warnblinker bei Stillstand.
 - Namen und Nationen im Client, in der Rangliste und in den Ergebnissen
 
 ## Einstellungen wie in Content Manager
@@ -80,7 +90,7 @@ Renn-Verhalten: `ImpatienceSeconds`, `FlashLights`, `FlashLightsDaytime`, `BlueF
 `RealWeather`, `RealWeatherUpdateMinutes`, `RealWeatherTransitionSeconds`.
 
 Menschliches Verhalten: `HumanErrors`, `HumanErrorsBelow`, `HumanErrorsFull`, `Spins`, `GrassMoments`, `BotContacts`, `BotDamage`,
-`BotDamageFactor`. Jede dieser Funktionen lässt sich mit `false` abschalten, während der Sitzung auch per Chat (siehe unten).
+`BotDamageFactor`, `WetTyres`, `VirtualWetTyres`, `RainCaution`, `HighBeams`. Jede dieser Funktionen lässt sich mit `false` abschalten, während der Sitzung auch per Chat (siehe unten).
 
 Weitere Endurance-Optionen: `Fuel`, `TyreWear`, `TyreWearFactor`, `TyreChangeGrip`, `PitStops`, `PitSpeedKmh`, `PracticeFuelLaps`,
 `QualifyingFuelLaps`, `AnnouncePitStops`.
@@ -90,9 +100,11 @@ Chat-Befehle:
 - Als Admin (`/admin <Passwort>`):
   - `/raceai_strength <%> [spread]` und `/raceai_aggression <0-100>`
   - `/raceai_set <Funktion> on|off` schaltet bis zum Neustart ein und aus: `errors`, `spins`, `grass`, `contacts`, `damage`,
-    `blueflags`, `yellowflags`, `flash`
+    `blueflags`, `yellowflags`, `flash`, `highbeams`, `wettyres`, `virtualwets`, `raincaution`, `realweather`
   - `/raceai_lighttest`: Licht-Test. Alle Bots zeigen nacheinander je etwa 6 s linken Blinker, rechten Blinker, Warnblinker,
-    Lichthupe und Bremslicht, mit eingeschaltetem Licht. Für Nacht vorher `/settime 22:00`.
+    Lichthupe, Bremslicht und Fernlicht, mit eingeschaltetem Licht. Für Nacht vorher `/settime 22:00`.
+  - Regen zum Testen (Befehle von AssettoServer): `/setcspweather HeavyRain 30`, direkt nass mit `/setrain 0.8 0.8 0.3`
+    (Intensität, Nässe, Wasser). Vorher `/raceai_set realweather off`, sonst holt sich der Server wieder das echte Wetter.
 
 ## Einrichtung
 

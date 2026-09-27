@@ -220,6 +220,18 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     [YamlMember(Description = "Bot damage on top of DAMAGE_MULTIPLIER: 1.0 = 100 %")]
     public float BotDamageFactor { get; set; } = 1.0f;
 
+    [YamlMember(Description = "Bots change to rain tyres when the track gets wet and back to slicks when it dries (needs a car with a wet compound, or VirtualWetTyres)")]
+    public bool WetTyres { get; set; } = true;
+
+    [YamlMember(Description = "Bots may use rain tyres even if the car has none in its tyres.ini (the Kunos GT3 cars only have slicks). Players can't do that!")]
+    public bool VirtualWetTyres { get; set; } = false;
+
+    [YamlMember(Description = "On slicks in the wet the bots drive more carefully, make more mistakes and can aquaplane on standing water")]
+    public bool RainCaution { get; set; } = true;
+
+    [YamlMember(Description = "At night bots use their high beams when nobody (player or bot) is within about 250 m ahead, and dip them as soon as somebody is")]
+    public bool HighBeams { get; set; } = true;
+
     [YamlMember(Description = "Announce bot pit stops in chat")]
     public bool AnnouncePitStops { get; set; } = true;
 
