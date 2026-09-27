@@ -1,4 +1,4 @@
-# Race-AI für AssettoServer: Übergabe (Stand 27.09.2026, 2. Sitzung, Teil 6)
+# Race-AI für AssettoServer: Übergabe (Stand 27.09.2026, 2. Sitzung, Teil 7)
 
 ## Status
 - Der Core-Patch und das Plugin **kompilieren** gegen AssettoServer master (Basis `e92d253`, entspricht Release `v0.0.55-pre42`).
@@ -67,6 +67,14 @@
 - Fernlicht: `UpdateClearAhead` (`HighBeamRange` frei, Standard 85 m, 1,5 s Verzögerung) → `BotPose.HighBeam` → `BotSlot` nimmt `HighBeamsOff` weg.
   Die Lichthupe schaltet um. Der Licht-Test hat Phase 6 „high beams“.
 - `RealWeatherService` lässt sich zur Laufzeit ein- und ausschalten (`/raceai_set realweather off`).
+
+## Neu in Teil 7
+- Pedale statt Bang-Bang (`RaceWorld.Integrate`): Bremsdruck = Vorsteuerung (wie schnell die Zielgeschwindigkeit fällt) + Regelung,
+  Aufbau 0,12 s, Lösen 0,4 s. Kleine Korrekturen nur per Gaswegnehmen (Motorbremse + Luftwiderstand). Teilgas zum Halten.
+  `RaceBot.Throttle/Brake` 0..1 für Pose und Bremslicht. Planung: kleine Tempoverluste mit sanfterer, früherer Bremsung (`LineSpeedLimit`).
+- Geparkte Bots auf Boxengassen-Höhe (`OnGround`, `ParkHeightAdjust`). AC_PIT-Dummies liegen auf der Nordschleife 1,3 m höher.
+- `HighBeamRange` einstellbar (Standard 85 m). Online ist CSP-Regen nur optisch, deshalb gilt `RainTrackGripReductionPercent: 0.15`.
+  Virtuelle Regenreifen sind standardmäßig aus, weil Spieler online keine CSP-Regenreifen wählen können.
 
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:

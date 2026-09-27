@@ -33,6 +33,10 @@ Das Plugin besteht aus zwei Teilen:
 - **Schaden** (`BotDamage`, nach `DAMAGE_MULTIPLIER`): Berührungen mit Bots und Spielern beschädigen Karosserie und Aufhängung.
   Die Schadenszonen gehen wie bei Spielern an alle Clients. Das Auto hat weniger Grip und mehr Luftwiderstand. Lohnt es sich,
   kommt der Bot zur Reparatur in die Box (Zeiten aus `car.ini`: `BODY_REPAIR_TIME_SEC`, `SUSP_REPAIR_TIME_SEC`).
+- **Dosierte Pedale:**
+  - Bremsdruck baut sich auf und wird zum Kurveneingang hin gelöst (Trail-Braking).
+  - Kleine Tempoverluste in schnellen Knicks: kurz vom Gas oder leicht und früh anbremsen, harte Bremsungen nur vor langsamen Kurven.
+  - Teilgas, um das Tempo zu halten. Das Bremslicht leuchtet nur, wenn wirklich gebremst wird.
 - **Kunos-AI-Hints** der Strecke (`data/ai_hints.ini`: langsamere Abschnitte, Max-Speed)
 - Windschatten, Folgen, Angriff (Pressure in Kurven und Bremszonen, Windschatten auf Geraden), Nebeneinanderfahren mit
   Innenbahn-Vorrecht, Verteidigen, Fahrfehler je nach Konstanz, Formschwankungen

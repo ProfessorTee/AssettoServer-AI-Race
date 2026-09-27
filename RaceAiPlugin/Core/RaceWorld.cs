@@ -101,6 +101,10 @@ public sealed class RaceBot
     public float TargetOffset { get; set; }
     public float TargetSpeed { get; internal set; }
     public float Accel { get; internal set; }
+    /// <summary>Pedals 0..1 (for the throttle / brake light shown to the clients).</summary>
+    public float Throttle { get; internal set; }
+    public float Brake { get; internal set; }
+    internal float PrevTargetSpeed = float.NaN;
 
     // lap timing
     public int LapsCompleted { get; set; }
@@ -755,6 +759,8 @@ public sealed partial class RaceWorld
             if (vLim >= best) continue;
             // attacking drivers brake a little later
             float decel = car.BrakeAt((vLim + v) * 0.5f, brakePace) * (bot.OvertakeTargetId >= 0 ? 0.9f + 0.07f * bot.Driver.Aggression : 0.9f) * lateBrake;
+            // small speed drops (fast kinks) are taken with a gentle, early brush of the brakes, big ones with hard braking
+            decel *= Math.Clamp(0.4f + 0.6f * (v - vLim) / 14f, 0.4f, 1f);
             float allowed = MathF.Sqrt(vLim * vLim + 2 * decel * d);
             if (allowed < best) best = allowed;
         }
@@ -1190,18 +1196,39 @@ public sealed partial class RaceWorld
         float cornerLoad = Math.Clamp(v * v * kNow / (me.Car.LateralGrip * CarSpec.G) * 1.3f, 0, 1);
         float throttlePace = 1 - (1 - DriverProfile.ThrottleSkill(skill) * phys) * cornerLoad;
 
+        // pedals: the target falls along the planned braking curve; the driver follows it with a brake pressure that builds up quickly,
+        // is released gradually towards the apex (trail braking), and small corrections are done by lifting only (no brake lights)
+        float drag = me.Car.DragCoefficient * v * v * DamageDrag(me);
+        float coast = drag + 1.0f; // lifting: drag + engine braking
+        float maxBrake = me.Car.BrakeAt(v, DriverProfile.BrakeSkill(skill) * phys);
+        float physBrake = me.Car.BrakeAt(v, phys); // what the car could do: the pedal is shown relative to this
+        float targetFall = double.IsNaN(me.PrevTargetSpeed) ? 0 : MathF.Max(0, (me.PrevTargetSpeed - target) / dt);
+        me.PrevTargetSpeed = target;
         float accel;
-        if (target > v)
+        if (target < v - 0.05f)
         {
-            accel = me.Car.AccelAt(v, throttlePace) / me.MassRatio + (me.Draft - (DamageDrag(me) - 1)) * me.Car.DragCoefficient * v * v;
-            v = MathF.Min(target, v + accel * dt);
+            float want = Math.Clamp(MathF.Min(targetFall, maxBrake) * 0.95f + (v - target) / 0.35f, 0, maxBrake);
+            float pedal = want <= coast ? 0 : Math.Clamp((want - coast) / MathF.Max(0.5f, physBrake - coast), 0, 1);
+            // quick to press (0.12 s to full), slower to release (0.4 s)
+            me.Brake += Math.Clamp(pedal - me.Brake, -dt / 0.4f, dt / 0.12f);
+            me.Throttle = MathF.Max(0, me.Throttle - dt / 0.1f);
+            accel = -MathF.Min(maxBrake, coast + me.Brake * (physBrake - coast));
+            v = MathF.Max(target, v + accel * dt);
         }
         else
         {
-            accel = -me.Car.BrakeAt(v, DriverProfile.BrakeSkill(skill) * phys);
-            v = MathF.Max(target, v + accel * dt);
+            me.Brake = MathF.Max(0, me.Brake - dt / 0.25f);
+            float full = me.Car.AccelAt(v, throttlePace) / me.MassRatio + (me.Draft - (DamageDrag(me) - 1)) * me.Car.DragCoefficient * v * v;
+            // full throttle when far below the target, part throttle to hold the speed near it (fast corners, following)
+            float hold = MathF.Max(0, full) > 0.1f ? Math.Clamp(drag / (full + drag), 0, 1) : 1;
+            float pedal = Math.Clamp(hold + (target - v) / 0.6f, 0, 1);
+            me.Throttle += Math.Clamp(pedal - me.Throttle, -dt / 0.15f, dt / 0.2f);
+            // net acceleration: the full-throttle value scaled by the pedal, minus drag the engine doesn't cover
+            accel = me.Throttle * (full + drag) - drag;
+            if (me.Brake > 0.05f) accel -= me.Brake * (physBrake - coast);
+            v = accel > 0 ? MathF.Min(target, v + accel * dt) : v + accel * dt;
         }
-        me.Accel = target > me.Speed ? accel : (target < me.Speed - 0.05f ? accel : 0);
+        me.Accel = accel;
         me.Speed = MathF.Max(0, v);
         if (MistakeIntegrate(me, dt, pace * 1.04f)) return;
 
@@ -1372,7 +1399,8 @@ public sealed partial class RaceWorld
 
         var (gear, rpm) = GearAndRpm(bot);
         float full = bot.Car.AccelAt(bot.Speed, bot.Driver.Pace);
-        byte throttle = bot.Accel > 0.05f && full > 0.1f ? (byte)Math.Clamp(bot.Accel / full * 255f, 0, 255) : (byte)0;
+        byte throttle = (byte)Math.Clamp(bot.Throttle * 255f, 0, 255);
+        _ = full;
         if (bot.Phase == BotPhase.Grid) throttle = 40; // blipping on the grid
         bool hazards = (bot.Phase == BotPhase.Racing && bot.Speed < 5 && !double.IsNaN(bot.StoppedSince) && _now - bot.StoppedSince > 3)
                        || (bot.YellowHazards && bot.Phase == BotPhase.Racing)
@@ -1380,7 +1408,7 @@ public sealed partial class RaceWorld
         // two short flashes
         bool flash = _now < bot.FlashUntil && (bot.FlashUntil - _now) % 0.45 > 0.22;
         int indicator = hazards ? 0 : bot.Indicator;
-        bool brake = bot.Accel < -1f || (bot.Phase == BotPhase.Grid);
+        bool brake = bot.Brake > 0.04f || (bot.Phase == BotPhase.Grid) || (bot.Speed < 0.5f && bot.Phase == BotPhase.Racing);
         if (bot.Mistake == MistakeKind.Slide && _now - bot.MistakeStart < bot.MistakeDuration * 0.5) throttle = 230; // too much gas
         switch (SignalTestPhase(_now))
         {

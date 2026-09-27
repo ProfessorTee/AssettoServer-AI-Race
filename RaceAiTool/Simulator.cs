@@ -238,6 +238,7 @@ public static class Simulator
         private readonly RaceWorld _w;
         private int _overlapFrames, _offTrackFrames, _frames;
         private float _maxPenetration, _maxLatSpeed, _maxOffTrack;
+        private readonly long[] _pedals = new long[6];
         private readonly Dictionary<int, int> _order = new();
         private int _positionChanges;
         private double _lastOrderCheck;
@@ -255,6 +256,11 @@ public static class Simulator
                 float sa = line.WrapS((float)a.Distance);
                 int idx = line.IndexAt(sa);
                 if (a.InPitLane) continue;
+                if (a.Phase == BotPhase.Racing)
+                {
+                    int bucket = a.Brake < 0.04f ? (a.Throttle > 0.95f ? 0 : a.Throttle > 0.05f ? 1 : 2) : a.Brake < 0.35f ? 3 : a.Brake < 0.8f ? 4 : 5;
+                    _pedals[bucket]++;
+                }
                 float excess = MathF.Max(-line.RoomMinus[idx] + a.Car.Width / 2 - a.Offset, a.Offset - (line.RoomPlus[idx] - a.Car.Width / 2));
                 if (excess > 0.05f) _offTrackFrames++;
                 _maxOffTrack = MathF.Max(_maxOffTrack, excess);
@@ -297,6 +303,9 @@ public static class Simulator
                 Console.WriteLine($"{pos++,-4}{b.Name,-22}{b.Driver.Level,5:F0}{b.LapsCompleted,5}{(b.BestLapSeconds < 1e6 ? Fmt(b.BestLapSeconds) : "-"),11}" +
                                   $"{(b.LastLapSeconds > 0 ? Fmt(b.LastLapSeconds) : "-"),11}{(b.TotalTime > 0 ? Fmt((float)b.TotalTime) : "-"),11}{b.Overtakes,5}{b.PitStops,4} err={b.Driver.Errors:F2} {(b.OnWets ? "WET" : "slk")} pace={b.Driver.Pace:F3} mis={b.MistakeCount} spin={b.SpinCount} cont={b.ContactCount} dmg={RaceWorld.BodyDamagePercent(b):F0}%/{b.Suspension * 100:F0}% fuel={b.Fuel,5:F1} grip={b.CarGrip:F3} att={b.OvertakeAttempts} noroom={b.OvertakeNoRoom} giveup={b.OvertakeGiveUps} d={b.Distance,8:F0} v={b.Speed * 3.6f,4:F0} off={b.Offset,5:F1} tgtOff={b.TargetOffset,5:F1} tgtV={b.TargetSpeed * 3.6f,4:F0} {b.Phase}");
             }
+            long tot = Math.Max(1, _pedals.Sum());
+            Console.WriteLine($"pedals: full throttle {_pedals[0] * 100 / tot} %, part throttle {_pedals[1] * 100 / tot} %, coasting {_pedals[2] * 100 / tot} %, " +
+                              $"light brake {_pedals[3] * 100 / tot} %, medium {_pedals[4] * 100 / tot} %, hard {_pedals[5] * 100 / tot} %");
             Console.WriteLine($"overlap frames {_overlapFrames} (max penetration {_maxPenetration:F2} m), off-track frames {_offTrackFrames} (max {_maxOffTrack:F2} m), " +
                               $"position changes {_positionChanges / 2}, max lateral speed {_maxLatSpeed:F1} m/s, frames {_frames}");
         }
