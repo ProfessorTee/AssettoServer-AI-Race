@@ -59,9 +59,9 @@ Das Plugin besteht aus zwei Teilen:
   - Auf Slicks im Nassen fahren die Bots vorsichtiger, machen mehr Fehler und schwimmen auf stehendem Wasser auch mal auf
     (`RainCaution`).
   - Reifenwechsel (`WetTyres`): Bei Regen wechseln die Bots in der Box auf Regenreifen und beim Abtrocknen zurück auf Slicks.
-    CSP Rain FX erzeugt für jedes Auto Regenreifen, auch für die Kunos-GT3, die in `tyres.ini` nur Slicks haben. Deshalb dürfen die
-    Bots sie standardmäßig auch nehmen (`VirtualWetTyres: true`). Spieler wählen sie in der Box oder lassen CSP sie beim Start
-    automatisch nehmen (`AUTOSELECT_RAIN_TYRES`). `LEGAL_TYRES` in `server_cfg.ini` darf sie nicht ausschließen (leer = alle erlaubt).
+    CSP Rain FX erzeugt offline für jedes Auto Regenreifen, auch für die Kunos-GT3, die in `tyres.ini` nur Slicks haben. Online lassen
+    sie sich meist nicht auswählen (getestet mit AssettoServer). Deshalb nutzen die Bots sie nur mit `VirtualWetTyres: true`, sonst
+    bleiben alle fair auf Slicks. Autos mit einer echten Regenmischung in `tyres.ini` (Mods) wechseln immer.
   - Für die Spieler: Mit CSP Rain FX rechnet das Spiel selbst mit Nässe. Für Spieler ohne Rain-FX-Physik ist Regen nur optisch.
     Für sie senkt `RainTrackGripReductionPercent` (0–0.5) in `extra_cfg.yml` bei Nässe den Grip für alle. Mit Rain FX bleibt der Wert
     auf 0, sonst wird es doppelt rutschig. Die Bots rechnen beides ein.

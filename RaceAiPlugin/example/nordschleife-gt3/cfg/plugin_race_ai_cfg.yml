@@ -61,9 +61,9 @@ BotDamage: true
 BotDamageFactor: 1.0
 # Rain: bots change to rain tyres when it gets wet and back to slicks when it dries
 WetTyres: true
-# CSP Rain FX gives every car rain tyres (also the Kunos GT3), so the bots may use them too.
-# false = only cars that have a wet compound in their tyres.ini
-VirtualWetTyres: true
+# Rain tyres for bots although the car has none in tyres.ini. CSP Rain FX generates rain tyres offline, but online
+# players usually can't select them -> false (fair: everybody on slicks). true if your players do get rain tyres.
+VirtualWetTyres: false
 # On slicks in the wet: more careful, more mistakes, aquaplaning
 RainCaution: true
 # High beams at night when nobody is ahead

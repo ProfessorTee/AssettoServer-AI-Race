@@ -223,9 +223,9 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     [YamlMember(Description = "Bots change to rain tyres when the track gets wet and back to slicks when it dries (needs a car with a wet compound, or VirtualWetTyres)")]
     public bool WetTyres { get; set; } = true;
 
-    [YamlMember(Description = "Bots may use rain tyres even if the car has none in its tyres.ini. CSP Rain FX generates rain tyres for every car " +
-                              "(also the Kunos GT3), so players with CSP have them too. false = only cars with a wet compound in tyres.ini")]
-    public bool VirtualWetTyres { get; set; } = true;
+    [YamlMember(Description = "Bots may use rain tyres even if the car has none in its tyres.ini. CSP Rain FX generates rain tyres for every car offline, " +
+                              "but online players usually can't select them, so this is off by default (fair: everybody on slicks)")]
+    public bool VirtualWetTyres { get; set; } = false;
 
     [YamlMember(Description = "On slicks in the wet the bots drive more carefully, make more mistakes and can aquaplane on standing water")]
     public bool RainCaution { get; set; } = true;
