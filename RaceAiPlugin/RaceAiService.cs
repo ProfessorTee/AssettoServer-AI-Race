@@ -130,10 +130,12 @@ public sealed class RaceAiService : IHostedService
             HeightOffset = _config.HeightOffset,
             CoolDownPace = _config.CoolDownPace,
             UseTrackHints = _config.UseTrackHints,
-            SlipstreamStrength = _config.SlipstreamStrength,
+            SlipstreamStrength = 0.35f * _config.SlipstreamStrength,
+            YellowFlags = _config.YellowFlags,
+            ImpatienceTime = _config.ImpatienceSeconds,
             FuelRate = _config.Fuel ? _serverConfig.Server.FuelConsumptionRate : 0,
             TyreWearRate = _config.TyreWear ? _serverConfig.Server.TyreConsumptionRate : 0,
-            TyreWearScale = _config.TyreWearFactor,
+            TyreWearScale = 0.15f * _config.TyreWearFactor,
             TyreChangeGrip = _config.TyreChangeGrip,
             PitStops = _config.PitStops,
             PitSpeedLimit = _config.PitSpeedKmh / 3.6f
@@ -349,6 +351,8 @@ public sealed class RaceAiService : IHostedService
         var cfg = session.Configuration;
         bool lapRace = _sessionType == SessionType.Race && !cfg.IsTimedRace;
         _world.Settings.PitWindowStart = lapRace ? _serverConfig.Server.PitWindowStart : 0;
+        _world.Settings.BlueFlags = _config.BlueFlags && _sessionType == SessionType.Race;
+        _world.Settings.RaceStartTime = _sessionType == SessionType.Race ? double.PositiveInfinity : double.NegativeInfinity;
         _world.Settings.PitWindowEnd = lapRace ? _serverConfig.Server.PitWindowEnd : 0;
 
         var driving = new List<RaceBot>();
@@ -521,6 +525,7 @@ public sealed class RaceAiService : IHostedService
         {
             _raceStarted = true;
             world.StartRace(now);
+            world.Settings.RaceStartTime = now;
             Log.Information("Race AI: lights out");
         }
 
@@ -539,6 +544,7 @@ public sealed class RaceAiService : IHostedService
             var ext = world.GetOrAddExternal(car.SessionId);
             bool active = client.HasSentFirstUpdate && !car.IsSpectator;
             world.UpdateExternal(ext, car.Status.Position, car.Status.Velocity, active);
+            ext.Laps = session.Results != null && session.Results.TryGetValue(car.SessionId, out var res) ? (int)res.NumLaps : 0;
         }
 
         // chequered flag / end of session
@@ -560,8 +566,11 @@ public sealed class RaceAiService : IHostedService
         // track grip and rain slow the bots down like everybody else
         var weather = _weatherManager.CurrentWeather;
         float grip = weather.TrackGrip > 0.5f ? weather.TrackGrip : 1f;
-        // (AssettoServer already lowers TrackGrip for rain, see RainHelper)
-        world.Settings.GripFactor = Math.Clamp(grip, 0.5f, 1.05f);
+        // AssettoServer only lowers TrackGrip for rain when RainTrackGripReductionPercent is set; otherwise the rain physics runs in CSP
+        // on the clients, so the bots need their own wet-track grip loss
+        if (_serverConfig.Extra.RainTrackGripReductionPercent <= 0 && _config.RainGripLoss > 0)
+            grip *= 1 - _config.RainGripLoss * (0.12f * Math.Clamp(weather.RainWetness, 0, 1) + 0.18f * Math.Clamp(weather.RainWater, 0, 1));
+        world.Settings.GripFactor = Math.Clamp(grip, 0.4f, 1.05f);
 
         foreach (var slot in _slots)
             slot.Bot.RemainingLaps = RemainingLaps(slot, session);
@@ -575,7 +584,7 @@ public sealed class RaceAiService : IHostedService
         {
             if (!slot.Active) continue;
             var pose = world.GetPose(slot.Bot);
-            slot.WriteStatus(pose, serverTime, lights, wipers);
+            slot.WriteStatus(pose, serverTime, lights, wipers, _config.FlashLights, _config.FlashLightsDaytime);
         }
 
         if (_config.AnnounceOvertakes && _sessionType == SessionType.Race && _raceStarted)

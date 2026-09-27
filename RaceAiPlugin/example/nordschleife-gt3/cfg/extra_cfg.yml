@@ -3,3 +3,7 @@
 EnableAi: false
 EnablePlugins:
   - RaceAiPlugin
+# CSP weather (Sol/Pure): rain, smooth transitions. Needed for RealWeather in plugin_race_ai_cfg.yml
+EnableWeatherFx: true
+# Real time of day at the track (with RealWeather: day/night and weather match the Nürburgring right now)
+EnableRealTime: false

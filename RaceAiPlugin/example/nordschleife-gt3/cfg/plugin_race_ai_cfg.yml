@@ -6,11 +6,14 @@ BotSlots: []
 AiStrength: 94
 # +/- range spread evenly over the bots: 94 +/- 3 -> bots from 91 % to 97 %
 AiStrengthSpread: 3
+# Even = the spread is divided into equal steps (94 +/- 3 with 16 bots: 91.0, 91.4, ... 97.0), randomly assigned to the bots.
+# Random = every bot gets a random value inside the range. (There is no "Odd": Even means evenly spaced.)
 AiStrengthDistribution: Even
 # Field = same % means the same lap time in every car; Car = % of each car's own best lap
 AiStrengthReference: Field
 AiAggression: 55
 AiAggressionVariation: 15
+# Weaker bots lose their time in corners (later throttle on exit, earlier braking), not on the straights
 # Where the players start in a race that doesn't follow a qualifying: Default, First, Last, Middle, Random
 PlayerGridPosition: Middle
 RandomizeBotGrid: true
@@ -21,7 +24,8 @@ Qualifying: Drive
 AssettoCorsaPath: /mnt/GameDrive/SteamLibrary/steamapps/common/assettocorsa
 GridFile: cfg/ks_nordschleife-nordschleife-grid.json
 UseTrackHints: true
-SlipstreamStrength: 0.35
+# Multipliers: 1.0 = 100 % (normal), 0.5 = half, 2.0 = double
+SlipstreamStrength: 1.0
 EdgeMargin: 0.4
 SideMargin: 0.5
 HeightOffset: 0
@@ -30,16 +34,33 @@ DaytimeLights: false
 # Endurance: fuel (FUEL_RATE), tyre wear (TYRE_WEAR_RATE), pit stops, mandatory stop (RACE_PIT_WINDOW_START/END)
 Fuel: true
 TyreWear: true
-TyreWearFactor: 0.15
+TyreWearFactor: 1.0
 TyreChangeGrip: 0.95
 PitStops: true
 PitSpeedKmh: 80
 PracticeFuelLaps: 4
 QualifyingFuelLaps: 2
 AnnouncePitStops: true
+# Race craft
+# Seconds stuck behind a slower car until a bot is fully impatient (tries harder to overtake, follows closer, flashes its lights)
+ImpatienceSeconds: 25
+# Flash the headlights when impatient (high beam at night; FlashLightsDaytime: also switch the lights on during the day)
+FlashLights: true
+FlashLightsDaytime: true
+# Lapped bots move to the side with the indicator on and let the leader through (race only)
+BlueFlags: true
+# Bots slow down near a stopped car and switch the hazard lights on
+YellowFlags: true
+# Wet track: bots lose grip like the players with CSP rain physics (1.0 = normal, 0 = off)
+RainGripLoss: 1.0
+# Real weather at the track from Open-Meteo (free, no API key), shown by Sol/Pure via CSP WeatherFX.
+# Set EnableWeatherFx: true (default) and for the real time of day EnableRealTime: true in extra_cfg.yml
+RealWeather: false
+RealWeatherUpdateMinutes: 10
+RealWeatherTransitionSeconds: 120
 AnnounceOvertakes: true
 LogLaps: true
-NamePrefix: ''
+NamePrefix: 'AI-'
 Names: []
 Drivers: []
 # Example for a fixed driver:

@@ -33,6 +33,12 @@ public sealed class RacingLine
     /// <summary>Speed cap from ai_hints.ini MAXSPEED entries (m/s, +inf = none).</summary>
     public readonly float[] MaxSpeed;
 
+    /// <summary>
+    /// True if +Lateral points to the driver's right. In AC world coordinates (Y up) cross(forward, up) is the right-hand side
+    /// (verified with the clockwise Nordschleife, whose line turns towards +Lateral overall).
+    /// </summary>
+    public bool RightIsPlus { get; set; } = true;
+
     /// <summary>True if the file's SideLeft was found to be on the +Lateral side.</summary>
     public bool SideLeftIsPlus { get; }
 

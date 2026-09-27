@@ -102,10 +102,58 @@ public static class SelfTest
         Check($"95 % drives {lap95:F1} s (target {calib.LapTimeFor(95):F1} s)", MathF.Abs(lap95 - calib.LapTimeFor(95)) < 1.0f);
 
         // pit stops: pit lane parallel to the first straight, heavy fuel use
+        FlagTest(line);
         PitTest(line);
 
         Console.WriteLine(_failed == 0 ? "SELFTEST OK" : $"SELFTEST FAILED ({_failed})");
         return _failed == 0 ? 0 : 3;
+    }
+
+    private static void FlagTest(RacingLine line)
+    {
+        // blue flag: a much faster car a lap ahead comes up behind a slow bot
+        var world = new RaceWorld(line, new RaceWorldSettings { Seed = 3, BlueFlags = true, YellowFlags = true, RaceStartTime = 0 });
+        var slow = new RaceBot { Id = 0, Name = "Slow", Car = new CarSpec(), Driver = DriverProfile.FromLevel(60, 50) };
+        var fast = new RaceBot { Id = 1, Name = "Fast", Car = new CarSpec(), Driver = DriverProfile.FromLevel(100, 50) };
+        world.Bots.Add(slow);
+        world.Bots.Add(fast);
+        world.PlaceOnGrid(world.Bots);
+        world.StartRace(0);
+        fast.LapsCompleted = 1;
+        slow.Distance += 120;
+        slow.Speed = fast.Speed = 30;
+        double t = 0;
+        world.Advance(0);
+        bool indicated = false, passed = false;
+        while (t < 200 && !passed)
+        {
+            t += 0.05;
+            world.Advance(t);
+            indicated |= slow.Indicator != 0;
+            passed = fast.Distance - slow.Distance > 30 && fast.Distance - slow.Distance < line.Length / 2;
+        }
+        Check($"blue flag: lapped bot indicates and lets the leader through ({t:F0} s)", indicated && passed);
+
+        // yellow flag: a stopped car on the track
+        var w2 = new RaceWorld(line, new RaceWorldSettings { Seed = 4, YellowFlags = true, RaceStartTime = -100 });
+        var bot = new RaceBot { Id = 0, Name = "Y", Car = new CarSpec(), Driver = DriverProfile.FromLevel(95, 50) };
+        w2.Bots.Add(bot);
+        w2.PlaceOnGrid(w2.Bots);
+        w2.StartRace(0);
+        var ext = w2.GetOrAddExternal(99);
+        var wreck = line.PositionAt(line.WrapS((float)bot.Distance + 600), line.RoomPlus[line.IndexAt(line.WrapS((float)bot.Distance + 600))] - 1.5f);
+        bool hazards = false, crash = false;
+        t = 0;
+        while (t < 40)
+        {
+            t += 0.05;
+            w2.UpdateExternal(ext, wreck, Vector3.Zero);
+            w2.Advance(t);
+            var pose = w2.GetPose(bot);
+            hazards |= pose.Hazards;
+            crash |= Vector3.Distance(pose.Position, wreck) < 1.5f;
+        }
+        Check($"yellow flag: hazards on near the stopped car, no crash", hazards && !crash);
     }
 
     private static void PitTest(RacingLine line)

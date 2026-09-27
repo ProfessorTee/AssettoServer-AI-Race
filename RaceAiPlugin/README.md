@@ -19,6 +19,8 @@ Das Plugin besteht aus zwei Teilen:
 - Fahren auf der Kunos-Ideallinie mit Streckenbreite, Kurven- und Kuppenlimit (Flugplatz, Pflanzgarten) und Bremspunkten
 - **Fahrzeugdaten wie Content Manager** direkt aus `data.acd`: Gewicht, Drehmomentkurve, Turbo, Übersetzungen, Reifenradius und -grip,
   Abtrieb und Luftwiderstand aus `aero.ini`, Schaltdrehzahlen aus `ai.ini`. Ballast und Restriktor aus der Entry List werden berücksichtigt.
+- **Schwächere Bots verlieren ihre Zeit in Kurven:** Sie bremsen früher, fahren langsamer durch die Kurve und gehen später
+  aufs Gas. Auf der Geraden hat jedes Auto seine volle Leistung.
 - **Kunos-AI-Hints** der Strecke (`data/ai_hints.ini`: langsamere Abschnitte, Max-Speed)
 - Windschatten, Folgen, Angriff (Pressure in Kurven und Bremszonen, Windschatten auf Geraden), Nebeneinanderfahren mit
   Innenbahn-Vorrecht, Verteidigen, Fahrfehler je nach Konstanz, Formschwankungen
@@ -34,6 +36,14 @@ Das Plugin besteht aus zwei Teilen:
 - **Boxenstopps:** Die Bots fahren über `pit_lane.ai` mit Tempolimit an ihre Box (`AC_PIT_x`), tanken und wechseln die Reifen
   (Standzeit aus `car.ini`) und fahren wieder raus. Die Strategie rechnet: Reicht der Sprit bis ins Ziel? Kosten die alten Reifen
   bis zum Ende mehr Zeit als ein Stopp? Die Pflicht-Boxenstopp-Fenster `RACE_PIT_WINDOW_START/END` werden eingehalten.
+- **Ungeduld:** Wer hinter einem langsameren Auto festhängt, wird mit der Zeit ungeduldig (`ImpatienceSeconds`). Er fährt dichter auf,
+  greift früher an, sucht öfter eine Lücke und gibt die Lichthupe (nachts Fernlicht, tagsüber Scheinwerfer). Crashs vermeidet er trotzdem.
+- **Blaue Flagge:** Ein überrundeter Bot fährt an den Rand, setzt den Blinker zu dieser Seite und nimmt etwas Gas weg. Der Führende
+  fährt auf der anderen Seite vorbei.
+- **Gelbe Flagge:** Steht ein Auto auf der Strecke, schalten die Bots in der Nähe den Warnblinker ein, fahren langsamer und überholen nicht.
+- **Regen:** Nasse Strecke = weniger Grip für die Bots (`RainGripLoss`), passend zur CSP-Regenphysik der Spieler.
+- **Echtes Wetter** (`RealWeather`): Das aktuelle Wetter am Nürburgring kommt von Open-Meteo (kostenlos, ohne API-Key). Der Server
+  schickt es als CSP-WeatherFX an die Clients, Sol und Pure zeigen es an. Mit `EnableRealTime: true` passt auch die Tageszeit.
 - Scheinwerfer bei Dunkelheit, Scheibenwischer bei Regen, Bremslichter, Warnblinker bei Stillstand
 - Namen und Nationen im Client, in der Rangliste und in den Ergebnissen
 
@@ -42,15 +52,20 @@ Das Plugin besteht aus zwei Teilen:
 | Content Manager | `plugin_race_ai_cfg.yml` |
 |---|---|
 | KI-Stärke | `AiStrength` in % der Bestzeit (100 % = Median-Bestzeit der Bot-Autos, steht im Log). 94 % auf der Nordschleife ≈ 7:18 |
-| KI-Stärke: Variation | `AiStrengthSpread` (± %, gleichmäßig auf die Bots verteilt, `AiStrengthDistribution: Even/Random`) |
+| KI-Stärke: Variation | `AiStrengthSpread` (± %). `AiStrengthDistribution: Even` = in gleichen Schritten verteilt (90 ± 10 bei 16 Bots: 80,0 / 81,3 / … / 100), `Random` = zufällig im Bereich |
 | – | `AiStrengthReference`: `Field` (gleiche % = gleiche Zeit in jedem Auto) oder `Car` (% der Bestzeit des eigenen Autos) |
 | KI-Aggressivität | `AiAggression` (0–100), `AiAggressionVariation` |
 | Startposition | `PlayerGridPosition`: `Default`, `First`, `Last`, `Middle`, `Random` |
 | Zufällige Startaufstellung | `RandomizeBotGrid` |
 | Fahrernamen / Nationen | `DRIVERNAME` in `entry_list.ini`, `Names`, `Drivers` (auch Stärke/Aggressivität pro Fahrer) |
 
+Faktoren wie `SlipstreamStrength`, `TyreWearFactor` und `RainGripLoss`: 1.0 = 100 % (normal), 0.5 = halb, 2.0 = doppelt.
+
 Weitere Optionen: `Practice`/`Qualifying` (`Drive` oder `Parked`), `SlipstreamStrength`, `EdgeMargin`, `SideMargin`, `CoolDownPace`,
-`DaytimeLights`, `AnnounceOvertakes` (Chat: „X overtook Y at Flugplatz“), `NamePrefix`, `LogLaps`.
+`DaytimeLights`, `AnnounceOvertakes` (Chat: „X overtook Y at Flugplatz“), `NamePrefix` (Standard `AI-`), `LogLaps`.
+
+Renn-Verhalten: `ImpatienceSeconds`, `FlashLights`, `FlashLightsDaytime`, `BlueFlags`, `YellowFlags`, `RainGripLoss`,
+`RealWeather`, `RealWeatherUpdateMinutes`, `RealWeatherTransitionSeconds`.
 
 Weitere Endurance-Optionen: `Fuel`, `TyreWear`, `TyreWearFactor`, `TyreChangeGrip`, `PitStops`, `PitSpeedKmh`, `PracticeFuelLaps`,
 `QualifyingFuelLaps`, `AnnouncePitStops`.
@@ -92,7 +107,8 @@ dotnet run --project RaceAiTool -- car  --ac <AC-Ordner> --model ks_mercedes_amg
 dotnet run --project RaceAiTool -- strength --ac <AC-Ordner> --models ks_mercedes_amg_gt3,ks_ferrari_488_gt3
 ```
 
-Referenzwerte Nordschleife: 100 % ≈ 6:52 (Median der GT3), 95 % ≈ 7:13, 90 % ≈ 7:38. Die Zielzeit gilt für frische Reifen und wenig Sprit.
+Referenzwerte Nordschleife: 100 % ≈ 6:52 (Median der GT3), 95 % ≈ 7:13, 90 % ≈ 7:37, 85 % ≈ 8:05, 80 % ≈ 8:40.
+Unter etwa 80 % fahren die Bots sehr zaghaft durch die Kurven. Die Zielzeit gilt für frische Reifen und wenig Sprit.
 Im Rennen mit vollem Tank sind die Bots ein paar Sekunden langsamer.
 `RaceAiTool strength --ac <AC-Ordner> --models …` zeigt die Tabelle pro Auto.
 
@@ -101,4 +117,4 @@ Im Rennen mit vollem Tank sind die Bots ein paar Sekunden langsamer.
 - Die Bots sind kinematisch (keine echte Fahrphysik). Kontakte lösen sie auf, indem sie nachgeben, und nicht über Kollisionen.
 - Kein fliegender Start, keine Schäden und Reparaturen. Die Reifen werden nicht warm gefahren (nur ein Kaltstart-Abschlag nach dem Wechsel).
 - Ein Bot, dessen Slot ein Admin übernimmt, kommt erst wieder, wenn der Admin den Server verlässt. In ein laufendes Rennen steigt er nicht ein.
-- Getestet mit einem simulierten Client und offline. Ein Test mit dem echten AC-Client und CSP steht noch aus.
+- Mit dem echten AC-Client getestet: Fahren und Aussehen. Blinker, Lichthupe und echtes Wetter sind noch nicht mit dem echten Client geprüft.

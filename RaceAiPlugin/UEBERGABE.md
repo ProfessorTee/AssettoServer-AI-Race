@@ -1,4 +1,4 @@
-# Race-AI für AssettoServer: Übergabe (Stand 27.09.2026, 2. Sitzung, Teil 2)
+# Race-AI für AssettoServer: Übergabe (Stand 27.09.2026, 2. Sitzung, Teil 3)
 
 ## Status
 - Der Core-Patch und das Plugin **kompilieren** gegen AssettoServer master (Basis `e92d253`, entspricht Release `v0.0.55-pre42`).
@@ -19,6 +19,17 @@
   `RaceWorld.Pit.cs`), Strategie (Sprit bis ins Ziel? Reifenverlust gegen Stoppkosten, Pflicht-Fenster).
 - „Echte Physik“ (Fahrdynamik auf dem Server) wurde bewusst nicht gebaut: Im AC-Multiplayer sind auch menschliche Gegner beim Client
   nur Positionsdaten. Stattdessen gibt es die physikalischen Effekte oben.
+
+## Neu in Teil 3
+- Faktoren einheitlich: `SlipstreamStrength` und `TyreWearFactor` 1.0 = 100 % (intern 0.35 bzw. 0.15). `NamePrefix` hat den Standard `AI-`.
+- Schwäche in den Kurven: `RaceWorld.Integrate` skaliert die Gas-Pace mit der Querbeschleunigung (`cornerLoad`). Auf der Geraden gibt es volles Gas.
+  Die Kalibrierung misst das automatisch mit.
+- Ungeduld (`Impatience`, `ImpatienceSeconds`) mit Lichthupe (`BotPose.Flash` → HighBeam bzw. LightsOn), gelbe Flagge
+  (`FindIncidents`: Auto < 8 m/s auf der Strecke → Warnblinker, langsamer, kein Überholen), blaue Flagge (Überrundeter fährt
+  an den Rand, Blinker `BotPose.Indicator` → IndicateLeft/Right). Selftests: `FlagTest`.
+- Regen-Grip für die Bots (`RainGripLoss`, nur wenn `RainTrackGripReductionPercent` = 0).
+- `RealWeatherService`: Open-Meteo (ohne Key), WMO-Code → WeatherFxType, alle `RealWeatherUpdateMinutes`.
+  Offen: am Rechner des Nutzers mit CSP testen, ob Sol/Pure die Übergänge sauber zeigen.
 
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:
@@ -43,6 +54,6 @@ Die Skripte liegen in `tools/testbuild/` im Übergabe-Ordner auf dem Rechner.
 1. Test mit dem echten Client: Höhe der Autos (`HeightOffset`), Lenkrad- und Radwinkel-Kodierung (`BotSlot.WriteStatus`, geraten),
    Gang-Anzeige, Bremslichter, das Aussehen bei 20 Hz
 2. Überholen: Züge ähnlich schneller Autos bleiben oft zusammen. Mögliche Stellschrauben: `PressureEma`-Schwelle, Windschatten, Innenbahn-Vorrecht.
-3. Blaue Flaggen: Überrundete Bots machen noch nicht aktiv Platz.
+3. Blinkerkodierung (IndicateLeft/Right) und Lichthupe mit dem echten Client prüfen.
 4. Boxenstopps und Reifen, fliegender Start, Formationsrunde
 5. Weitere Strecken: Es sollte generisch funktionieren (fast_lane.ai v7, kn5-Grid). Nur mit der Nordschleife getestet.

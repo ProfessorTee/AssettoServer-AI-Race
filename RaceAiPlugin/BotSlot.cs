@@ -29,7 +29,7 @@ public sealed class BotSlot : IExternalAiController
 
     public CarStatus? GetStatusForCar(EntryCar toCar) => Active ? EntryCar.Status : null;
 
-    public void WriteStatus(in BotPose pose, long serverTimeMs, CarStatusFlags lights, CarStatusFlags wipers)
+    public void WriteStatus(in BotPose pose, long serverTimeMs, CarStatusFlags lights, CarStatusFlags wipers, bool flashLights = true, bool flashDaytime = true)
     {
         var status = EntryCar.Status;
         status.Timestamp = serverTimeMs;
@@ -53,8 +53,16 @@ public sealed class BotSlot : IExternalAiController
         status.Gas = pose.Throttle;
 
         var flags = lights | wipers;
+        if (pose.Flash && flashLights)
+        {
+            // flash: high beam at night, lights during the day
+            if ((lights & CarStatusFlags.LightsOn) != 0) flags &= ~CarStatusFlags.HighBeamsOff;
+            else if (flashDaytime) flags |= CarStatusFlags.LightsOn;
+        }
         if (pose.Braking) flags |= CarStatusFlags.BrakeLightsOn;
         if (pose.Hazards) flags |= CarStatusFlags.HazardsOn;
+        else if (pose.Indicator < 0) flags |= CarStatusFlags.IndicateLeft;
+        else if (pose.Indicator > 0) flags |= CarStatusFlags.IndicateRight;
         status.StatusFlag = flags;
     }
 

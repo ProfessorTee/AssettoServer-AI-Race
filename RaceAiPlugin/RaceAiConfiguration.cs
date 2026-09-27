@@ -26,8 +26,10 @@ public enum StrengthReference
 
 public enum StrengthDistribution
 {
-    Even,
-    Random
+    /// <summary>Evenly spaced values over the range (Linear is the same).</summary>
+    Even = 0,
+    Linear = 0,
+    Random = 1
 }
 
 public enum BotSessionMode
@@ -73,7 +75,7 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
                               "Car = the best lap of each car itself (faster cars stay faster)")]
     public StrengthReference AiStrengthReference { get; set; } = StrengthReference.Field;
 
-    [YamlMember(Description = "How the range is spread: Even (evenly spaced values, shuffled over the bots) or Random")]
+    [YamlMember(Description = "How the range is spread: Even (evenly spaced, e.g. 80 +/- 10 with 5 bots = 70, 75, 80, 85, 90, shuffled over the bots) or Random")]
     public StrengthDistribution AiStrengthDistribution { get; set; } = StrengthDistribution.Even;
 
     [YamlMember(Description = "Deprecated and ignored, use AiStrength", DefaultValuesHandling = DefaultValuesHandling.OmitNull)]
@@ -95,7 +97,7 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     public List<string> Names { get; set; } = [];
 
     [YamlMember(Description = "Name prefix shown in front of every bot name, e.g. '[AI] '")]
-    public string NamePrefix { get; set; } = "";
+    public string NamePrefix { get; set; } = "AI-";
 
     [YamlMember(Description = "Content Manager 'starting position' for races that are not started from a qualifying result: Default, First, Last, Middle, Random")]
     public PlayerGridPosition PlayerGridPosition { get; set; } = PlayerGridPosition.Default;
@@ -118,8 +120,8 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     [YamlMember(Description = "Use the track's data/ai_hints.ini (slower sections, max speeds) like the Kunos AI")]
     public bool UseTrackHints { get; set; } = true;
 
-    [YamlMember(Description = "Slipstream strength 0-1 (share of aero drag removed directly behind another car)")]
-    public float SlipstreamStrength { get; set; } = 0.35f;
+    [YamlMember(Description = "Slipstream: 1.0 = 100 % (normal), 0 = off, 2.0 = twice as strong")]
+    public float SlipstreamStrength { get; set; } = 1.0f;
 
     [YamlMember(Description = "Distance bots keep to the track edges (m)")]
     public float EdgeMargin { get; set; } = 0.4f;
@@ -136,6 +138,34 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     [YamlMember(Description = "Headlights on during the day")]
     public bool DaytimeLights { get; set; } = false;
 
+    [YamlMember(Description = "Flash the headlights at a car that holds them up (at night high beam, during the day the lights)")]
+    public bool FlashLights { get; set; } = true;
+
+    [YamlMember(Description = "Also flash during the day (otherwise only when the lights are on anyway)")]
+    public bool FlashLightsDaytime { get; set; } = true;
+
+    [YamlMember(Description = "Seconds stuck behind a slower car until a bot is fully impatient (closer, earlier and more determined attacks, no crashes). 0 = off")]
+    public float ImpatienceSeconds { get; set; } = 25f;
+
+    [YamlMember(Description = "Blue flags: lapped bots move over to the side and indicate when the leaders come through")]
+    public bool BlueFlags { get; set; } = true;
+
+    [YamlMember(Description = "Yellow flags: bots slow down, don't overtake and switch the hazard lights on before a stopped or crawling car")]
+    public bool YellowFlags { get; set; } = true;
+
+    [YamlMember(Description = "Grip loss of the bots on a wet track: 1.0 = 100 % (up to about -30 % grip in heavy rain), 0 = rain doesn't slow them down")]
+    public float RainGripLoss { get; set; } = 1.0f;
+
+    [YamlMember(Description = "Real weather at the track's location (Open-Meteo, no API key needed), sent to the clients via CSP WeatherFX (works with Sol and Pure). " +
+                              "For the real time of day also set EnableRealTime: true in extra_cfg.yml")]
+    public bool RealWeather { get; set; } = false;
+
+    [YamlMember(Description = "How often the real weather is fetched (minutes)")]
+    public int RealWeatherUpdateMinutes { get; set; } = 10;
+
+    [YamlMember(Description = "Duration of a weather change (seconds)")]
+    public int RealWeatherTransitionSeconds { get; set; } = 120;
+
     [YamlMember(Description = "Announce in chat when a bot overtakes a player or a player overtakes a bot (with the track section from data/sections.ini)")]
     public bool AnnounceOvertakes { get; set; } = false;
 
@@ -145,8 +175,8 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     [YamlMember(Description = "Tyre wear with the car's Kunos wear curves (uses TYRE_WEAR_RATE of server_cfg.ini)")]
     public bool TyreWear { get; set; } = true;
 
-    [YamlMember(Description = "Tyre wear factor: Kunos virtual km per real km at average load. Higher = tyres wear out faster")]
-    public float TyreWearFactor { get; set; } = 0.15f;
+    [YamlMember(Description = "Tyre wear on top of TYRE_WEAR_RATE: 1.0 = 100 % (a GT3 set lasts about 7 Nordschleife laps), 2.0 = twice as fast")]
+    public float TyreWearFactor { get; set; } = 1.0f;
 
     [YamlMember(Description = "Bots stop for new tyres when worn tyres would have less grip than this (and new tyres pay off until the end)")]
     public float TyreChangeGrip { get; set; } = 0.95f;

@@ -66,6 +66,8 @@ public sealed class ExternalCar
     public float S { get; internal set; }
     public float Offset { get; internal set; }
     public float Speed { get; internal set; }
+    /// <summary>Completed laps of this car in the current race (set from outside, used for blue flags).</summary>
+    public int Laps { get; set; }
     internal int HintIndex = -1;
 }
 
@@ -169,6 +171,21 @@ public sealed class RaceBot
     internal float MassRatio = 1f;
 
     public bool InPitLane => Pit is PitPhase.InLane or PitPhase.Stopped;
+
+    // ---- race craft: impatience, flags, signals
+    /// <summary>0..1, grows while the bot is stuck behind a slower car.</summary>
+    public float Impatience { get; internal set; }
+    internal double BlockedSince = double.NaN;
+    internal int BlockedById = -1;
+    internal double LastBlockedAt;
+    internal double FlashUntil;
+    internal double NextFlashAt;
+    internal double YellowUntil;
+    internal bool YellowHazards;
+    internal double BlueFlagUntil;
+    internal int BlueSide;
+    /// <summary>-1 = left indicator, +1 = right indicator, 0 = off.</summary>
+    public int Indicator { get; internal set; }
 }
 
 public enum PitPhase
@@ -192,7 +209,9 @@ public readonly record struct BotPose(
     bool Braking,
     float NormalizedPosition,
     byte Throttle = 0,
-    bool Hazards = false);
+    bool Hazards = false,
+    int Indicator = 0,
+    bool Flash = false);
 
 public sealed class RaceWorldSettings
 {
@@ -213,6 +232,14 @@ public sealed class RaceWorldSettings
     public float GripFactor { get; set; } = 1f;
     /// <summary>Maximum share of aero drag removed when directly behind another car (0 = no slipstream).</summary>
     public float SlipstreamStrength { get; set; } = 0.35f;
+    /// <summary>Lapped bots move aside and indicate when the leaders come through (races only).</summary>
+    public bool BlueFlags { get; set; }
+    /// <summary>Slow down, no overtaking and hazard lights before a stopped / crawling car.</summary>
+    public bool YellowFlags { get; set; } = true;
+    /// <summary>Seconds stuck behind a slower car until a bot is fully impatient (0 = never).</summary>
+    public float ImpatienceTime { get; set; } = 25f;
+    /// <summary>Race start time (for the yellow flag detection, which is off during the start).</summary>
+    public double RaceStartTime { get; set; } = double.NegativeInfinity;
     /// <summary>Slipstream range (m).</summary>
     public float SlipstreamRange { get; set; } = 40f;
     public int Seed { get; set; } = Environment.TickCount;
@@ -268,6 +295,8 @@ public sealed partial class RaceWorld
         public int Id;
         public bool IsBot;
         public float S, Offset, Speed, Length, Width;
+        /// <summary>Race progress in metres (laps * length + distance from the start line).</summary>
+        public float Progress;
         public RaceBot? Bot;
         public ExternalCar? External;
     }
@@ -456,6 +485,7 @@ public sealed partial class RaceWorld
         _now = now;
         _stepDt = dt;
         BuildNeighbors();
+        FindIncidents();
 
         foreach (var bot in Bots)
         {
@@ -500,9 +530,12 @@ public sealed partial class RaceWorld
         }
     }
 
+    private readonly List<float> _incidents = [];
+
     private void BuildNeighbors()
     {
         _neighbors.Clear();
+        _incidents.Clear();
         foreach (var b in Bots)
         {
             if (!b.OnTrack) continue;
@@ -510,7 +543,8 @@ public sealed partial class RaceWorld
             {
                 Id = b.Id, IsBot = true, Bot = b,
                 S = Line.WrapS((float)b.Distance), Offset = b.Offset, Speed = b.Speed,
-                Length = b.Car.Length, Width = b.Car.Width
+                Length = b.Car.Length, Width = b.Car.Width,
+                Progress = b.LapsCompleted * Line.Length + Line.WrapS((float)b.Distance - Settings.StartLineS)
             });
         }
         foreach (var e in Externals)
@@ -520,9 +554,35 @@ public sealed partial class RaceWorld
             {
                 Id = e.Id, IsBot = false, External = e,
                 S = e.S, Offset = e.Offset, Speed = MathF.Max(0, e.Speed),
-                Length = e.Length, Width = e.Width
+                Length = e.Length, Width = e.Width,
+                Progress = e.Laps * Line.Length + Line.WrapS(e.S - Settings.StartLineS)
             });
         }
+    }
+
+    private void FindIncidents()
+    {
+        if (!Settings.YellowFlags || _now - Settings.RaceStartTime < 20) return;
+        foreach (var n in _neighbors)
+        {
+            if (n.Speed > 8) continue;
+            if (n.IsBot && (n.Bot!.Phase != BotPhase.Racing || n.Bot.InPitLane)) continue;
+            if (!n.IsBot && IsInPitLane(n.External!)) continue;
+            _incidents.Add(n.S);
+        }
+    }
+
+    private bool IsInPitLane(ExternalCar e)
+    {
+        var lane = PitLane;
+        if (lane == null) return false;
+        // the pit lane leaves the track between these racing line positions
+        float from = lane.TrackSAt(lane.LimiterStart, Line), to = lane.TrackSAt(lane.LimiterEnd, Line);
+        float d = Line.Delta(from, e.S);
+        float len = Line.Delta(from, to);
+        if (d < 0 || d > len) return false;
+        int i = lane.IndexAt(lane.LimiterStart + d);
+        return MathF.Abs(e.Offset - lane.TrackOffset[i]) < 3;
     }
 
     /// <summary>
@@ -658,6 +718,45 @@ public sealed partial class RaceWorld
         float vLine = LineSpeedLimit(me, me.TargetOffset, 0);
         float vTarget = vLine;
 
+        // ---- yellow flag: somebody stopped or crawling ahead
+        me.YellowHazards = false;
+        if (me.Phase == BotPhase.Racing)
+        {
+            foreach (float inc in _incidents)
+            {
+                float d = Line.Delta(myS, inc);
+                if (d < 3 || d > 350) continue;
+                me.YellowUntil = _now + 1.5;
+                if (d < 250) me.YellowHazards = true;
+                if (d < 150) vTarget = MathF.Min(vTarget, MathF.Max(15, vLine * 0.9f));
+            }
+        }
+        bool yellow = _now < me.YellowUntil;
+
+        // ---- blue flag: a car that is a lap (or more) ahead comes up behind
+        me.Indicator = 0;
+        if (Settings.BlueFlags && me.Phase == BotPhase.Racing)
+        {
+            float myProgress = me.LapsCompleted * Line.Length + Line.WrapS(myS - Settings.StartLineS);
+            foreach (var o in _neighbors)
+            {
+                if (o.IsBot && o.Id == me.Id) continue;
+                float ds = Line.Delta(myS, o.S);
+                if (ds > -2 || ds < -150) continue;
+                if (o.Progress - myProgress < Line.Length * 0.5f) continue;
+                if (o.Speed < me.Speed - 3) continue;
+                if (_now >= me.BlueFlagUntil)
+                {
+                    // move over to the side with more room, keep right if both are fine
+                    var (rm, rp) = Line.MinRoom(myS, 120);
+                    float right = Line.RightIsPlus ? rp : rm, left = Line.RightIsPlus ? rm : rp;
+                    me.BlueSide = right >= me.Car.Width + 1.5f || right >= left ? 1 : -1;
+                }
+                me.BlueFlagUntil = _now + 2.5;
+            }
+        }
+        bool blueFlag = _now < me.BlueFlagUntil;
+
         // ---- braking-zone mistakes
         bool braking = vLine < me.Speed - 3;
         if (braking && !me.InBrakingZone && me.Phase == BotPhase.Racing)
@@ -669,6 +768,12 @@ public sealed partial class RaceWorld
         me.InBrakingZone = braking;
 
         // ---- overtake bookkeeping
+        if (me.OvertakeTargetId >= 0 && (_now < me.YellowUntil || _now < me.BlueFlagUntil))
+        {
+            // no overtaking under yellow; a lapped car lets the others through instead of fighting
+            me.OvertakeTargetId = -1;
+            me.ReturnToLineAfter = _now;
+        }
         if (me.OvertakeTargetId >= 0)
         {
             var target = FindNeighbor(me.OvertakeTargetId);
@@ -699,7 +804,7 @@ public sealed partial class RaceWorld
                     me.OvertakeTargetId = -1;
                     me.OvertakeGiveUps++;
                     me.ReturnToLineAfter = _now;
-                    me.OvertakeCooldownUntil = _now + 3 + _rng.NextDouble() * 3;
+                    me.OvertakeCooldownUntil = _now + (3 + _rng.NextDouble() * 3) * (1 - 0.6 * me.Impatience);
                 }
             }
         }
@@ -715,11 +820,33 @@ public sealed partial class RaceWorld
                 float sample = Math.Clamp(vLine - a.Speed, -4, 4);
                 me.PressureEma += (sample - me.PressureEma) * MathF.Min(1, _stepDt / 4f);
             }
-            float attackRange = 3 + me.Speed * (0.12f + 0.18f * me.Driver.Aggression);
-            float needAdvantage = 1.2f - 0.9f * me.Driver.Aggression;
+            // impatience: the longer I'm stuck behind a slower car, the harder I push
             float closing = me.Speed - a.Speed;
+            if (aheadGap < 30 && (me.PressureEma > 0.2f || closing > 0.5f))
+            {
+                if (me.BlockedById != a.Id || double.IsNaN(me.BlockedSince))
+                {
+                    me.BlockedById = a.Id;
+                    me.BlockedSince = _now;
+                }
+                me.LastBlockedAt = _now;
+            }
+            float imp = Settings.ImpatienceTime > 0 && !double.IsNaN(me.BlockedSince)
+                ? Math.Clamp((float)(_now - me.BlockedSince) / Settings.ImpatienceTime, 0, 1) * (0.4f + 0.6f * me.Driver.Aggression)
+                : 0;
+            me.Impatience = imp;
 
-            if (me.OvertakeTargetId != a.Id && !cautious && me.Phase == BotPhase.Racing && _now >= me.OvertakeCooldownUntil
+            float attackRange = 3 + me.Speed * (0.12f + 0.18f * me.Driver.Aggression) + imp * 8;
+            float needAdvantage = (1.2f - 0.9f * me.Driver.Aggression) * (1 - imp);
+
+            // flash the lights at the car in front
+            if (imp > 0.4f && aheadGap < 25 && _now >= me.NextFlashAt && !yellow)
+            {
+                me.FlashUntil = _now + 0.9;
+                me.NextFlashAt = _now + 5 + _rng.NextDouble() * 7 * (1.2 - imp);
+            }
+
+            if (me.OvertakeTargetId != a.Id && !cautious && !yellow && !blueFlag && me.Phase == BotPhase.Racing && _now >= me.OvertakeCooldownUntil
                 && aheadGap < attackRange && (me.PressureEma > needAdvantage || closing > 1.0f))
             {
                 if (!TryChooseOvertakeSide(me, a, aheadGap, latClear, minOff, maxOff, out var side))
@@ -744,6 +871,7 @@ public sealed partial class RaceWorld
                 float followGap = 1.5f + me.Speed * (cautious ? 0.45f : 0.10f + 0.20f * (1 - me.Driver.Aggression));
                 if (me.OvertakeTargetId == a.Id && !cautious)
                     followGap = 1.0f + me.Speed * (0.05f + 0.04f * (1 - me.Driver.Aggression)); // right on the gearbox
+                followGap = MathF.Max(1.0f + me.Speed * 0.04f, followGap * (1 - 0.35f * imp));
                 // in the slipstream on a straight: close right up for a run at the next braking zone
                 if (me.Draft > 0.05f && !gripLimited && !cautious) followGap *= 0.45f;
                 float vFollow = a.Speed + (aheadGap - followGap) * 0.8f;
@@ -751,8 +879,15 @@ public sealed partial class RaceWorld
             }
         }
 
+        if (_now - me.LastBlockedAt > 4)
+        {
+            me.BlockedSince = double.NaN;
+            me.BlockedById = -1;
+            me.Impatience = 0;
+        }
+
         // ---- defend against a faster car right behind
-        if (behind is { } b && me.OvertakeTargetId < 0 && me.Phase == BotPhase.Racing
+        if (behind is { } b && me.OvertakeTargetId < 0 && me.Phase == BotPhase.Racing && !blueFlag && !yellow
             && behindGap < 8 && b.Speed > me.Speed + 0.5f && _now > me.DefendUntil + 6
             && me.Driver.Aggression > 0.25f && _rng.NextSingle() < me.Driver.Aggression * 0.05f)
         {
@@ -766,7 +901,14 @@ public sealed partial class RaceWorld
         }
 
         // ---- choose lateral target
-        if (me.OvertakeTargetId < 0)
+        if (blueFlag)
+        {
+            me.TargetOffset = me.BlueSide * (Line.RightIsPlus ? 1 : -1) > 0 ? maxOff : minOff;
+            me.Indicator = me.BlueSide;
+            vTarget = MathF.Min(vTarget, vLine * 0.95f);
+            me.ReturnToLineAfter = _now + 1.5;
+        }
+        else if (me.OvertakeTargetId < 0)
         {
             if (_now < me.DefendUntil)
             {
@@ -891,10 +1033,16 @@ public sealed partial class RaceWorld
         if (Settings.FuelRate > 0 && me.Fuel <= 0)
             target = MathF.Min(target, 25 / 3.6f); // out of fuel: rolling to the pits on the last drops
 
+        // weaker drivers lose their time in the corners (and on the way out of them), on the straights everybody is flat out
+        float sNow = Line.WrapS((float)me.Distance);
+        float kNow = MathF.Abs(Line.CurvatureAt(sNow));
+        float cornerLoad = Math.Clamp(v * v * kNow / (me.Car.LateralGrip * CarSpec.G) * 1.3f, 0, 1);
+        float throttlePace = 1 - (1 - pace) * cornerLoad;
+
         float accel;
         if (target > v)
         {
-            accel = me.Car.AccelAt(v, pace) / me.MassRatio + me.Draft * me.Car.DragCoefficient * v * v;
+            accel = me.Car.AccelAt(v, throttlePace) / me.MassRatio + me.Draft * me.Car.DragCoefficient * v * v;
             v = MathF.Min(target, v + accel * dt);
         }
         else
@@ -1064,11 +1212,14 @@ public sealed partial class RaceWorld
         float full = bot.Car.AccelAt(bot.Speed, bot.Driver.Pace);
         byte throttle = bot.Accel > 0.05f && full > 0.1f ? (byte)Math.Clamp(bot.Accel / full * 255f, 0, 255) : (byte)0;
         if (bot.Phase == BotPhase.Grid) throttle = 40; // blipping on the grid
-        bool hazards = bot.Phase == BotPhase.Racing && bot.Speed < 5 && !double.IsNaN(bot.StoppedSince) && _now - bot.StoppedSince > 3;
+        bool hazards = (bot.Phase == BotPhase.Racing && bot.Speed < 5 && !double.IsNaN(bot.StoppedSince) && _now - bot.StoppedSince > 3)
+                       || (bot.YellowHazards && bot.Phase == BotPhase.Racing);
+        // two short flashes
+        bool flash = _now < bot.FlashUntil && (bot.FlashUntil - _now) % 0.45 > 0.22;
         return new BotPose(pos, rotation, vel, bot.Speed, wheel, gear, rpm,
             bot.Accel < -1f || (bot.Phase == BotPhase.Grid),
             Line.WrapS(s - Settings.StartLineS) / Line.Length,
-            throttle, hazards);
+            throttle, hazards, hazards ? 0 : bot.Indicator, flash);
     }
 
     internal static (int Gear, int Rpm) GearAndRpm(RaceBot bot)
