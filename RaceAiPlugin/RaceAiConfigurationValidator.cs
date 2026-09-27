@@ -8,8 +8,11 @@ public class RaceAiConfigurationValidator : AbstractValidator<RaceAiConfiguratio
 {
     public RaceAiConfigurationValidator()
     {
-        RuleFor(cfg => cfg.AiLevel).InclusiveBetween(0, 100);
-        RuleFor(cfg => cfg.AiLevelVariation).InclusiveBetween(0, 100);
+        RuleFor(cfg => cfg.AiStrength).InclusiveBetween(50, 110);
+        RuleFor(cfg => cfg.AiStrengthSpread).InclusiveBetween(0, 30);
+        RuleFor(cfg => cfg.TyreWearFactor).InclusiveBetween(0, 5);
+        RuleFor(cfg => cfg.TyreChangeGrip).InclusiveBetween(0.5f, 1);
+        RuleFor(cfg => cfg.PitSpeedKmh).InclusiveBetween(20, 200);
         RuleFor(cfg => cfg.AiAggression).InclusiveBetween(0, 100);
         RuleFor(cfg => cfg.AiAggressionVariation).InclusiveBetween(0, 100);
         RuleFor(cfg => cfg.SlipstreamStrength).InclusiveBetween(0, 1);
@@ -20,7 +23,7 @@ public class RaceAiConfigurationValidator : AbstractValidator<RaceAiConfiguratio
         RuleForEach(cfg => cfg.Drivers).ChildRules(d =>
         {
             d.RuleFor(x => x.Slot).GreaterThanOrEqualTo(0);
-            d.RuleFor(x => x.Level).InclusiveBetween(0, 100).When(x => x.Level.HasValue);
+            d.RuleFor(x => x.Strength).InclusiveBetween(50, 110).When(x => x.Strength.HasValue);
             d.RuleFor(x => x.Aggression).InclusiveBetween(0, 100).When(x => x.Aggression.HasValue);
         });
     }

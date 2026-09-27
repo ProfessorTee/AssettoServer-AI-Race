@@ -80,6 +80,20 @@ public static partial class CarDataLoader
     {
         var car = Ini(files, "car.ini");
         float mass = car.GetFloat("BASIC", "TOTALMASS", 1300) + 25 /* fuel */ + extraMassKg;
+        spec.ReferenceMass = mass;
+        spec.FuelCapacity = car.GetFloat("FUEL", "MAX_FUEL", 100);
+        spec.DefaultFuel = car.GetFloat("FUEL", "FUEL", 30);
+        spec.TyreChangeTime = car.GetFloat("PIT_STOP", "TYRE_CHANGE_TIME_SEC", 20);
+        spec.FuelLiterTime = car.GetFloat("PIT_STOP", "FUEL_LITER_TIME_SEC", 0.2f);
+        if (files.ContainsKey("fuel_cons.ini"))
+            spec.KmPerLiter = Math.Clamp(Ini(files, "fuel_cons.ini").GetFloat("FUEL_EVAL", "KM_PER_LITER", 1.6f), 0.3f, 30f);
+        else
+        {
+            // AC: litres per second = rpm * gas * CONSUMPTION / 1000; at ~75 % rpm, 60 % gas, 45 m/s average
+            float c = car.GetFloat("FUEL", "CONSUMPTION", 0.0055f);
+            float lps = 7000 * 0.75f * 0.6f * c / 1000;
+            spec.KmPerLiter = Math.Clamp(45f / 1000 / MathF.Max(lps, 1e-4f), 0.3f, 30f);
+        }
         spec.SteerRatio = car.GetFloat("CONTROLS", "STEER_RATIO", 13);
         spec.SteerLock = car.GetFloat("CONTROLS", "STEER_LOCK", 320);
 
@@ -111,6 +125,22 @@ public static partial class CarDataLoader
         string traction = drivetrain.Get("TRACTION", "TYPE") ?? "RWD";
 
         var tyres = Ini(files, "tyres.ini");
+        {
+            // wear curve of the default compound (front and rear averaged)
+            int idx = tyres.GetInt("COMPOUND_DEFAULT", "INDEX", 0);
+            string sfx = idx == 0 ? "" : $"_{idx}";
+            string front = $"FRONT{sfx}", rear = $"REAR{sfx}";
+            if (!tyres.HasSection(front)) { front = "FRONT"; rear = "REAR"; }
+            spec.TyreCompound = tyres.Get(front, "NAME") ?? "";
+            var wf = tyres.Get(front, "WEAR_CURVE");
+            var wr = tyres.Get(rear, "WEAR_CURVE");
+            if (wf != null && files.TryGetValue(wf, out var fb))
+            {
+                var lf = Lut.Parse(Encoding.UTF8.GetString(fb));
+                var lr = wr != null && files.TryGetValue(wr, out var rb) ? Lut.Parse(Encoding.UTF8.GetString(rb)) : lf;
+                spec.TyreWear = new Lut(lf.X, lf.X.Select(x => (lf.At(x) + lr.At(x)) / 2).ToArray());
+            }
+        }
         float rearRadius = tyres.GetFloat("REAR", "RADIUS", 0.34f);
         float frontRadius = tyres.GetFloat("FRONT", "RADIUS", rearRadius);
         float dy = (tyres.GetFloat("FRONT", "DY_REF", 0) + tyres.GetFloat("REAR", "DY_REF", 0)) / 2;

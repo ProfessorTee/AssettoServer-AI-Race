@@ -28,6 +28,12 @@ Das Plugin besteht aus zwei Teilen:
 - Offizielle Rundenzeiten in Training, Qualifying und Rennen; das Qualifying-Ergebnis bestimmt die Startaufstellung
 - Nach der Zielflagge: Auslaufrunde, danach geht es in die Box (`AC_PIT_x`)
 - Grip der Strecke (Dynamic Track, Regen) macht die Bots langsamer, genau wie die Spieler
+- **Sprit und Gewicht:** Verbrauch aus `fuel_cons.ini` bzw. `car.ini` mal `FUEL_RATE`. Ein voller Tank macht das Auto schwerer und langsamer.
+- **Reifen:** Verschleiß über die Kunos-Verschleißkurven der Standardmischung (`tyres.ini`), mal `TYRE_WEAR_RATE`.
+  Neue Reifen sind in den ersten Kilometern kalt.
+- **Boxenstopps:** Die Bots fahren über `pit_lane.ai` mit Tempolimit an ihre Box (`AC_PIT_x`), tanken und wechseln die Reifen
+  (Standzeit aus `car.ini`) und fahren wieder raus. Die Strategie rechnet: Reicht der Sprit bis ins Ziel? Kosten die alten Reifen
+  bis zum Ende mehr Zeit als ein Stopp? Die Pflicht-Boxenstopp-Fenster `RACE_PIT_WINDOW_START/END` werden eingehalten.
 - Scheinwerfer bei Dunkelheit, Scheibenwischer bei Regen, Bremslichter, Warnblinker bei Stillstand
 - Namen und Nationen im Client, in der Rangliste und in den Ergebnissen
 
@@ -35,8 +41,9 @@ Das Plugin besteht aus zwei Teilen:
 
 | Content Manager | `plugin_race_ai_cfg.yml` |
 |---|---|
-| KI-Stärke | `AiLevel` (0–100) |
-| KI-Stärke: Variation | `AiLevelVariation` |
+| KI-Stärke | `AiStrength` in % der Bestzeit (100 % = Median-Bestzeit der Bot-Autos, steht im Log). 94 % auf der Nordschleife ≈ 7:18 |
+| KI-Stärke: Variation | `AiStrengthSpread` (± %, gleichmäßig auf die Bots verteilt, `AiStrengthDistribution: Even/Random`) |
+| – | `AiStrengthReference`: `Field` (gleiche % = gleiche Zeit in jedem Auto) oder `Car` (% der Bestzeit des eigenen Autos) |
 | KI-Aggressivität | `AiAggression` (0–100), `AiAggressionVariation` |
 | Startposition | `PlayerGridPosition`: `Default`, `First`, `Last`, `Middle`, `Random` |
 | Zufällige Startaufstellung | `RandomizeBotGrid` |
@@ -45,7 +52,10 @@ Das Plugin besteht aus zwei Teilen:
 Weitere Optionen: `Practice`/`Qualifying` (`Drive` oder `Parked`), `SlipstreamStrength`, `EdgeMargin`, `SideMargin`, `CoolDownPace`,
 `DaytimeLights`, `AnnounceOvertakes` (Chat: „X overtook Y at Flugplatz“), `NamePrefix`, `LogLaps`.
 
-Chat-Befehle: `/raceai` (Liste der Bots), als Admin `/raceai_level <0-100> [variation]` und `/raceai_aggression <0-100>`.
+Weitere Endurance-Optionen: `Fuel`, `TyreWear`, `TyreWearFactor`, `TyreChangeGrip`, `PitStops`, `PitSpeedKmh`, `PracticeFuelLaps`,
+`QualifyingFuelLaps`, `AnnouncePitStops`.
+
+Chat-Befehle: `/raceai` (Bots mit Stärke, Sprit, Reifen, Stopps), als Admin `/raceai_strength <%> [spread]` und `/raceai_aggression <0-100>`.
 
 ## Einrichtung
 
@@ -75,17 +85,20 @@ dotnet publish RaceAiPlugin/RaceAiPlugin.csproj -c Release -r linux-x64        #
 
 ```
 dotnet run --project RaceAiTool -- selftest
-dotnet run --project RaceAiTool -- sim  --ac <AC-Ordner> --models ks_mercedes_amg_gt3,ks_ferrari_488_gt3 --bots 16 --laps 2 --level 95
-dotnet run --project RaceAiTool -- sim  --ac <AC-Ordner> --models ks_mercedes_amg_gt3 --hotlap --level 100
+dotnet run --project RaceAiTool -- sim  --ac <AC-Ordner> --models ks_mercedes_amg_gt3,ks_ferrari_488_gt3 --bots 16 --laps 8 --strength 94 --spread 3
+dotnet run --project RaceAiTool -- sim  --ac <AC-Ordner> --models ks_mercedes_amg_gt3 --hotlap --strength 100
 dotnet run --project RaceAiTool -- grid --ac <AC-Ordner> --track-name ks_nordschleife --layout nordschleife --out grid.json
 dotnet run --project RaceAiTool -- car  --ac <AC-Ordner> --model ks_mercedes_amg_gt3
+dotnet run --project RaceAiTool -- strength --ac <AC-Ordner> --models ks_mercedes_amg_gt3,ks_ferrari_488_gt3
 ```
 
-Referenzwerte Nordschleife (Mercedes-AMG GT3): Hotlap mit Level 100 ca. 6:53, im Rennen mit Level 90–95 ca. 6:55–7:08.
+Referenzwerte Nordschleife: 100 % ≈ 6:52 (Median der GT3), 95 % ≈ 7:13, 90 % ≈ 7:38. Die Zielzeit gilt für frische Reifen und wenig Sprit.
+Im Rennen mit vollem Tank sind die Bots ein paar Sekunden langsamer.
+`RaceAiTool strength --ac <AC-Ordner> --models …` zeigt die Tabelle pro Auto.
 
 ## Grenzen (Stand jetzt)
 
 - Die Bots sind kinematisch (keine echte Fahrphysik). Kontakte lösen sie auf, indem sie nachgeben, und nicht über Kollisionen.
-- Keine Boxenstopps, kein Reifenverschleiß und kein Sprit. Kein fliegender Start.
+- Kein fliegender Start, keine Schäden und Reparaturen. Die Reifen werden nicht warm gefahren (nur ein Kaltstart-Abschlag nach dem Wechsel).
 - Ein Bot, dessen Slot ein Admin übernimmt, kommt erst wieder, wenn der Admin den Server verlässt. In ein laufendes Rennen steigt er nicht ein.
 - Getestet mit einem simulierten Client und offline. Ein Test mit dem echten AC-Client und CSP steht noch aus.

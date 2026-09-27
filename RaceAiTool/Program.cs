@@ -32,6 +32,7 @@ public static class Program
                 "grid" => Grid(opts),
                 "car" => Car(opts),
                 "selftest" => SelfTest.Run(opts),
+                "strength" => Strength(opts),
                 _ => Usage()
             };
         }
@@ -128,6 +129,25 @@ public static class Program
         {
             var spec = CarDataLoader.Load(cars, model, log: Console.WriteLine);
             PrintSpec(spec);
+        }
+        return 0;
+    }
+
+    private static int Strength(Options o)
+    {
+        var (trackRoot, layout, cars) = ResolvePaths(o);
+        var line = new RacingLine(FastLaneFile.Read(FastLanePath(trackRoot, layout)));
+        var info = TrackInfo.LoadLayoutData(LayoutDataDir(trackRoot, layout));
+        line.ApplyHints(info.SpeedHints, info.MaxSpeedsKmh);
+        var settings = new RaceWorldSettings();
+        foreach (var model in (o.Get("models") ?? "ks_mercedes_amg_gt3").Split(','))
+        {
+            var spec = CarDataLoader.Load(cars, model);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var cal = StrengthCalibration.Measure(line, spec, settings);
+            Console.WriteLine($"{model}: best lap {Simulator.Fmt(cal.BestLap)} ({sw.ElapsedMilliseconds} ms), table {string.Join(" ", cal.LapTimes.Select(Simulator.Fmt))}");
+            foreach (var pct in new[] { 100f, 97, 95, 94, 92, 90, 85, 80, 75, 70 })
+                Console.WriteLine($"   {pct,4:F0} % -> pace {cal.PaceFor(pct):F3}  target {Simulator.Fmt(cal.LapTimeFor(pct))}");
         }
         return 0;
     }

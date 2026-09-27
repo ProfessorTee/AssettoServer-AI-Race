@@ -11,8 +11,8 @@ public static class Simulator
         var (trackRoot, layout, carsRoot) = Program.ResolvePaths(o);
         int botCount = o.Int("bots", 12);
         int laps = o.Int("laps", 2);
-        float level = o.Float("level", 95);
-        float variation = o.Float("variation", 5);
+        float strength = o.Float("strength", 95);
+        float spread = o.Float("spread", 3);
         float aggression = o.Float("aggression", 50);
         int seed = o.Int("seed", 1);
         bool hotlap = o.Has("hotlap");
@@ -35,9 +35,23 @@ public static class Simulator
         Console.WriteLine($"Line: {line.Count} pts, {line.Length:F0} m, SideLeftIsPlus={line.SideLeftIsPlus}, width median {Median(line.RoomPlus.Zip(line.RoomMinus, (a, b) => a + b)):F1} m, " +
                           $"{info.SpeedHints.Count} hints, {info.Sections.Count} sections, {info.StartGrid.Count} grid spots ({sw.ElapsedMilliseconds} ms)");
 
-        var settings = new RaceWorldSettings { Seed = seed };
+        var settings = new RaceWorldSettings
+        {
+            Seed = seed,
+            FuelRate = o.Float("fuel-rate", 1),
+            TyreWearRate = o.Float("wear-rate", 1),
+            PitWindowStart = o.Int("pit-window-start", 0),
+            PitWindowEnd = o.Int("pit-window-end", 0)
+        };
         if (info.StartFinish is { } sf) settings.StartLineS = line.Project(sf).S;
         var world = new RaceWorld(line, settings);
+        var pitPath = Path.Join(Path.GetDirectoryName(Program.FastLanePath(trackRoot, layout))!, "pit_lane.ai");
+        if (File.Exists(pitPath) && !o.Has("no-pits"))
+        {
+            world.PitLane = new PitLane(FastLaneFile.Read(pitPath), line);
+            Console.WriteLine($"Pit lane {world.PitLane.Length:F0} m, entry at {world.PitLane.EntryTrackS:F0}, exit at {world.PitLane.ExitTrackS:F0}, limiter {world.PitLane.LimiterStart:F0}-{world.PitLane.LimiterEnd:F0}");
+        }
+        var calibrations = new Dictionary<CarSpec, StrengthCalibration>();
 
         var specs = new Dictionary<string, CarSpec>();
         CarSpec SpecFor(string model)
@@ -53,18 +67,30 @@ public static class Simulator
 
         var rng = new Random(seed);
         int n = hotlap ? 1 : botCount;
+        var strengths = hotlap ? [strength] : StrengthCalibration.Distribute(n, strength, spread, o.Has("random-spread"), rng);
         for (int i = 0; i < n; i++)
         {
             string model = models.Length > 0 ? models[i % models.Length] : "generic_gt3";
-            float lvl = hotlap ? level : level - (float)rng.NextDouble() * variation;
-            world.Bots.Add(new RaceBot
+            var spec = models.Length > 0 ? SpecFor(model) : new CarSpec();
+            if (!calibrations.TryGetValue(spec, out var cal))
+            {
+                cal = StrengthCalibration.Measure(line, spec, settings);
+                calibrations[spec] = cal;
+                Console.WriteLine($"  {spec.Model}: 100 % = {Fmt(cal.BestLap)}");
+            }
+            var bot = new RaceBot
             {
                 Id = i,
                 Name = $"{BotNames.Default[i % BotNames.Default.Length]}",
-                Car = models.Length > 0 ? SpecFor(model) : new CarSpec(),
-                Driver = DriverProfile.FromLevel(lvl, aggression)
-            });
+                Car = spec,
+                Driver = DriverProfile.FromStrength(strengths[i], cal.PaceFor(strengths[i]), aggression)
+            };
+            world.Bots.Add(bot);
+            if (info.PitBoxes.FirstOrDefault(p => p.Index == i) is { } box && info.PitBoxes.Count > i)
+                world.SetPitBox(bot, box.Position);
         }
+        foreach (var bot in world.Bots)
+            world.ResetCarCondition(bot, hotlap ? 30 : world.FuelForLaps(bot, laps + 0.5f));
 
         // optional scripted "human": drives its own line at a fixed pace and ignores the bots
         RaceWorld? playerWorld = null;
@@ -107,11 +133,13 @@ public static class Simulator
         var stats = new SimStats(world);
         var trace = hotlap ? new SpeedTrace(line, info) : null;
         float dt = 1f / tickHz;
-        double maxTime = hotlap ? 60 * 20 : laps * 60 * 12 + 60;
+        double maxTime = hotlap ? 60 * 20 : laps * 60 * 12 + 120;
+        world.PitStopCompleted += (bot, t, fuel, tyres) =>
+            Console.WriteLine($"  PIT {bot.Name,-20} lap {bot.LapsCompleted + 1} {bot.PitReason,-9} {t,5:F1} s stationary, +{fuel:F0} l{(tyres ? ", tyres" : "")}");
         world.LapCompleted += (bot, lap) =>
         {
             if (hotlap || o.Has("verbose"))
-                Console.WriteLine($"  {bot.Name,-22} lap {bot.LapsCompleted} {Fmt(lap)}");
+                Console.WriteLine($"  {bot.Name,-22} lap {bot.LapsCompleted} {Fmt(lap)} fuel {bot.Fuel:F1} lastLapFuel {bot.LastLapFuel:F1} grip {bot.CarGrip:F3} rem {bot.RemainingLaps}");
         };
 
         world.Advance(0);
@@ -126,6 +154,7 @@ public static class Simulator
                 var pose = playerWorld.GetPose(pb);
                 world.UpdateExternal(player, pose.Position, pose.Velocity);
             }
+            foreach (var b in world.Bots) b.RemainingLaps = hotlap ? int.MaxValue : Math.Max(0, laps - b.LapsCompleted);
             world.Advance(now);
             stats.Sample(now);
             trace?.Sample(world.Bots[0]);
@@ -212,6 +241,7 @@ public static class Simulator
                 var a = bots[i];
                 float sa = line.WrapS((float)a.Distance);
                 int idx = line.IndexAt(sa);
+                if (a.InPitLane) continue;
                 float excess = MathF.Max(-line.RoomMinus[idx] + a.Car.Width / 2 - a.Offset, a.Offset - (line.RoomPlus[idx] - a.Car.Width / 2));
                 if (excess > 0.05f) _offTrackFrames++;
                 _maxOffTrack = MathF.Max(_maxOffTrack, excess);
@@ -247,12 +277,12 @@ public static class Simulator
 
         public void Print(int laps)
         {
-            Console.WriteLine($"{"Pos",-4}{"Driver",-22}{"Lvl",5}{"Laps",5}{"Best",11}{"Last",11}{"Total",11}{"Ovt",5}{"Cnt",5}");
+            Console.WriteLine($"{"Pos",-4}{"Driver",-22}{"Lvl",5}{"Laps",5}{"Best",11}{"Last",11}{"Total",11}{"Ovt",5}{"Pit",4}");
             int pos = 1;
             foreach (var b in _w.Bots.OrderByDescending(b => b.LapsCompleted).ThenBy(b => b.TotalTime))
             {
                 Console.WriteLine($"{pos++,-4}{b.Name,-22}{b.Driver.Level,5:F0}{b.LapsCompleted,5}{(b.BestLapSeconds < 1e6 ? Fmt(b.BestLapSeconds) : "-"),11}" +
-                                  $"{(b.LastLapSeconds > 0 ? Fmt(b.LastLapSeconds) : "-"),11}{(b.TotalTime > 0 ? Fmt((float)b.TotalTime) : "-"),11}{b.Overtakes,5}{b.Contacts,5} att={b.OvertakeAttempts} noroom={b.OvertakeNoRoom} giveup={b.OvertakeGiveUps} d={b.Distance,8:F0} v={b.Speed * 3.6f,4:F0} off={b.Offset,5:F1} tgtOff={b.TargetOffset,5:F1} tgtV={b.TargetSpeed * 3.6f,4:F0} {b.Phase}");
+                                  $"{(b.LastLapSeconds > 0 ? Fmt(b.LastLapSeconds) : "-"),11}{(b.TotalTime > 0 ? Fmt((float)b.TotalTime) : "-"),11}{b.Overtakes,5}{b.PitStops,4} fuel={b.Fuel,5:F1} grip={b.CarGrip:F3} att={b.OvertakeAttempts} noroom={b.OvertakeNoRoom} giveup={b.OvertakeGiveUps} d={b.Distance,8:F0} v={b.Speed * 3.6f,4:F0} off={b.Offset,5:F1} tgtOff={b.TargetOffset,5:F1} tgtV={b.TargetSpeed * 3.6f,4:F0} {b.Phase}");
             }
             Console.WriteLine($"overlap frames {_overlapFrames} (max penetration {_maxPenetration:F2} m), off-track frames {_offTrackFrames} (max {_maxOffTrack:F2} m), " +
                               $"position changes {_positionChanges / 2}, max lateral speed {_maxLatSpeed:F1} m/s, frames {_frames}");

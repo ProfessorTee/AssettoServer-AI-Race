@@ -11,6 +11,7 @@ public sealed class TrackData
     public required RacingLine Line { get; init; }
     public required TrackInfo Info { get; init; }
     public float StartLineS { get; init; }
+    public PitLane? PitLane { get; init; }
 
     public static TrackData Load(string track, string layout, RaceAiConfiguration config)
     {
@@ -87,7 +88,22 @@ public sealed class TrackData
         Log.Information("Race AI: racing line {Length:F0} m, start/finish at {Start:F0} m, {Hints} AI hints, {Sections} sections",
             line.Length, startLineS, info.SpeedHints.Count + info.MaxSpeedsKmh.Count, info.Sections.Count);
 
-        return new TrackData { Line = line, Info = info, StartLineS = startLineS };
+        PitLane? pitLane = null;
+        var pitPath = Path.Join(Path.GetDirectoryName(fastLane)!, "pit_lane.ai");
+        if (File.Exists(pitPath))
+        {
+            try
+            {
+                pitLane = new PitLane(FastLaneFile.Read(pitPath), line);
+                Log.Information("Race AI: pit lane {Length:F0} m, speed limit zone {From:F0}-{To:F0} m", pitLane.Length, pitLane.LimiterStart, pitLane.LimiterEnd);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Race AI: could not read {Path}", pitPath);
+            }
+        }
+
+        return new TrackData { Line = line, Info = info, StartLineS = startLineS, PitLane = pitLane };
     }
 
     /// <summary>Content folders to search: the server's own content folder first, then the game installation.</summary>

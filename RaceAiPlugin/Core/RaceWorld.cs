@@ -24,13 +24,25 @@ public sealed class DriverProfile
     /// <summary>1 = never makes mistakes.</summary>
     public float Consistency { get; set; } = 0.9f;
 
-    /// <summary>AI level (0-100) as shown in Content Manager / AC, for display.</summary>
+    /// <summary>AI strength in percent (or AI level 0-100), for display.</summary>
     public float Level { get; set; } = 100;
 
     /// <summary>
     /// Builds a driver from Content Manager style settings: AI level 0-100 (100 = fastest) and aggression 0-100.
     /// Level 100 drives at the car's grip limit, every level point below costs 0.6 % of usable grip.
     /// </summary>
+    /// <summary>
+    /// Driver for an AI strength in percent of the car's best lap (see <see cref="StrengthCalibration"/>) and aggression 0-100.
+    /// </summary>
+    public static DriverProfile FromStrength(float strengthPercent, float pace, float aggression)
+        => new()
+        {
+            Level = strengthPercent,
+            Pace = pace,
+            Aggression = Math.Clamp(aggression / 100f, 0, 1),
+            Consistency = 0.75f + 0.23f * Math.Clamp((strengthPercent - 70) / 30f, 0, 1)
+        };
+
     public static DriverProfile FromLevel(float level, float aggression)
     {
         level = Math.Clamp(level, 0, 100);
@@ -121,6 +133,51 @@ public sealed class RaceBot
     internal double StoppedSince = double.NaN;
     /// <summary>After being stuck behind a standing player for a long time the bot ignores players for a moment.</summary>
     internal double IgnorePlayersUntil;
+
+    // ---- endurance
+    /// <summary>Fuel in the tank (litres).</summary>
+    public float Fuel { get; set; } = 30f;
+    /// <summary>Tyre wear in Kunos "virtual km" of the current set.</summary>
+    public float TyreVirtualKm { get; set; }
+    /// <summary>Real km driven on the current set (for the warm-up of new tyres).</summary>
+    public float TyreKm { get; set; } = 10f;
+    /// <summary>Laps still to be completed in this session including the current one (int.MaxValue = open end).</summary>
+    public int RemainingLaps { get; set; } = int.MaxValue;
+    public PitPhase Pit { get; internal set; }
+    public string PitReason { get; internal set; } = "";
+    public int PitStops { get; internal set; }
+    public bool MandatoryPitDone { get; set; }
+    public float PitBoxS { get; internal set; } = -1;
+    public float PitBoxOffset { get; internal set; }
+    internal float PitS;
+    internal float PitLateral;
+    internal double PitStoppedAt;
+    internal bool PitServiced;
+    internal double PitServiceUntil;
+    internal float PitFuelToAdd;
+    internal bool PitChangeTyres;
+    internal double PitEnteredAt;
+    internal long LastDecisionLap = long.MinValue;
+    internal float FuelPerKmEma;
+    internal float FuelAtLapStart = -1;
+    internal float FuelAddedThisLap;
+    internal bool PittedThisLap;
+    /// <summary>Fuel used on the last complete lap (litres), 0 = not measured yet.</summary>
+    public float LastLapFuel { get; internal set; }
+    /// <summary>Grip factor from tyres (wear, temperature) and fuel load, 1 = new warm tyres and light car.</summary>
+    public float CarGrip { get; internal set; } = 1f;
+    internal float MassRatio = 1f;
+
+    public bool InPitLane => Pit is PitPhase.InLane or PitPhase.Stopped;
+}
+
+public enum PitPhase
+{
+    None,
+    /// <summary>Will turn into the pit lane at the next entry.</summary>
+    Requested,
+    InLane,
+    Stopped
 }
 
 /// <summary>What a bot looks like to the outside world for one frame.</summary>
@@ -159,6 +216,24 @@ public sealed class RaceWorldSettings
     /// <summary>Slipstream range (m).</summary>
     public float SlipstreamRange { get; set; } = 40f;
     public int Seed { get; set; } = Environment.TickCount;
+
+    // ---- endurance
+    /// <summary>Fuel consumption multiplier (server FUEL_RATE / 100). 0 = no fuel use.</summary>
+    public float FuelRate { get; set; } = 1f;
+    /// <summary>Tyre wear multiplier (server TYRE_WEAR_RATE / 100). 0 = no wear.</summary>
+    public float TyreWearRate { get; set; } = 1f;
+    /// <summary>Virtual km per real km at average load (Kunos virtual km grow with tyre slip).</summary>
+    public float TyreWearScale { get; set; } = 0.15f;
+    /// <summary>Bots stop for new tyres when the grip of the worn tyres drops below this.</summary>
+    public float TyreChangeGrip { get; set; } = 0.95f;
+    public bool PitStops { get; set; } = true;
+    /// <summary>Pit lane speed limit (m/s).</summary>
+    public float PitSpeedLimit { get; set; } = 80 / 3.6f;
+    /// <summary>Mandatory pit stop between these laps (race), 0/0 = none.</summary>
+    public int PitWindowStart { get; set; }
+    public int PitWindowEnd { get; set; }
+    /// <summary>Litres a bot keeps as reserve when planning.</summary>
+    public float FuelReserve { get; set; } = 2f;
 }
 
 /// <summary>
@@ -166,7 +241,7 @@ public sealed class RaceWorldSettings
 /// Bots are kinematic: they move along the racing line with a lateral offset and a speed that is limited by
 /// a simple grip/aero model, by the traffic around them and by their driver profile.
 /// </summary>
-public sealed class RaceWorld
+public sealed partial class RaceWorld
 {
     public RacingLine Line { get; }
     public RaceWorldSettings Settings { get; }
@@ -175,6 +250,9 @@ public sealed class RaceWorld
 
     /// <summary>(bot, lap time in seconds)</summary>
     public event Action<RaceBot, float>? LapCompleted;
+    /// <summary>(bot, stop time in seconds, litres added, tyres changed)</summary>
+    public event Action<RaceBot, float, float, bool>? PitStopCompleted;
+    public PitLane? PitLane { get; set; }
 
     /// <summary>Debug: bot id whose decisions are written to <see cref="Trace"/> twice a second.</summary>
     public int TraceBotId { get; set; } = -1;
@@ -245,6 +323,9 @@ public sealed class RaceWorld
         bot.LastLapSeconds = 0;
         bot.BestLapSeconds = float.MaxValue;
         bot.TotalTime = 0;
+        bot.Pit = PitPhase.None;
+        bot.PitS = 0;
+        bot.LastDecisionLap = long.MinValue;
     }
 
     /// <summary>Parks a bot at a fixed position (e.g. its pit box). It is no longer an obstacle and does not drive.</summary>
@@ -392,8 +473,17 @@ public sealed class RaceWorld
                     {
                         bot.StoppedSince = double.NaN;
                     }
-                    Think(bot);
-                    Integrate(bot, dt);
+                    if (bot.InPitLane)
+                    {
+                        PitStep(bot, dt);
+                    }
+                    else
+                    {
+                        Think(bot);
+                        Integrate(bot, dt);
+                        CheckPitEntry(bot);
+                    }
+                    UpdateCarCondition(bot, dt);
                     break;
                 case BotPhase.Grid:
                     bot.Speed = 0;
@@ -442,7 +532,7 @@ public sealed class RaceWorld
     public float LineSpeedLimit(RaceBot bot, float offset, float extraPaceLoss)
     {
         var car = bot.Car;
-        float pace = (bot.Driver.Pace - extraPaceLoss + bot.PaceNoise) * Settings.GripFactor;
+        float pace = (bot.Driver.Pace - extraPaceLoss + bot.PaceNoise) * Settings.GripFactor * bot.CarGrip;
         if (bot.Phase == BotPhase.CoolDown) pace *= Settings.CoolDownPace;
         if (_now < bot.MistakeUntil) pace -= 0.06f;
 
@@ -792,17 +882,19 @@ public sealed class RaceWorld
 
     private void Integrate(RaceBot me, float dt)
     {
-        float pace = me.Driver.Pace;
+        float pace = me.Driver.Pace * Settings.GripFactor * me.CarGrip;
         float v = me.Speed;
         float target = me.TargetSpeed;
 
         if (_now < me.CautiousUntil && me.Speed < 1 && me.LapsCompleted == 0 && _now - me.LapStartTime < 1.5)
             target = 0; // reaction time at the start
+        if (Settings.FuelRate > 0 && me.Fuel <= 0)
+            target = MathF.Min(target, 25 / 3.6f); // out of fuel: rolling to the pits on the last drops
 
         float accel;
         if (target > v)
         {
-            accel = me.Car.AccelAt(v, pace) + me.Draft * me.Car.DragCoefficient * v * v;
+            accel = me.Car.AccelAt(v, pace) / me.MassRatio + me.Draft * me.Car.DragCoefficient * v * v;
             v = MathF.Min(target, v + accel * dt);
         }
         else
@@ -842,12 +934,14 @@ public sealed class RaceWorld
         {
             var me = Bots[x];
             if (me.Phase is not (BotPhase.Racing or BotPhase.CoolDown)) continue;
+            if (OffTrackInPits(me)) continue;
             float myS = Line.WrapS((float)me.Distance);
 
             foreach (var o in _neighbors)
             {
                 if (o.IsBot && o.Id == me.Id) continue;
                 if (!o.IsBot && _now < me.IgnorePlayersUntil) continue;
+                if (o.IsBot && OffTrackInPits(o.Bot!)) continue;
                 float oS = o.IsBot ? Line.WrapS((float)o.Bot!.Distance) : o.S;
                 float oOff = o.IsBot ? o.Bot!.Offset : o.Offset;
                 float ds = Line.Delta(myS, oS);
@@ -901,6 +995,16 @@ public sealed class RaceWorld
             return;
         }
 
+        if (bot.FuelAtLapStart >= 0 && !bot.PittedThisLap)
+        {
+            // laps with a pit stop use less fuel (pit lane), they don't count
+            float used = bot.FuelAtLapStart + bot.FuelAddedThisLap - bot.Fuel;
+            if (used > 0.1f) bot.LastLapFuel = bot.LastLapFuel > 0 ? MathF.Max(used, bot.LastLapFuel * 0.7f + used * 0.3f) : used;
+        }
+        bot.FuelAtLapStart = bot.Fuel;
+        bot.FuelAddedThisLap = 0;
+        bot.PittedThisLap = bot.InPitLane;
+
         if (bot.TimingValid)
         {
             float lap = (float)(_now - bot.LapStartTime);
@@ -928,6 +1032,9 @@ public sealed class RaceWorld
             return new BotPose(bot.ParkPosition + Vector3.UnitY * Settings.HeightOffset, rot, Vector3.Zero, 0, 0, 0, bot.Car.IdleRpm, true,
                 Line.WrapS(Line.Project(bot.ParkPosition).S - Settings.StartLineS) / Line.Length);
         }
+
+        if (bot.InPitLane && PitLane != null)
+            return PitPose(bot);
 
         float s = Line.WrapS((float)bot.Distance);
         Line.Interp(s, out var a, out var b, out var t);
@@ -964,7 +1071,7 @@ public sealed class RaceWorld
             throttle, hazards);
     }
 
-    private static (int Gear, int Rpm) GearAndRpm(RaceBot bot)
+    internal static (int Gear, int Rpm) GearAndRpm(RaceBot bot)
     {
         var car = bot.Car;
         float kmh = bot.Speed * 3.6f;

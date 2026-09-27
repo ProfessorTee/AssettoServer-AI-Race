@@ -30,17 +30,18 @@ public class RaceAiCommandModule : ACModuleBase
         {
             var b = slot.Bot;
             string best = b.BestLapSeconds < 1e6 ? TimeSpan.FromSeconds(b.BestLapSeconds).ToString(@"m\:ss\.fff") : "-";
-            sb.Append($"\n{b.Name} ({slot.EntryCar.Model}) level {b.Driver.Level:F0}, aggression {b.Driver.Aggression * 100:F0}, laps {b.LapsCompleted}, best {best}");
+            sb.Append($"\n{b.Name} ({slot.EntryCar.Model}) {b.Driver.Level:F0} %, aggr. {b.Driver.Aggression * 100:F0}, laps {b.LapsCompleted}, best {best}, " +
+                      $"fuel {b.Fuel:F0} l, tyres {b.Car.TyreGripAt(b.TyreVirtualKm) * 100:F0} %, stops {b.PitStops}");
         }
         Reply(sb.ToString());
     }
 
-    [Command("raceai_level"), RequireAdmin]
-    public void SetLevel(float level, float variation = -1)
+    [Command("raceai_strength", "raceai_level"), RequireAdmin]
+    public void SetStrength(float strength, float spread = -1)
     {
-        level = Math.Clamp(level, 0, 100);
-        _service.SetLevel(level, variation >= 0 ? variation : null);
-        Reply($"Race AI level set to {level:F0}" + (variation >= 0 ? $" (variation {variation:F0})" : ""));
+        strength = Math.Clamp(strength, 50, 110);
+        _service.SetStrength(strength, spread >= 0 ? spread : null);
+        Reply($"Race AI strength set to {strength:F0} %" + (spread >= 0 ? $" +/- {spread:F0} %" : ""));
     }
 
     [Command("raceai_aggression"), RequireAdmin]

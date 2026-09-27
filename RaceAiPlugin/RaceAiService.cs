@@ -30,6 +30,10 @@ public sealed class RaceAiService : IHostedService
     private readonly Dictionary<byte, BotSlot> _slotsBySessionId = new();
     private readonly List<BotSlot> _slots = [];
     private readonly Random _rng = new();
+    private readonly Dictionary<CarSpec, StrengthCalibration> _calibrations = new();
+    private float? _referenceBestLap;
+
+    private static string FormatLap(float seconds) => TimeSpan.FromSeconds(seconds).ToString(@"m\:ss\.fff");
 
     private RaceWorld? _world;
     private TrackData? _track;
@@ -126,15 +130,28 @@ public sealed class RaceAiService : IHostedService
             HeightOffset = _config.HeightOffset,
             CoolDownPace = _config.CoolDownPace,
             UseTrackHints = _config.UseTrackHints,
-            SlipstreamStrength = _config.SlipstreamStrength
+            SlipstreamStrength = _config.SlipstreamStrength,
+            FuelRate = _config.Fuel ? _serverConfig.Server.FuelConsumptionRate : 0,
+            TyreWearRate = _config.TyreWear ? _serverConfig.Server.TyreConsumptionRate : 0,
+            TyreWearScale = _config.TyreWearFactor,
+            TyreChangeGrip = _config.TyreChangeGrip,
+            PitStops = _config.PitStops,
+            PitSpeedLimit = _config.PitSpeedKmh / 3.6f
         };
-        var world = new RaceWorld(_track.Line, settings);
+        var world = new RaceWorld(_track.Line, settings) { PitLane = _config.PitStops ? _track.PitLane : null };
+        if (_config.PitStops && _track.PitLane == null)
+            Log.Warning("Race AI: no pit_lane.ai found, bots will not make pit stops");
+        Log.Information("Race AI: fuel rate {Fuel:P0}, tyre wear rate {Wear:P0}, pit stops {Pits}",
+            settings.FuelRate, settings.TyreWearRate, world.PitLane != null ? "on" : "off");
 
         var carRoots = TrackData.ContentRoots(_config).Select(r => Path.Join(r, "cars")).ToList();
         var specCache = new Dictionary<(string, float, int), CarSpec>();
         var names = _config.Names.Count > 0 ? _config.Names.ToList() : BotNames.Default.ToList();
         List<string> nations = _config.Names.Count > 0 ? new List<string>() : BotNames.DefaultNations.ToList();
         int nameIndex = 0;
+        var strengths = StrengthCalibration.Distribute(botSlots.Count, _config.AiStrength, _config.AiStrengthSpread,
+            _config.AiStrengthDistribution == StrengthDistribution.Random, _rng);
+        int botIndex = 0;
 
         foreach (var slotIndex in botSlots)
         {
@@ -148,11 +165,14 @@ public sealed class RaceAiService : IHostedService
                 var root = carRoots.FirstOrDefault(r => Directory.Exists(Path.Join(r, entryCar.Model))) ?? carRoots.FirstOrDefault() ?? "content/cars";
                 spec = CarDataLoader.Load(root, entryCar.Model, entryCar.Ballast, entryCar.Restrictor, msg => Log.Warning("Race AI: {Message}", msg));
                 specCache[key] = spec;
-                Log.Information("Race AI: car {Model} ({Source}): top {Top:F0} km/h, grip {Grip:F2} g, {Gears} gears",
-                    spec.Model, spec.Source, spec.TopSpeed * 3.6f, spec.LateralGrip, spec.GearTopSpeedsKmh.Length);
+                var cal = StrengthCalibration.Measure(_track.Line, spec, settings);
+                _calibrations[spec] = cal;
+                Log.Information("Race AI: car {Model} ({Source}): top {Top:F0} km/h, grip {Grip:F2} g, 100 % = {Best}, {Fuel:F1} l/lap, tyres {Compound}",
+                    spec.Model, spec.Source, spec.TopSpeed * 3.6f, spec.LateralGrip, FormatLap(cal.BestLap), spec.CalibratedFuelPerLap, spec.TyreCompound);
             }
 
-            float level = driverCfg?.Level ?? _config.AiLevel - (float)_rng.NextDouble() * _config.AiLevelVariation;
+            float strength = driverCfg?.Strength ?? strengths[botIndex++];
+            var calibration = _calibrations[spec];
             float aggression = driverCfg?.Aggression
                                ?? Math.Clamp(_config.AiAggression + ((float)_rng.NextDouble() * 2 - 1) * _config.AiAggressionVariation, 0, 100);
 
@@ -172,20 +192,37 @@ public sealed class RaceAiService : IHostedService
                 Id = entryCar.SessionId,
                 Name = _config.NamePrefix + name,
                 Car = spec,
-                Driver = DriverProfile.FromLevel(level, aggression)
+                Driver = DriverProfile.FromStrength(strength, calibration.PaceFor(strength), aggression)
             };
             world.Bots.Add(bot);
+            if (_track.Info.PitBoxes.FirstOrDefault(p => p.Index == slotIndex) is var box && box.Index == slotIndex && _track.Info.PitBoxes.Count > 0)
+                world.SetPitBox(bot, box.Position);
 
             var slot = new BotSlot(entryCar, bot, nation);
             _slots.Add(slot);
             _slotsBySessionId[entryCar.SessionId] = slot;
             TakeSlot(slot, broadcast: false);
 
-            Log.Information("Race AI: slot {Slot} {Model} -> {Name} (level {Level:F0}, aggression {Aggression:F0})",
-                slotIndex, entryCar.Model, bot.Name, level, aggression);
+            Log.Information("Race AI: slot {Slot} {Model} -> {Name} (strength {Strength:F1} %, aggression {Aggression:F0})",
+                slotIndex, entryCar.Model, bot.Name, strength, aggression);
         }
 
+        if (_config.AiStrengthReference == StrengthReference.Field && _calibrations.Count > 0)
+        {
+            var bests = _calibrations.Values.Select(c => c.BestLap).OrderBy(x => x).ToList();
+            _referenceBestLap = bests[bests.Count / 2];
+            foreach (var bot in world.Bots)
+                bot.Driver.Pace = _calibrations[bot.Car].PaceFor(bot.Driver.Level, _referenceBestLap);
+            Log.Information("Race AI: 100 % = {Lap} (median best lap of the bot cars); e.g. 95 % = {Lap95}, 90 % = {Lap90}",
+                FormatLap(_referenceBestLap.Value), FormatLap(_referenceBestLap.Value / 0.95f), FormatLap(_referenceBestLap.Value / 0.9f));
+        }
+
+        foreach (var bot in world.Bots.OrderByDescending(b => b.Driver.Level))
+            Log.Information("Race AI:   {Name,-22} {Strength,5:F1} %  target lap {Lap}", bot.Name, bot.Driver.Level,
+                FormatLap(_calibrations[bot.Car].LapTimeFor(bot.Driver.Level, _referenceBestLap)));
+
         world.LapCompleted += OnBotLapCompleted;
+        world.PitStopCompleted += OnBotPitStop;
         _world = world;
 
         _sessionManager.SessionChanged += OnSessionChanged;
@@ -308,9 +345,23 @@ public sealed class RaceAiService : IHostedService
             if (slot.GridIndex < 0) slot.GridIndex = slot.EntryCar.SessionId;
         }
 
+        // mandatory pit window (only for races over a number of laps)
+        var cfg = session.Configuration;
+        bool lapRace = _sessionType == SessionType.Race && !cfg.IsTimedRace;
+        _world.Settings.PitWindowStart = lapRace ? _serverConfig.Server.PitWindowStart : 0;
+        _world.Settings.PitWindowEnd = lapRace ? _serverConfig.Server.PitWindowEnd : 0;
+
         var driving = new List<RaceBot>();
         foreach (var slot in _slots.Where(s => s.Active))
         {
+            // full service between sessions: fuel for the session, new tyres
+            float fuelLaps = _sessionType switch
+            {
+                SessionType.Race => RemainingLaps(slot, session) + 0.5f,
+                SessionType.Qualifying => _config.QualifyingFuelLaps,
+                _ => _config.PracticeFuelLaps
+            };
+            _world.ResetCarCondition(slot.Bot, _world.FuelForLaps(slot.Bot, fuelLaps));
             ParkInPitBox(slot);
             switch (_sessionType)
             {
@@ -425,6 +476,21 @@ public sealed class RaceAiService : IHostedService
 
     private double Now => _sessionManager.ServerTimeMilliseconds / 1000.0;
 
+    /// <summary>Laps a bot still has to complete in this session including the current one (int.MaxValue for practice / qualifying).</summary>
+    private int RemainingLaps(BotSlot slot, SessionState session)
+    {
+        var cfg = session.Configuration;
+        if (cfg.Type != SessionType.Race) return int.MaxValue;
+        if (!cfg.IsTimedRace) return Math.Max(0, cfg.Laps - slot.Bot.LapsCompleted);
+
+        float lapTime = slot.Bot.LastLapSeconds > 0 ? slot.Bot.LastLapSeconds
+            : _calibrations.TryGetValue(slot.Bot.Car, out var cal) ? cal.LapTimeFor(slot.Bot.Driver.Level, _referenceBestLap) * 1.03f : 480;
+        double timeLeft = _raceStarted ? session.TimeLeftMilliseconds / 1000.0 : cfg.Time * 60.0;
+        int laps = (int)Math.Ceiling(timeLeft / Math.Max(60, lapTime)) + 1;
+        if (_serverConfig.Server.HasExtraLap) laps++;
+        return Math.Max(1, laps);
+    }
+
     // ------------------------------------------------------------------ main loop
 
     private void OnUpdate(ACServer sender, EventArgs args)
@@ -497,6 +563,9 @@ public sealed class RaceAiService : IHostedService
         // (AssettoServer already lowers TrackGrip for rain, see RainHelper)
         world.Settings.GripFactor = Math.Clamp(grip, 0.5f, 1.05f);
 
+        foreach (var slot in _slots)
+            slot.Bot.RemainingLaps = RemainingLaps(slot, session);
+
         world.Advance(now);
 
         long serverTime = _sessionManager.ServerTimeMilliseconds;
@@ -511,6 +580,14 @@ public sealed class RaceAiService : IHostedService
 
         if (_config.AnnounceOvertakes && _sessionType == SessionType.Race && _raceStarted)
             AnnounceOvertakes(world);
+    }
+
+    private void OnBotPitStop(RaceBot bot, float seconds, float litres, bool tyres)
+    {
+        string what = string.Join(" + ", new[] { tyres ? "tyres" : null, litres >= 0.5f ? $"{litres:F0} l" : null }.Where(x => x != null));
+        Log.Information("Race AI: {Name} pit stop ({Reason}): {What}, {Seconds:F1} s", bot.Name, bot.PitReason, what, seconds);
+        if (_config.AnnouncePitStops && _sessionType == SessionType.Race)
+            _entryCarManager.BroadcastChat($"{bot.Name} pit stop: {what} ({seconds:F1} s)");
     }
 
     private void OnBotLapCompleted(RaceBot bot, float lapSeconds)
@@ -563,7 +640,14 @@ public sealed class RaceAiService : IHostedService
                 if (!ext.Valid) continue;
                 float rel = line.Delta(ext.S, botS); // > 0: bot ahead of player
                 var key = (slot.EntryCar.SessionId, (byte)ext.Id);
-                if (_lastRelative.TryGetValue(key, out var old) && MathF.Abs(rel) < 30 && MathF.Sign(old) != MathF.Sign(rel) && MathF.Abs(old) > 1 && MathF.Abs(rel) > 1)
+                // only clear positions count (6 m ahead / behind), so side-by-side battles don't spam the chat
+                if (MathF.Abs(rel) > 60)
+                {
+                    _lastRelative.Remove(key);
+                    continue;
+                }
+                if (MathF.Abs(rel) < 6) continue;
+                if (_lastRelative.TryGetValue(key, out var old) && MathF.Sign(old) != MathF.Sign(rel))
                 {
                     var player = _entryCarManager.EntryCars[ext.Id].Client;
                     var section = _track!.Info.SectionAt(line.WrapS(botS - _track.StartLineS) / line.Length);
@@ -582,20 +666,25 @@ public sealed class RaceAiService : IHostedService
 
     // ------------------------------------------------------------------ admin
 
-    public void SetLevel(float level, float? variation = null)
+    public void SetStrength(float strength, float? spread = null)
     {
         lock (_lock)
         {
-            foreach (var slot in _slots)
+            var values = StrengthCalibration.Distribute(_slots.Count, strength, spread ?? _config.AiStrengthSpread,
+                _config.AiStrengthDistribution == StrengthDistribution.Random, _rng);
+            for (int i = 0; i < _slots.Count; i++)
             {
-                float l = level - (float)_rng.NextDouble() * (variation ?? _config.AiLevelVariation);
-                var d = DriverProfile.FromLevel(l, slot.Bot.Driver.Aggression * 100);
-                slot.Bot.Driver.Level = d.Level;
-                slot.Bot.Driver.Pace = d.Pace;
-                slot.Bot.Driver.Consistency = d.Consistency;
+                var bot = _slots[i].Bot;
+                if (!_calibrations.TryGetValue(bot.Car, out var cal)) continue;
+                var d = DriverProfile.FromStrength(values[i], cal.PaceFor(values[i], _referenceBestLap), bot.Driver.Aggression * 100);
+                bot.Driver.Level = d.Level;
+                bot.Driver.Pace = d.Pace;
+                bot.Driver.Consistency = d.Consistency;
             }
         }
     }
+
+    public string? BestLapFor(CarSpec car) => _calibrations.TryGetValue(car, out var cal) ? FormatLap(cal.BestLap) : null;
 
     public void SetAggression(float aggression)
     {

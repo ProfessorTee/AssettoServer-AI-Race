@@ -18,6 +18,18 @@ public enum PlayerGridPosition
     Middle
 }
 
+public enum StrengthReference
+{
+    Field,
+    Car
+}
+
+public enum StrengthDistribution
+{
+    Even,
+    Random
+}
+
 public enum BotSessionMode
 {
     /// <summary>Bots drive laps (and set lap times).</summary>
@@ -35,7 +47,9 @@ public class BotDriverConfiguration
     public string? Name { get; set; }
     [YamlMember(Description = "Three letter nation code, e.g. GER")]
     public string? Nation { get; set; }
-    [YamlMember(Description = "AI level 0-100 for this driver. Empty = global AiLevel with variation")]
+    [YamlMember(Description = "AI strength in percent for this driver. Empty = from AiStrength / AiStrengthSpread")]
+    public float? Strength { get; set; }
+    [YamlMember(Description = "Deprecated and ignored, use Strength", DefaultValuesHandling = DefaultValuesHandling.OmitNull)]
     public float? Level { get; set; }
     [YamlMember(Description = "AI aggression 0-100 for this driver. Empty = global AiAggression")]
     public float? Aggression { get; set; }
@@ -48,11 +62,25 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
                               "Keep EnableAi in extra_cfg.yml switched off, otherwise the traffic AI takes over these slots.")]
     public List<int> BotSlots { get; set; } = [];
 
-    [YamlMember(Description = "AI level 0-100 like in Content Manager (100 = drives at the car's limit, 90 ≈ 2-3 % slower)")]
-    public float AiLevel { get; set; } = 95;
+    [YamlMember(Description = "AI strength in percent of the best lap the car can do on this track (100 = at the limit, 95 = lap time / 0.95). " +
+                              "Tip: your own best lap / the 100 % time from the log = your strength")]
+    public float AiStrength { get; set; } = 94;
 
-    [YamlMember(Description = "Content Manager 'AI level variation': every bot gets a random level between AiLevel - AiLevelVariation and AiLevel")]
-    public float AiLevelVariation { get; set; } = 5;
+    [YamlMember(Description = "+/- range around AiStrength that is spread over the bots, e.g. 94 +/- 3 gives bots from 91 to 97 %")]
+    public float AiStrengthSpread { get; set; } = 3;
+
+    [YamlMember(Description = "What 100 % means: Field = the median best lap of all bot cars (same strength = same lap time in every car, like a BoP), " +
+                              "Car = the best lap of each car itself (faster cars stay faster)")]
+    public StrengthReference AiStrengthReference { get; set; } = StrengthReference.Field;
+
+    [YamlMember(Description = "How the range is spread: Even (evenly spaced values, shuffled over the bots) or Random")]
+    public StrengthDistribution AiStrengthDistribution { get; set; } = StrengthDistribution.Even;
+
+    [YamlMember(Description = "Deprecated and ignored, use AiStrength", DefaultValuesHandling = DefaultValuesHandling.OmitNull)]
+    public float? AiLevel { get; set; }
+
+    [YamlMember(Description = "Deprecated and ignored, use AiStrengthSpread", DefaultValuesHandling = DefaultValuesHandling.OmitNull)]
+    public float? AiLevelVariation { get; set; }
 
     [YamlMember(Description = "AI aggression 0-100 like in Content Manager (how early bots attack, how closely they follow, how much they defend)")]
     public float AiAggression { get; set; } = 50;
@@ -110,6 +138,31 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
 
     [YamlMember(Description = "Announce in chat when a bot overtakes a player or a player overtakes a bot (with the track section from data/sections.ini)")]
     public bool AnnounceOvertakes { get; set; } = false;
+
+    [YamlMember(Description = "Fuel consumption (uses FUEL_RATE of server_cfg.ini). Fuel weight slows the car down")]
+    public bool Fuel { get; set; } = true;
+
+    [YamlMember(Description = "Tyre wear with the car's Kunos wear curves (uses TYRE_WEAR_RATE of server_cfg.ini)")]
+    public bool TyreWear { get; set; } = true;
+
+    [YamlMember(Description = "Tyre wear factor: Kunos virtual km per real km at average load. Higher = tyres wear out faster")]
+    public float TyreWearFactor { get; set; } = 0.15f;
+
+    [YamlMember(Description = "Bots stop for new tyres when worn tyres would have less grip than this (and new tyres pay off until the end)")]
+    public float TyreChangeGrip { get; set; } = 0.95f;
+
+    [YamlMember(Description = "Pit stops (fuel, tyres, mandatory stop of RACE_PIT_WINDOW_START/END). Needs the track's ai/pit_lane.ai and AC_PIT_x positions")]
+    public bool PitStops { get; set; } = true;
+
+    [YamlMember(Description = "Pit lane speed limit (km/h)")]
+    public float PitSpeedKmh { get; set; } = 80;
+
+    [YamlMember(Description = "Fuel for this many laps in practice / qualifying (races: fuel for the race distance, limited by the tank)")]
+    public float PracticeFuelLaps { get; set; } = 4;
+    public float QualifyingFuelLaps { get; set; } = 2;
+
+    [YamlMember(Description = "Announce bot pit stops in chat")]
+    public bool AnnouncePitStops { get; set; } = true;
 
     [YamlMember(Description = "Log every bot lap to the server log")]
     public bool LogLaps { get; set; } = true;

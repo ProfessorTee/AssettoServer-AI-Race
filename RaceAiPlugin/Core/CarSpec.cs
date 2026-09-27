@@ -44,9 +44,37 @@ public sealed class CarSpec
     public float SteerRatio { get; set; } = 13f;
     public float SteerLock { get; set; } = 320f;
 
+    // ---- endurance: fuel, tyres, pit stops (car.ini, fuel_cons.ini, tyres.ini)
+    /// <summary>Mass the acceleration table / grip were computed for (kg, incl. driver and a light fuel load).</summary>
+    public float ReferenceMass { get; set; } = 1350f;
+    public float FuelCapacity { get; set; } = 120f;
+    /// <summary>Default starting fuel from car.ini (litres).</summary>
+    public float DefaultFuel { get; set; } = 30f;
+    /// <summary>Distance per litre at racing speed (fuel_cons.ini KM_PER_LITER).</summary>
+    public float KmPerLiter { get; set; } = 1.6f;
+    /// <summary>Fuel per lap measured on the server's track by <see cref="StrengthCalibration"/> (litres at FUEL_RATE 100 %, 0 = unknown).</summary>
+    public float CalibratedFuelPerLap { get; set; }
+    /// <summary>Virtual tyre km per lap measured by the calibration (at wear rate 100 %).</summary>
+    public float CalibratedTyreVkmPerLap { get; set; }
+    /// <summary>Tyre grip over virtual km (0..1), default compound. Null = no wear data.</summary>
+    public Lut? TyreWear { get; set; }
+    public string TyreCompound { get; set; } = "";
+    /// <summary>Time to change the tyres (car.ini TYRE_CHANGE_TIME_SEC) and to put one litre in (FUEL_LITER_TIME_SEC).</summary>
+    public float TyreChangeTime { get; set; } = 20f;
+    public float FuelLiterTime { get; set; } = 0.2f;
+
+    /// <summary>Grip factor of the tyres after <paramref name="virtualKm"/> (1 = new).</summary>
+    public float TyreGripAt(float virtualKm)
+    {
+        if (TyreWear is not { X.Length: > 0 } lut) return 1f;
+        float max = lut.Max;
+        return max <= 0 ? 1f : Math.Clamp(lut.At(virtualKm) / max, 0.5f, 1f);
+    }
+
     public float AccelAt(float v, float pace)
     {
-        float paceFactor = 0.85f + 0.15f * Math.Clamp(pace, 0, 1);
+        // slower drivers also use less of the engine (early lift, short shifting, careful exits)
+        float paceFactor = MathF.Pow(Math.Clamp(pace, 0.3f, 1.05f), 1.5f);
         if (AccelTable is { Length: > 1 } table)
         {
             float x = Math.Clamp(v, 0, table.Length - 1.001f);
@@ -85,6 +113,7 @@ public sealed class CarSpec
         var c = (CarSpec)MemberwiseClone();
         c.GearTopSpeedsKmh = (float[])GearTopSpeedsKmh.Clone();
         c.AccelTable = (float[]?)AccelTable?.Clone();
+        c.TyreWear = TyreWear;
         return c;
     }
 }

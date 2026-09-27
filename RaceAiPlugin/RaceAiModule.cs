@@ -13,7 +13,7 @@ public class RaceAiModule : AssettoServerModule<RaceAiConfiguration>
         AssettoCorsaPath = "C:/Program Files (x86)/Steam/steamapps/common/assettocorsa",
         Drivers =
         [
-            new BotDriverConfiguration { Slot = 1, Name = "Max Reuter", Nation = "AUT", Level = 98, Aggression = 70 }
+            new BotDriverConfiguration { Slot = 1, Name = "Max Reuter", Nation = "AUT", Strength = 97, Aggression = 70 }
         ]
     };
 

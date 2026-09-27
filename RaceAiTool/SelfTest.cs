@@ -92,8 +92,69 @@ public static class SelfTest
         var pose = world.GetPose(world.Bots[0]);
         Check("pose finite", !float.IsNaN(pose.Position.X) && !float.IsNaN(pose.Rotation.X) && pose.Gear >= 1);
 
+        // strength distribution: 80 +/- 10 over 5 bots -> 70, 75, 80, 85, 90 (shuffled)
+        var dist = StrengthCalibration.Distribute(5, 80, 10, false, new Random(1)).OrderBy(x => x).ToArray();
+        Check($"strength spread [{string.Join(", ", dist)}]", dist.SequenceEqual(new[] { 70f, 75f, 80f, 85f, 90f }));
+        var calib = StrengthCalibration.Measure(line, new CarSpec(), new RaceWorldSettings());
+        float p95 = calib.PaceFor(95), p90 = calib.PaceFor(90);
+        Check($"calibration 100 % = {calib.BestLap:F1} s, 95 % -> pace {p95:F3}, 90 % -> pace {p90:F3}", p95 < 1 && p90 < p95 && p90 > 0.5f);
+        float lap95 = StrengthCalibration.FlyingLap(line, new CarSpec(), p95, new RaceWorldSettings());
+        Check($"95 % drives {lap95:F1} s (target {calib.LapTimeFor(95):F1} s)", MathF.Abs(lap95 - calib.LapTimeFor(95)) < 1.0f);
+
+        // pit stops: pit lane parallel to the first straight, heavy fuel use
+        PitTest(line);
+
         Console.WriteLine(_failed == 0 ? "SELFTEST OK" : $"SELFTEST FAILED ({_failed})");
         return _failed == 0 ? 0 : 3;
+    }
+
+    private static void PitTest(RacingLine line)
+    {
+        var lanePts = new List<FastLanePoint>();
+        for (float x = -150; x <= 750; x += 1.5f)
+        {
+            // joins the line before and after, 9 m to the side along the straight
+            float side = x < 50 ? MathF.Max(0, (x + 150) / 200) : x > 550 ? MathF.Max(0, (750 - x) / 200) : 1;
+            float z = 9 * side;
+            lanePts.Add(new FastLanePoint { Position = new Vector3(x < 0 ? 0 : x, 0, z), Normal = Vector3.UnitY });
+        }
+        // before x=0 the lane runs on the last metres of the oval: use the line itself there
+        for (int i = 0; i < lanePts.Count; i++)
+        {
+            var p = lanePts[i];
+            if (p.Position.X <= 0)
+            {
+                float back = -(-150 + i * 1.5f);
+                var q = line.PositionAt(line.Length - back, 0);
+                lanePts[i] = new FastLanePoint { Position = q + new Vector3(0, 0, 9 * MathF.Max(0, (150 - back) / 200)), Normal = Vector3.UnitY };
+            }
+        }
+        var lane = new PitLane(lanePts.ToArray(), line);
+        var world = new RaceWorld(line, new RaceWorldSettings { Seed = 5, FuelRate = 6, TyreWearRate = 1 }) { PitLane = lane };
+        int stops = 0;
+        world.PitStopCompleted += (_, _, _, _) => stops++;
+        for (int i = 0; i < 4; i++)
+        {
+            var bot = new RaceBot { Id = i, Name = $"P{i}", Car = new CarSpec { FuelCapacity = 60, KmPerLiter = 1.6f }, Driver = DriverProfile.FromLevel(95, 50) };
+            world.Bots.Add(bot);
+            world.SetPitBox(bot, new Vector3(250 + i * 10, 0, 13));
+        }
+        world.PlaceOnGrid(world.Bots);
+        foreach (var b in world.Bots) world.ResetCarCondition(b, world.FuelForLaps(b, 3));
+        world.StartRace(0);
+        double t = 0;
+        world.Advance(0);
+        bool dry = false;
+        while (t < 1500 && world.Bots.Any(b => b.LapsCompleted < 12))
+        {
+            t += 0.05;
+            foreach (var b in world.Bots) b.RemainingLaps = Math.Max(0, 12 - b.LapsCompleted);
+            world.Advance(t);
+            dry |= world.Bots.Any(b => b.Fuel <= 0 && b.LapsCompleted < 12);
+        }
+        Check($"pit lane {lane.Length:F0} m, limiter {lane.LimiterStart:F0}-{lane.LimiterEnd:F0}", lane.LimiterEnd > lane.LimiterStart);
+        Check($"pit stops made ({stops}), all finished", stops >= 4 && world.Bots.All(b => b.LapsCompleted >= 12));
+        Check("nobody ran out of fuel", !dry);
     }
 
     private static void Check(string name, bool ok)

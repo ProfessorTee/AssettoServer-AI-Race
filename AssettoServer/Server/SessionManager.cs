@@ -368,7 +368,8 @@ public class SessionManager : BackgroundService, IHostedLifecycleService
 
             if (CurrentSession.OverTimeMilliseconds == overTimeMilliseconds)
             {
-                if (_entryCarManager.EntryCars.Where(c => c.Client is { HasSentFirstUpdate: true })
+                // server-driven AI slots (racing AI plugins) finish their race too, within RACE_OVER_TIME
+                if (_entryCarManager.EntryCars.Where(c => c.Client is { HasSentFirstUpdate: true } || (c.Client == null && c.ExternalAiController != null))
                     .Any(car => CurrentSession.Results?[car.SessionId] is { HasCompletedLastLap: false }))
                 {
                     return;
@@ -382,7 +383,7 @@ public class SessionManager : BackgroundService, IHostedLifecycleService
                 CurrentSession.OverTimeMilliseconds = overTimeMilliseconds;
 
             if (_entryCarManager.EntryCars
-                .Where(c => c.Client is { HasSentFirstUpdate: true })
+                .Where(c => c.Client is { HasSentFirstUpdate: true } || (c.Client == null && c.ExternalAiController != null))
                 .Any(car => CurrentSession.Results?[car.SessionId] is { HasCompletedLastLap: false }
                             && car.Status.Velocity.LengthSquared() > 5))
             {

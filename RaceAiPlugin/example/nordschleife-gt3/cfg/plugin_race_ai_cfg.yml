@@ -1,9 +1,14 @@
 # Race AI plugin - Nordschleife (without GP track) with GT3 cars
 # Empty = every entry with AI=fixed in entry_list.ini is a bot (here CAR_4 .. CAR_19)
 BotSlots: []
-# Content Manager style AI settings
-AiLevel: 95
-AiLevelVariation: 6
+# AI strength in % of the best possible lap (100 % = median best lap of the bot cars, see server log).
+# 94 % on the Nordschleife ≈ 7:18. Your strength = 100 % time / your best lap (e.g. 6:52 / 7:17 ≈ 94 %)
+AiStrength: 94
+# +/- range spread evenly over the bots: 94 +/- 3 -> bots from 91 % to 97 %
+AiStrengthSpread: 3
+AiStrengthDistribution: Even
+# Field = same % means the same lap time in every car; Car = % of each car's own best lap
+AiStrengthReference: Field
 AiAggression: 55
 AiAggressionVariation: 15
 # Where the players start in a race that doesn't follow a qualifying: Default, First, Last, Middle, Random
@@ -22,6 +27,16 @@ SideMargin: 0.5
 HeightOffset: 0
 CoolDownPace: 0.6
 DaytimeLights: false
+# Endurance: fuel (FUEL_RATE), tyre wear (TYRE_WEAR_RATE), pit stops, mandatory stop (RACE_PIT_WINDOW_START/END)
+Fuel: true
+TyreWear: true
+TyreWearFactor: 0.15
+TyreChangeGrip: 0.95
+PitStops: true
+PitSpeedKmh: 80
+PracticeFuelLaps: 4
+QualifyingFuelLaps: 2
+AnnouncePitStops: true
 AnnounceOvertakes: true
 LogLaps: true
 NamePrefix: ''
@@ -32,5 +47,5 @@ Drivers: []
 #   - Slot: 4
 #     Name: Max Reuter
 #     Nation: AUT
-#     Level: 99
+#     Strength: 97
 #     Aggression: 70
