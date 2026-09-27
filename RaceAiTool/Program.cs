@@ -103,6 +103,14 @@ public static class Program
             Console.WriteLine($"AC_START_{g.Index,-3} s={p.S,8:F1} offset={p.Offset,6:F2} height={p.Height,5:F2}  {g.Position}");
         }
         Console.WriteLine($"{info.PitBoxes.Count} pit boxes");
+        var pitPath = Path.Join(Path.GetDirectoryName(FastLanePath(trackRoot, layout))!, "pit_lane.ai");
+        var world = new RaceWorld(line, new RaceWorldSettings { SpotHeightOffset = RaceWorld.MeasureSpotHeight(line, info.StartGrid.Select(g => g.Position)) }) { PitLane = File.Exists(pitPath) ? new PitLane(FastLaneFile.Read(pitPath), line) : null };
+        foreach (var g in info.PitBoxes.Take(o.Has("verbose") ? 999 : 5))
+        {
+            var ground = world.OnGround(g.Position);
+            float lane = world.PitLane != null ? world.PitLane.PositionAt(world.PitLane.Project(g.Position).S, 0).Y : float.NaN;
+            Console.WriteLine($"AC_PIT_{g.Index,-3} dummy {g.Position.Y,7:F2}, parked at {ground.Y,7:F2} (spot offset {world.Settings.SpotHeightOffset:F2} m), pit lane {lane,7:F2}");
+        }
 
         var outPath = o.Get("out");
         if (outPath != null)

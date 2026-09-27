@@ -29,6 +29,8 @@ SlipstreamStrength: 1.0
 EdgeMargin: 0.4
 SideMargin: 0.5
 HeightOffset: 0
+# Height correction for bots parked in the pit box (m, + = higher)
+ParkHeightAdjust: 0
 CoolDownPace: 0.6
 DaytimeLights: false
 # Endurance: fuel (FUEL_RATE), tyre wear (TYRE_WEAR_RATE), pit stops, mandatory stop (RACE_PIT_WINDOW_START/END)

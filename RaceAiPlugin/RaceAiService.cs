@@ -127,6 +127,8 @@ public sealed class RaceAiService : IHostedService
         var settings = new RaceWorldSettings
         {
             StartLineS = _track.StartLineS,
+            ParkHeightAdjust = _config.ParkHeightAdjust,
+            SpotHeightOffset = RaceWorld.MeasureSpotHeight(_track.Line, _track.Info.StartGrid.Select(g => g.Position)),
             EdgeMargin = _config.EdgeMargin,
             SideMargin = _config.SideMargin,
             HeightOffset = _config.HeightOffset,

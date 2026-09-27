@@ -232,6 +232,9 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     [YamlMember(Description = "At night bots use their high beams when nobody (player or bot) is within about 250 m ahead, and dip them as soon as somebody is")]
     public bool HighBeams { get; set; } = true;
 
+    [YamlMember(Description = "Height correction for bots parked in their pit box (m, + = higher, - = lower)")]
+    public float ParkHeightAdjust { get; set; } = 0;
+
     [YamlMember(Description = "Announce bot pit stops in chat")]
     public bool AnnouncePitStops { get; set; } = true;
 

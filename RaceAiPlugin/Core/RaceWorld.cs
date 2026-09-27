@@ -289,6 +289,10 @@ public sealed class RaceWorldSettings
     public float SideMargin { get; set; } = 0.5f;
     /// <summary>Use the speed recorded in fast_lane.ai as an upper limit, scaled by this factor. 0 = off.</summary>
     public float SpeedHintScale { get; set; } = 0f;
+    /// <summary>Height of the track's AC_START_x / AC_PIT_x dummies above the ground (m), subtracted when parking in the pit box.</summary>
+    public float SpotHeightOffset { get; set; }
+    /// <summary>Fine tuning of the height of cars parked in the pit box (m, + = higher).</summary>
+    public float ParkHeightAdjust { get; set; }
     /// <summary>Lift the car this far above the line (m).</summary>
     public float HeightOffset { get; set; } = 0f;
     public float CoolDownPace { get; set; } = 0.6f;
@@ -459,10 +463,34 @@ public sealed partial class RaceWorld
     public void Park(RaceBot bot, Vector3 position, Vector3 forward)
     {
         bot.Phase = BotPhase.Parked;
-        bot.ParkPosition = position;
+        bot.ParkPosition = OnGround(position);
         bot.ParkForward = forward.LengthSquared() > 0.01f ? Vector3.Normalize(forward) : Vector3.UnitZ;
         bot.Speed = 0;
         bot.OvertakeTargetId = -1;
+    }
+
+    /// <summary>
+    /// Puts a track spot (AC_PIT_x dummy) onto the ground. Kunos places these dummies above the surface (the car is dropped from there);
+    /// <see cref="RaceWorldSettings.SpotHeightOffset"/> is measured on the start grid spots, where the ground is the racing line.
+    /// </summary>
+    public Vector3 OnGround(Vector3 p)
+    {
+        // same height as during a pit stop in that box (pit lane surface), so parked and stopping cars sit alike
+        if (PitLane is { } lane)
+        {
+            var (s, off) = lane.Project(p);
+            var q = lane.PositionAt(s, off);
+            if (new Vector2(p.X - q.X, p.Z - q.Z).Length() < 2f && MathF.Abs(q.Y - p.Y) < 3f)
+                return new Vector3(p.X, q.Y + Settings.ParkHeightAdjust, p.Z);
+        }
+        return p - Vector3.UnitY * (Settings.SpotHeightOffset - Settings.ParkHeightAdjust);
+    }
+
+    /// <summary>Median height of the AC_START_x dummies above the racing line (the offset of the track's spots).</summary>
+    public static float MeasureSpotHeight(RacingLine line, IEnumerable<Vector3> startSpots)
+    {
+        var h = startSpots.Select(p => line.Project(p).Height).Where(x => x > -0.5f && x < 3f).OrderBy(x => x).ToList();
+        return h.Count == 0 ? 0f : h[h.Count / 2];
     }
 
     /// <summary>Spreads bots around the track (practice / qualifying), rolling at speed.</summary>
