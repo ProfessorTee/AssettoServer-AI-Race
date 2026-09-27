@@ -31,6 +31,11 @@
 - `RealWeatherService`: Open-Meteo (ohne Key), WMO-Code → WeatherFxType, alle `RealWeatherUpdateMinutes`.
   Offen: am Rechner des Nutzers mit CSP testen, ob Sol/Pure die Übergänge sauber zeigen.
 
+## Neu in Teil 4
+- `PlayersCanTakeBotSlots` (Standard true): `RaceAiSlotFilter` öffnet die Bot-Slots für Spieler. AssettoServer probiert die Slots eines Modells
+  in der Reihenfolge der Entry List, freie Spieler-Slots (oben) also zuerst. Beim Connect räumt der Bot den Slot (Chat: „X made room for Y“),
+  beim Disconnect kommt er zurück. E2E getestet (Mercedes → Spieler-Slot 0, Audi → Bot-Slot 11, Bot kommt zurück).
+
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:
 1. Offizielles Release `assetto-server-linux-x64.tar.gz` (v0.0.55-pre42) laden. Es ist ein Single-File-Bundle mit .NET 11 RC,

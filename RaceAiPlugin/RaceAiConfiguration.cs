@@ -191,6 +191,10 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     public float PracticeFuelLaps { get; set; } = 4;
     public float QualifyingFuelLaps { get; set; } = 2;
 
+    [YamlMember(Description = "Players may take any bot's car: when all player slots of a car are taken, a bot leaves and hands its slot over. " +
+                              "The bot comes back when the player leaves. false = bot slots are closed to players")]
+    public bool PlayersCanTakeBotSlots { get; set; } = true;
+
     [YamlMember(Description = "Announce bot pit stops in chat")]
     public bool AnnouncePitStops { get; set; } = true;
 

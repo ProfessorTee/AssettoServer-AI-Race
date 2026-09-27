@@ -75,7 +75,9 @@ Chat-Befehle: `/raceai` (Bots mit Stärke, Sprit, Reifen, Stopps), als Admin `/r
 ## Einrichtung
 
 1. `extra_cfg.yml`: `EnableAi: false` (die Traffic-KI darf nicht mitlaufen), `EnablePlugins: [RaceAiPlugin]`.
-2. `entry_list.ini`: Die Bot-Slots bekommen `AI=fixed` (oder `BotSlots` in der Plugin-Konfiguration setzen). Spieler können diese Slots nicht belegen.
+2. `entry_list.ini`: Die Bot-Slots bekommen `AI=fixed` (oder `BotSlots` in der Plugin-Konfiguration setzen). Mit `PlayersCanTakeBotSlots: true`
+   (Standard) kann ein Spieler trotzdem jedes Auto wählen: Zuerst bekommt er einen freien Spieler-Slot. Sind die alle belegt, macht ein Bot
+   mit diesem Auto Platz und kommt zurück, sobald der Spieler den Server verlässt. Spieler-Slots gehören in der Entry List nach oben.
    Die Nordschleife hat 24 Startplätze.
 3. `plugin_race_ai_cfg.yml` anlegen (Beispiel in `example/nordschleife-gt3/cfg`).
 4. Daten: Der Server braucht wie immer `content/cars/<auto>/data.acd` (Checksummen). Das Plugin liest daraus auch die Fahrphysik.
@@ -116,5 +118,4 @@ Im Rennen mit vollem Tank sind die Bots ein paar Sekunden langsamer.
 
 - Die Bots sind kinematisch (keine echte Fahrphysik). Kontakte lösen sie auf, indem sie nachgeben, und nicht über Kollisionen.
 - Kein fliegender Start, keine Schäden und Reparaturen. Die Reifen werden nicht warm gefahren (nur ein Kaltstart-Abschlag nach dem Wechsel).
-- Ein Bot, dessen Slot ein Admin übernimmt, kommt erst wieder, wenn der Admin den Server verlässt. In ein laufendes Rennen steigt er nicht ein.
 - Mit dem echten AC-Client getestet: Fahren und Aussehen. Blinker, Lichthupe und echtes Wetter sind noch nicht mit dem echten Client geprüft.

@@ -77,7 +77,9 @@ public sealed class RaceAiService : IHostedService
 
     private bool _started;
 
-    /// <summary>Used by the slot filter: players can't take slots that are driven by bots.</summary>
+    public bool PlayersCanTakeBotSlots => _config.PlayersCanTakeBotSlots;
+
+    /// <summary>Used by the slot filter: slot is driven by a bot.</summary>
     public bool IsBotSlot(EntryCar entryCar)
     {
         if (!_started) return ConfiguredBotSlots().Contains(entryCar.SessionId);
@@ -280,7 +282,11 @@ public sealed class RaceAiService : IHostedService
         {
             lock (_lock)
             {
-                Log.Information("Race AI: {Player} took over bot slot {Slot}, bot {Bot} removed", client.Name, client.SessionId, slot.Bot.Name);
+                if (slot.Active)
+                {
+                    Log.Information("Race AI: {Player} took over bot slot {Slot} ({Model}), bot {Bot} left", client.Name, client.SessionId, slot.EntryCar.Model, slot.Bot.Name);
+                    _entryCarManager.BroadcastChat($"{slot.Bot.Name} made room for {client.Name}");
+                }
                 ReleaseSlot(slot);
             }
         }
@@ -296,6 +302,7 @@ public sealed class RaceAiService : IHostedService
             {
                 TakeSlot(slot, broadcast: true);
                 PlaceForCurrentSession(slot, late: true);
+                Log.Information("Race AI: {Player} left slot {Slot}, bot {Bot} is back", client.Name, client.SessionId, slot.Bot.Name);
             }
         }
     }

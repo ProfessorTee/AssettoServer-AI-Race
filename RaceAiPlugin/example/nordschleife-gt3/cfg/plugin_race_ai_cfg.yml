@@ -41,6 +41,8 @@ PitSpeedKmh: 80
 PracticeFuelLaps: 4
 QualifyingFuelLaps: 2
 AnnouncePitStops: true
+# Players can pick every car: if all player slots of a car are taken, a bot leaves and comes back when the player leaves
+PlayersCanTakeBotSlots: true
 # Race craft
 # Seconds stuck behind a slower car until a bot is fully impatient (tries harder to overtake, follows closer, flashes its lights)
 ImpatienceSeconds: 25
