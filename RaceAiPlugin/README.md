@@ -58,11 +58,13 @@ Das Plugin besteht aus zwei Teilen:
     Regenreifen im Trockenen langsamer und verschleißen schnell.
   - Auf Slicks im Nassen fahren die Bots vorsichtiger, machen mehr Fehler und schwimmen auf stehendem Wasser auch mal auf
     (`RainCaution`).
-  - Reifenwechsel (`WetTyres`): Bei Regen wechseln die Bots in der Box auf Regenreifen und beim Abtrocknen zurück auf Slicks,
-    sofern das Auto eine Regenmischung in `tyres.ini` hat. Die Kunos-GT3 haben nur Slicks. Mit `VirtualWetTyres: true` dürfen die Bots
-    trotzdem Regenreifen nehmen, die Spieler aber nicht.
-  - Für die Spieler: Ohne die Regenphysik der CSP-Preview-Versionen ist Regen nur optisch. Mit `RainTrackGripReductionPercent`
-    (0–0.5) in `extra_cfg.yml` senkt der Server bei Nässe den Grip für alle. Die Bots rechnen das mit ein.
+  - Reifenwechsel (`WetTyres`): Bei Regen wechseln die Bots in der Box auf Regenreifen und beim Abtrocknen zurück auf Slicks.
+    CSP Rain FX erzeugt für jedes Auto Regenreifen, auch für die Kunos-GT3, die in `tyres.ini` nur Slicks haben. Deshalb dürfen die
+    Bots sie standardmäßig auch nehmen (`VirtualWetTyres: true`). Spieler wählen sie in der Box oder lassen CSP sie beim Start
+    automatisch nehmen (`AUTOSELECT_RAIN_TYRES`). `LEGAL_TYRES` in `server_cfg.ini` darf sie nicht ausschließen (leer = alle erlaubt).
+  - Für die Spieler: Mit CSP Rain FX rechnet das Spiel selbst mit Nässe. Für Spieler ohne Rain-FX-Physik ist Regen nur optisch.
+    Für sie senkt `RainTrackGripReductionPercent` (0–0.5) in `extra_cfg.yml` bei Nässe den Grip für alle. Mit Rain FX bleibt der Wert
+    auf 0, sonst wird es doppelt rutschig. Die Bots rechnen beides ein.
 - **Echtes Wetter** (`RealWeather`): Das aktuelle Wetter am Nürburgring kommt von Open-Meteo (kostenlos, ohne API-Key). Der Server
   schickt es als CSP-WeatherFX an die Clients, Sol und Pure zeigen es an. Mit `EnableRealTime: true` passt auch die Tageszeit.
 - Scheinwerfer bei Dunkelheit, **Fernlicht**, solange etwa 250 m davor frei sind (`HighBeams`), und sofort Abblendlicht, sobald ein

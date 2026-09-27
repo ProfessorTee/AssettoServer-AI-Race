@@ -59,10 +59,11 @@ BotContacts: true
 # Damage from contacts (uses DAMAGE_MULTIPLIER), repaired in the pits; 1.0 = 100 %
 BotDamage: true
 BotDamageFactor: 1.0
-# Rain: bots change to rain tyres and back (only cars with a wet compound; Kunos GT3 have slicks only)
+# Rain: bots change to rain tyres when it gets wet and back to slicks when it dries
 WetTyres: true
-# Let bots use rain tyres although the car has none (players can't)
-VirtualWetTyres: false
+# CSP Rain FX gives every car rain tyres (also the Kunos GT3), so the bots may use them too.
+# false = only cars that have a wet compound in their tyres.ini
+VirtualWetTyres: true
 # On slicks in the wet: more careful, more mistakes, aquaplaning
 RainCaution: true
 # High beams at night when nobody is ahead
