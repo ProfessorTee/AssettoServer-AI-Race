@@ -48,8 +48,11 @@ Der Stand für Entwickler steht in [`RaceAiPlugin/UEBERGABE.md`](RaceAiPlugin/UE
 
 ```bash
 race-ai/setup-testserver.sh /pfad/zu/steamapps/common/assettocorsa   # lädt AssettoServer v0.0.55-pre42 und richtet alles ein
-race-ai/start-server.sh
+race-ai/install-desktop-entry.sh                                      # „Race AI Server“ ins Startmenü und auf den Desktop
+race-ai/raceai-desktop.sh                                             # Server + Dashboard (Live-Karte, Bots steuern) starten
 ```
+
+Nach einem `git pull` spielt `race-ai/update-server.sh` das neue Plugin ein und ergänzt die Konfiguration.
 
 Beitreten in Content Manager: *Online → LAN* oder die Favoriten mit `IP:8081`. CSP muss installiert sein.
 Für Freunde von außen: im Router die Ports 9600 TCP+UDP und 8081 TCP an deinen PC weiterleiten.

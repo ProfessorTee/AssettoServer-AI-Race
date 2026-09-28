@@ -129,6 +129,24 @@ Chat-Befehle:
   - Regen zum Testen (Befehle von AssettoServer): `/setcspweather HeavyRain 30`, direkt nass mit `/setrain 0.8 0.8 0.3`
     (Intensität, Nässe, Wasser). Vorher `/raceai_set realweather off`, sonst holt sich der Server wieder das echte Wetter.
 
+## Desktop-Oberfläche (Dashboard)
+
+`race-ai/raceai-desktop.sh` startet den Server und öffnet das Dashboard in einem eigenen Fenster (App-Modus von
+Chromium, Chrome, Brave oder Edge; sonst ein Browser-Tab). `race-ai/install-desktop-entry.sh` legt „Race AI Server“ im
+Startmenü und auf dem Desktop an. Beim Schließen des Fensters fragt der Starter, ob der Server beendet werden soll.
+
+Das Dashboard läuft im Server selbst unter `http://127.0.0.1:<HTTP_PORT>/raceai`, standardmäßig nur vom Server-Rechner aus
+(`DashboardRemoteAccess`). Es bietet:
+- **Live-Karte:** Strecke, Boxengasse, Sektoren, Streckenabschnitte. Alle Autos mit Position, Farbe nach Persönlichkeit, Spieler blau.
+  Zoomen mit dem Mausrad, Verschieben durch Ziehen, Doppelklick zeigt die ganze Strecke, „Folgen“ verfolgt ein Auto.
+- **Fahrerfeld:** Position, Runden, beste und letzte Runde, Tempo, Sprit, Reifen, Status (Box, Dreher, Rutscher, Geist, pendelt,
+  unter Druck, Schaden). Ein Klick auf einen Bot öffnet die Einstellungen für Stärke, Aggressivität und Persönlichkeit, dazu
+  „In die Box schicken“. Spieler lassen sich kicken.
+- **KI:** Stärke, Streuung und Aggressivität für das ganze Feld. Alle Funktionen als Schalter (Fehler, Dreher, Gras, Berührungen,
+  Schaden, Flaggen, Licht, Regen, echtes Wetter, Chat-Meldungen). Dazu der Licht-Test.
+- **Server:** nächste Session oder Neustart, Tageszeit, CSP-Wetter, Regen/Nässe/Wasser, Grip, Chat an alle, Server beenden.
+- **Log:** live, mit Filter.
+
 ## Einrichtung
 
 1. `extra_cfg.yml`: `EnableAi: false` (die Traffic-KI darf nicht mitlaufen), `EnablePlugins: [RaceAiPlugin]`.

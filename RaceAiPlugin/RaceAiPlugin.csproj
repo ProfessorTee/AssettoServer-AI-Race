@@ -2,4 +2,8 @@
 
     <Import Project="..\Plugin.props" />
 
+    <ItemGroup>
+        <EmbeddedResource Include="Dashboard\index.html" LogicalName="RaceAiPlugin.Dashboard.index.html" />
+    </ItemGroup>
+
 </Project>

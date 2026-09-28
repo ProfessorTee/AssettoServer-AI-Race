@@ -1,4 +1,4 @@
-# Race-AI für AssettoServer: Übergabe (Stand 28.09.2026, 2. Sitzung, Teil 8)
+# Race-AI für AssettoServer: Übergabe (Stand 28.09.2026, 2. Sitzung, Teil 9)
 
 ## Status
 - Der Core-Patch und das Plugin **kompilieren** gegen AssettoServer master (Basis `e92d253`, entspricht Release `v0.0.55-pre42`).
@@ -92,6 +92,17 @@
 - Festgefahren: `UpdateStuck` → `Unstuck` (vorderes Auto zuerst, `Considers` ignoriert Autos dahinter, `UnstuckAround`
   umfährt stehende Autos). Notfall-Ghost nach `GhostAfter`: Bot ignoriert alles, `EntryCar.SetCollisions(false)` für die Clients.
   Der alte „Spieler ignorieren nach 12 s“ gilt nur noch während des Ghostings.
+
+## Neu in Teil 9: Desktop-GUI
+- `RaceAiDashboardController` (ASP.NET im Server, Plugin-Assembly als ApplicationPart):
+  - `GET /raceai`: die Seite `Dashboard/index.html`, als Ressource eingebettet
+  - `GET /raceai/api/state`, `/track`, `/log`, `/ping`
+  - `POST /raceai/api/bot/{id}`, `/ai`, `/server` (next, restart, time, cspweather, rain, grip, chat, kick, stop, weathertypes)
+  - Zugriff nur von Loopback, außer bei `DashboardRemoteAccess` (dann Header `X-Admin-Password` = ADMIN_PASSWORD).
+- `RaceAiService.Dashboard.cs`: Zustand (Autos inkl. Bot-Details, Session, Wetter, KI-Schalter), Streckenumriss (Linie, Ränder,
+  Box, Start, Sektoren, Abschnitte), `UpdateBot`, globale Stärke und Aggressivität.
+- `race-ai/raceai-desktop.sh` (Start, Warten auf `/api/ping`, Absturzmeldung per zenity/kdialog, Chromium `--app`,
+  Frage beim Schließen), `install-desktop-entry.sh`, `raceai-icon.svg`. Build: `csc -resource:` bzw. `EmbeddedResource` im csproj.
 
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:

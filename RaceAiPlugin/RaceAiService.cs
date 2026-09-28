@@ -16,7 +16,7 @@ namespace RaceAiPlugin;
 /// Runs the racing AI: owns the <see cref="RaceWorld"/>, maps bots to entry list slots, follows the server's sessions
 /// (grid, race start, chequered flag) and feeds laps back into the official timing.
 /// </summary>
-public sealed class RaceAiService : IHostedService
+public sealed partial class RaceAiService : IHostedService
 {
     private readonly RaceAiConfiguration _config;
     private readonly ACServerConfiguration _serverConfig;

@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Race AI Server</title>
+<style>
+:root {
+  --bg: #0f1216; --panel: #161b21; --panel2: #1c232b; --line: #2a333d; --text: #e6e9ed; --muted: #8b96a3;
+  --accent: #4aa3ff; --ok: #3fbf7f; --warn: #f2b233; --bad: #ef5b5b; --road: #2b3139; --road-edge: #3a434e;
+  --p-Balanced: #9aa7b4; --p-DiveBomber: #ff7a45; --p-Chill: #4fd1a5; --p-FuelSaver: #c7a4ff; --p-other: #e0c060;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Ubuntu, sans-serif; }
+header { display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+.chip { background: var(--panel2); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; color: var(--muted); white-space: nowrap; }
+.chip b { color: var(--text); font-weight: 600; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); display: inline-block; margin-right: 6px; }
+.dot.on { background: var(--ok); }
+.spacer { flex: 1; }
+main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(420px, 1fr); height: calc(100% - 46px); }
+#mapPanel { position: relative; border-right: 1px solid var(--line); overflow: hidden; }
+#map { width: 100%; height: 100%; display: block; cursor: grab; }
+#map.drag { cursor: grabbing; }
+.mapbar { position: absolute; left: 10px; top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+.legend { position: absolute; left: 10px; bottom: 10px; background: rgba(22,27,33,.85); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; display: flex; gap: 10px; flex-wrap: wrap; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+.legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+aside { display: flex; flex-direction: column; min-width: 0; }
+nav { display: flex; border-bottom: 1px solid var(--line); background: var(--panel); }
+nav button { flex: 1; background: none; border: none; color: var(--muted); padding: 10px; cursor: pointer; font: inherit; border-bottom: 2px solid transparent; }
+nav button.active { color: var(--text); border-bottom-color: var(--accent); }
+.tab { display: none; overflow: auto; flex: 1; padding: 10px 12px; }
+.tab.active { display: block; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 4px 6px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 500; position: sticky; top: -10px; background: var(--bg); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr.car { cursor: pointer; }
+tr.car:hover { background: var(--panel2); }
+tr.car.sel { background: #1d2b3a; }
+.pers { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.tag { font-size: 11px; padding: 0 5px; border-radius: 4px; background: var(--panel2); border: 1px solid var(--line); margin-left: 3px; }
+.tag.warn { color: var(--warn); border-color: #5a4a20; } .tag.bad { color: var(--bad); border-color: #5a2a2a; } .tag.info { color: var(--accent); border-color: #1f3e5c; }
+.bar { width: 44px; height: 6px; background: var(--panel2); border-radius: 3px; display: inline-block; vertical-align: middle; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--ok); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+.card h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+.row { display: flex; align-items: center; gap: 8px; margin: 6px 0; flex-wrap: wrap; }
+.row label { color: var(--muted); min-width: 110px; }
+input[type=range] { flex: 1; min-width: 120px; accent-color: var(--accent); }
+input[type=text], input[type=time], input[type=number], input[type=password], select { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 5px 8px; font: inherit; }
+.val { min-width: 48px; text-align: right; font-variant-numeric: tabular-nums; }
+button.btn { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 6px 12px; cursor: pointer; font: inherit; }
+button.btn:hover { border-color: var(--accent); }
+button.btn.primary { background: #1f4f80; border-color: #2b6aa8; }
+button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
+.switches { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+.switch { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; }
+.switch input { width: 34px; height: 18px; accent-color: var(--ok); }
+#log { font: 12px/1.45 ui-monospace, "DejaVu Sans Mono", monospace; white-space: pre-wrap; word-break: break-word; margin: 0; color: #c9d1d9; }
+#log .w { color: var(--warn); } #log .e { color: var(--bad); } #log .r { color: #8fd3ff; }
+.muted { color: var(--muted); }
+.toast { position: fixed; right: 14px; bottom: 14px; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; opacity: 0; transition: opacity .3s; pointer-events: none; }
+.toast.show { opacity: 1; }
+#login { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; }
+#login .card { width: 320px; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; grid-template-rows: 45vh auto; height: auto; } #mapPanel { height: 45vh; border-right: none; border-bottom: 1px solid var(--line); } }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Race AI Server</h1>
+  <span class="chip"><span class="dot" id="conn"></span><span id="connText">verbinde …</span></span>
+  <span class="chip" id="sessionChip">Session –</span>
+  <span class="chip" id="weatherChip">Wetter –</span>
+  <span class="chip" id="countChip">–</span>
+  <span class="spacer"></span>
+</header>
+<main>
+  <section id="mapPanel">
+    <canvas id="map"></canvas>
+    <div class="mapbar">
+      <button class="btn" id="btnFit" title="Ganze Strecke">⤢ Ganze Strecke</button>
+      <button class="btn" id="btnFollow" title="Ausgewähltes Auto verfolgen">◎ Folgen: aus</button>
+      <button class="btn" id="btnNames">Namen: Auswahl</button>
+      <button class="btn" id="btnSections">Abschnitte: aus</button>
+    </div>
+    <div class="legend" id="legend"></div>
+  </section>
+  <aside>
+    <nav>
+      <button data-tab="field" class="active">Fahrerfeld</button>
+      <button data-tab="ai">KI</button>
+      <button data-tab="server">Server</button>
+      <button data-tab="log">Log</button>
+    </nav>
+    <div class="tab active" id="tab-field">
+      <table>
+        <thead><tr><th class="num">P</th><th>Fahrer</th><th class="num">Rd</th><th class="num">Beste</th><th class="num">Letzte</th><th class="num">km/h</th><th>Sprit</th><th>Reifen</th><th>Status</th></tr></thead>
+        <tbody id="field"></tbody>
+      </table>
+      <div id="detail" style="margin-top:10px"></div>
+    </div>
+    <div class="tab" id="tab-ai">
+      <div class="card">
+        <h3>Stärke des Feldes</h3>
+        <div class="row"><label>Stärke</label><input type="range" id="aiStrength" min="60" max="105" step="0.5"><span class="val" id="aiStrengthV"></span></div>
+        <div class="row"><label>± Streuung</label><input type="range" id="aiSpread" min="0" max="20" step="0.5"><span class="val" id="aiSpreadV"></span></div>
+        <div class="row"><label>Aggressivität</label><input type="range" id="aiAggr" min="0" max="100" step="1"><span class="val" id="aiAggrV"></span></div>
+        <div class="row"><button class="btn primary" id="aiApply">Auf alle Bots anwenden</button><span class="muted">verteilt die Stärken neu</span></div>
+      </div>
+      <div class="card">
+        <h3>Funktionen</h3>
+        <div class="switches" id="features"></div>
+      </div>
+      <div class="card">
+        <h3>Licht-Test</h3>
+        <div class="row"><button class="btn" id="lightTest">Starten</button><span class="muted">Blinker, Warnblinker, Lichthupe, Bremslicht, Fernlicht – je ~6 s. Nachts: Tageszeit unter „Server“.</span></div>
+      </div>
+    </div>
+    <div class="tab" id="tab-server">
+      <div class="card">
+        <h3>Session</h3>
+        <div class="row"><button class="btn" id="sNext">Nächste Session</button><button class="btn" id="sRestart">Session neu starten</button></div>
+      </div>
+      <div class="card">
+        <h3>Zeit &amp; Wetter</h3>
+        <div class="row"><label>Tageszeit</label><input type="time" id="tTime" value="22:00"><button class="btn" id="tSet">Setzen</button></div>
+        <div class="row"><label>Wetter (CSP)</label><select id="wType"></select><input type="number" id="wDur" value="30" min="1" style="width:70px"><span class="muted">s Übergang</span><button class="btn" id="wSet">Setzen</button></div>
+        <div class="row"><label>Regen</label><input type="range" id="rInt" min="0" max="1" step="0.05" value="0"><span class="val" id="rIntV"></span></div>
+        <div class="row"><label>Nässe</label><input type="range" id="rWet" min="0" max="1" step="0.05" value="0"><span class="val" id="rWetV"></span></div>
+        <div class="row"><label>Wasser</label><input type="range" id="rWat" min="0" max="1" step="0.05" value="0"><span class="val" id="rWatV"></span></div>
+        <div class="row"><button class="btn" id="rSet">Regen setzen</button><span class="muted">Echtes Wetter (KI → Funktionen) sonst wieder aus</span></div>
+        <div class="row"><label>Grip</label><input type="range" id="gGrip" min="0" max="1" step="0.01" value="0"><span class="val" id="gGripV"></span><button class="btn" id="gSet">Setzen</button></div>
+      </div>
+      <div class="card">
+        <h3>Chat</h3>
+        <div class="row"><input type="text" id="chatText" placeholder="Nachricht an alle" style="flex:1"><button class="btn" id="chatSend">Senden</button></div>
+      </div>
+      <div class="card">
+        <h3>Server</h3>
+        <div class="row"><button class="btn danger" id="stopServer">Server beenden</button><span class="muted">beendet das Rennen für alle</span></div>
+      </div>
+    </div>
+    <div class="tab" id="tab-log">
+      <div class="row"><input type="text" id="logFilter" placeholder="Filter (z. B. Race AI, yellow, connected)" style="flex:1"><label style="min-width:0"><input type="checkbox" id="logFollow" checked> mitlaufen</label></div>
+      <pre id="log"></pre>
+    </div>
+  </aside>
+</main>
+<div id="login"><div class="card"><h3>Admin-Passwort</h3><p class="muted">Zugriff von einem anderen Rechner: ADMIN_PASSWORD aus server_cfg.ini</p>
+  <div class="row"><input type="password" id="pw" style="flex:1"><button class="btn primary" id="pwOk">OK</button></div></div></div>
+<div class="toast" id="toast"></div>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let password = "";
+try { password = localStorage.getItem("raceaiPw") || ""; } catch (e) {}
+let state = null, track = null, selected = null, follow = false, nameMode = 1, showSections = false;
+const PCOL = n => getComputedStyle(document.documentElement).getPropertyValue("--p-" + n).trim() || getComputedStyle(document.documentElement).getPropertyValue("--p-other").trim();
+
+async function api(path, body) {
+  const opt = { headers: { "Content-Type": "application/json" } };
+  if (password) opt.headers["X-Admin-Password"] = password;
+  if (body !== undefined) { opt.method = "POST"; opt.body = JSON.stringify(body); }
+  const r = await fetch(path, opt);
+  if (r.status === 403) { $("login").style.display = "flex"; throw new Error("forbidden"); }
+  if (!r.ok) { let m = r.statusText; try { m = (await r.json()).error || m; } catch (e) {} throw new Error(m); }
+  return r.json();
+}
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), 2200); }
+async function act(path, body, ok) { try { await api(path, body); toast(ok || "OK"); } catch (e) { toast("Fehler: " + e.message); } }
+$("pwOk").onclick = () => { password = $("pw").value; try { localStorage.setItem("raceaiPw", password); } catch (e) {} $("login").style.display = "none"; loadTrack(); };
+
+// ---------------------------------------------------------------- tabs
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("active", x === b));
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x.id === "tab-" + b.dataset.tab));
+  if (b.dataset.tab === "log") loadLog();
+});
+
+// ---------------------------------------------------------------- map
+const cv = $("map"), ctx = cv.getContext("2d");
+let view = { cx: 0, cz: 0, scale: 1 }, bounds = null, dpr = 1;
+const cars = new Map(); // id -> {x,z,px,pz,t}
+
+function resize() { dpr = window.devicePixelRatio || 1; cv.width = cv.clientWidth * dpr; cv.height = cv.clientHeight * dpr; }
+window.addEventListener("resize", () => { resize(); if (!follow) fit(false); });
+function fit(reset = true) {
+  if (!bounds) return;
+  const w = cv.clientWidth, h = cv.clientHeight, pad = 30;
+  view.cx = (bounds.minX + bounds.maxX) / 2; view.cz = (bounds.minZ + bounds.maxZ) / 2;
+  view.scale = Math.min((w - 2 * pad) / (bounds.maxX - bounds.minX), (h - 2 * pad) / (bounds.maxZ - bounds.minZ));
+  if (reset) { follow = false; $("btnFollow").textContent = "◎ Folgen: aus"; }
+}
+const sx = x => (cv.clientWidth / 2 + (x - view.cx) * view.scale) * dpr;
+const sz = z => (cv.clientHeight / 2 + (z - view.cz) * view.scale) * dpr;
+let drag = null;
+cv.addEventListener("mousedown", e => { drag = { x: e.clientX, y: e.clientY, cx: view.cx, cz: view.cz, moved: false }; cv.classList.add("drag"); });
+window.addEventListener("mouseup", e => {
+  cv.classList.remove("drag");
+  if (drag && !drag.moved) pick(e);
+  drag = null;
+});
+window.addEventListener("mousemove", e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 3) { drag.moved = true; follow = false; $("btnFollow").textContent = "◎ Folgen: aus"; }
+  view.cx = drag.cx - dx / view.scale; view.cz = drag.cz - dy / view.scale;
+});
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  const wx = view.cx + (mx - cv.clientWidth / 2) / view.scale, wz = view.cz + (my - cv.clientHeight / 2) / view.scale;
+  view.scale *= e.deltaY < 0 ? 1.2 : 1 / 1.2;
+  view.cx = wx - (mx - cv.clientWidth / 2) / view.scale; view.cz = wz - (my - cv.clientHeight / 2) / view.scale;
+}, { passive: false });
+cv.addEventListener("dblclick", () => fit());
+function pick(e) {
+  const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left) * dpr, my = (e.clientY - r.top) * dpr;
+  let best = null, bd = 18 * dpr;
+  for (const [id, c] of cars) { const d = Math.hypot(sx(c.x) - mx, sz(c.z) - my); if (d < bd) { bd = d; best = id; } }
+  if (best !== null) select(best);
+}
+$("btnFit").onclick = () => fit();
+$("btnFollow").onclick = () => { follow = !follow && selected !== null; $("btnFollow").textContent = "◎ Folgen: " + (follow ? "an" : "aus"); if (follow && view.scale < 1.5) view.scale = 1.5; };
+$("btnNames").onclick = () => { nameMode = (nameMode + 1) % 3; $("btnNames").textContent = "Namen: " + ["aus", "Auswahl", "alle"][nameMode]; };
+$("btnSections").onclick = () => { showSections = !showSections; $("btnSections").textContent = "Abschnitte: " + (showSections ? "an" : "aus"); };
+
+async function loadTrack() {
+  try {
+    track = await api("/raceai/api/track");
+    if (!track.available) return;
+    bounds = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
+    for (const p of track.line) for (let i = 0; i < 6; i += 2) {
+      bounds.minX = Math.min(bounds.minX, p[i]); bounds.maxX = Math.max(bounds.maxX, p[i]);
+      bounds.minZ = Math.min(bounds.minZ, p[i + 1]); bounds.maxZ = Math.max(bounds.maxZ, p[i + 1]);
+    }
+    resize(); fit();
+  } catch (e) {}
+}
+
+function drawTrack() {
+  if (!track || !track.available) return;
+  const L = track.line;
+  // road surface: quads between the left and right edges
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--road");
+  ctx.beginPath();
+  for (let i = 0; i < L.length; i++) { const p = L[i]; i ? ctx.lineTo(sx(p[2]), sz(p[3])) : ctx.moveTo(sx(p[2]), sz(p[3])); }
+  for (let i = L.length - 1; i >= 0; i--) { const p = L[i]; ctx.lineTo(sx(p[4]), sz(p[5])); }
+  ctx.closePath(); ctx.fill("evenodd");
+  // make sure thin roads stay visible when zoomed out
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--road-edge");
+  ctx.lineWidth = Math.max(3 * dpr, 8 * view.scale * dpr); ctx.lineJoin = "round";
+  ctx.beginPath(); L.forEach((p, i) => i ? ctx.lineTo(sx(p[0]), sz(p[1])) : ctx.moveTo(sx(p[0]), sz(p[1]))); ctx.closePath(); ctx.stroke();
+  ctx.strokeStyle = "rgba(255,255,255,.12)"; ctx.lineWidth = 1 * dpr;
+  ctx.beginPath(); L.forEach((p, i) => i ? ctx.lineTo(sx(p[0]), sz(p[1])) : ctx.moveTo(sx(p[0]), sz(p[1]))); ctx.closePath(); ctx.stroke();
+  if (track.pit.length) {
+    ctx.setLineDash([4 * dpr, 4 * dpr]); ctx.strokeStyle = "#6b7785"; ctx.lineWidth = 2 * dpr;
+    ctx.beginPath(); track.pit.forEach((p, i) => i ? ctx.lineTo(sx(p[0]), sz(p[1])) : ctx.moveTo(sx(p[0]), sz(p[1]))); ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.font = `${11 * dpr}px system-ui, sans-serif`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  for (const m of track.marks) {
+    if (m.kind === "section" && !showSections) continue;
+    const x = sx(m.x), y = sz(m.z);
+    if (m.kind === "start") { ctx.fillStyle = "#fff"; ctx.fillRect(x - 4 * dpr, y - 4 * dpr, 8 * dpr, 8 * dpr); ctx.fillText(m.name, x + 8 * dpr, y); }
+    else if (m.kind === "sector") { ctx.fillStyle = "#f2b233"; ctx.beginPath(); ctx.arc(x, y, 4 * dpr, 0, 7); ctx.fill(); ctx.fillText(m.name, x + 7 * dpr, y); }
+    else { ctx.fillStyle = "rgba(200,210,220,.55)"; ctx.fillText(m.name, x + 4 * dpr, y); }
+  }
+}
+
+function frame(now) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  // smooth movement between the updates (4 per second)
+  for (const c of cars.values()) { const k = Math.min(1, (now - c.t) / 260); c.x = c.px + (c.tx - c.px) * k; c.z = c.pz + (c.tz - c.pz) * k; }
+  if (follow && selected !== null && cars.has(selected)) { const c = cars.get(selected); view.cx += (c.x - view.cx) * 0.2; view.cz += (c.z - view.cz) * 0.2; }
+  drawTrack();
+  if (state) {
+    const list = [...state.cars].sort((a, b) => (a.id === selected) - (b.id === selected));
+    for (const car of list) {
+      const c = cars.get(car.id); if (!c) continue;
+      const x = sx(c.x), y = sz(c.z), r = (car.id === selected ? 8 : 6.5) * dpr;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, 7);
+      ctx.fillStyle = car.bot ? PCOL(car.personality) : getComputedStyle(document.documentElement).getPropertyValue("--accent");
+      ctx.fill();
+      ctx.lineWidth = 2 * dpr; ctx.strokeStyle = car.ghost ? "#ffffff" : car.mistake ? "#ef5b5b" : "rgba(0,0,0,.6)";
+      if (car.ghost) ctx.setLineDash([3 * dpr, 2 * dpr]);
+      ctx.stroke(); ctx.setLineDash([]);
+      if (car.id === selected) { ctx.beginPath(); ctx.arc(x, y, r + 5 * dpr, 0, 7); ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5 * dpr; ctx.stroke(); }
+      ctx.fillStyle = "#0b0d10"; ctx.font = `bold ${9 * dpr}px system-ui, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(car.pos, x, y + 0.5 * dpr);
+      if (nameMode === 2 || (nameMode === 1 && (car.id === selected || !car.bot))) {
+        ctx.font = `${11 * dpr}px system-ui, sans-serif`; ctx.textAlign = "left";
+        const label = car.name + (car.id === selected ? `  ${car.speed} km/h` : "");
+        ctx.fillStyle = "rgba(15,18,22,.8)"; const w = ctx.measureText(label).width;
+        ctx.fillRect(x + r + 3 * dpr, y - 8 * dpr, w + 8 * dpr, 16 * dpr);
+        ctx.fillStyle = "#e6e9ed"; ctx.fillText(label, x + r + 7 * dpr, y);
+      }
+    }
+  }
+  requestAnimationFrame(frame);
+}
+
+// ---------------------------------------------------------------- state
+const fmtLap = s => s == null ? "–" : `${Math.floor(s / 60)}:${(s % 60).toFixed(3).padStart(6, "0")}`;
+const fmtTime = s => s == null ? "" : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const SESS = { Practice: "Training", Qualifying: "Qualifying", Race: "Rennen", Booking: "Booking" };
+const WX = { Clear: "klar", FewClouds: "leicht bewölkt", ScatteredClouds: "bewölkt", BrokenClouds: "stark bewölkt", OvercastClouds: "bedeckt",
+  Fog: "Nebel", Mist: "Dunst", LightRain: "leichter Regen", Rain: "Regen", HeavyRain: "Starkregen", LightDrizzle: "Niesel", Drizzle: "Niesel",
+  HeavyDrizzle: "starker Niesel", Thunderstorm: "Gewitter", LightThunderstorm: "Gewitter", HeavyThunderstorm: "schweres Gewitter", Windy: "windig" };
+
+async function poll() {
+  try {
+    const s = await api("/raceai/api/state");
+    state = s;
+    $("conn").classList.add("on"); $("connText").textContent = "verbunden";
+    $("title").textContent = s.server;
+    const se = s.session;
+    $("sessionChip").innerHTML = `<b>${esc(SESS[se.type] || se.name)}</b> ` +
+      (se.type === "Race" && se.laps ? `Runde ${Math.min(se.leaderLap + 1, se.laps)}/${se.laps}` : fmtTime(se.timeLeft)) +
+      (se.type === "Race" && !se.raceStarted ? " · Start folgt" : "");
+    const w = s.weather;
+    $("weatherChip").innerHTML = `<b>${w.time}</b>${w.type && w.type !== "None" ? " · " + esc(WX[w.type] || w.type) : ""} · ${w.ambient} °C` +
+      (w.wetness > 0.05 ? ` · nass ${Math.round(w.wetness * 100)} %` : "") + ` · Grip ${Math.round(w.grip * 100)} %`;
+    const bots = s.cars.filter(c => c.bot).length;
+    $("countChip").textContent = `${s.cars.length - bots} Spieler · ${bots} Bots`;
+    const now = performance.now(), seen = new Set();
+    for (const c of s.cars) {
+      seen.add(c.id);
+      const o = cars.get(c.id);
+      if (!o || Math.hypot(o.tx - c.x, o.tz - c.z) > 300) cars.set(c.id, { x: c.x, z: c.z, px: c.x, pz: c.z, tx: c.x, tz: c.z, t: now });
+      else { o.px = o.x; o.pz = o.z; o.tx = c.x; o.tz = c.z; o.t = now; }
+    }
+    for (const id of [...cars.keys()]) if (!seen.has(id)) cars.delete(id);
+    renderField(); renderLegend(); syncAi();
+  } catch (e) {
+    $("conn").classList.remove("on"); $("connText").textContent = "keine Verbindung";
+  }
+  setTimeout(poll, 250);
+}
+
+function statusTags(c) {
+  const t = [];
+  if (!c.bot) t.push(`<span class="tag info">Spieler</span>`);
+  if (c.finished) t.push(`<span class="tag">🏁</span>`);
+  if (c.bot) {
+    if (c.pit === "InLane" || c.pit === "Stopped") t.push(`<span class="tag info">Box</span>`);
+    else if (c.pit === "Requested") t.push(`<span class="tag info">→ Box</span>`);
+    if (c.mistake === "Spin") t.push(`<span class="tag bad">Dreher</span>`);
+    else if (c.mistake) t.push(`<span class="tag warn">${{ LateBrake: "verbremst", Slide: "Rutscher", Grass: "Gras" }[c.mistake] || c.mistake}</span>`);
+    if (c.ghost) t.push(`<span class="tag bad">Geist</span>`);
+    if (c.weaving) t.push(`<span class="tag">pendelt</span>`);
+    if (c.pressure > 0.3) t.push(`<span class="tag warn">unter Druck</span>`);
+    if (c.damage >= 5) t.push(`<span class="tag warn">Schaden ${c.damage} %</span>`);
+  }
+  return t.join("");
+}
+const bar = (v, max = 100) => v == null ? "" : `<span class="bar"><i style="width:${Math.max(0, Math.min(100, v / max * 100))}%;background:${v / max < 0.2 ? "var(--bad)" : v / max < 0.5 ? "var(--warn)" : "var(--ok)"}"></i></span>`;
+
+function renderField() {
+  const rows = state.cars.map(c => `<tr class="car${c.id === selected ? " sel" : ""}" data-id="${c.id}">
+    <td class="num">${c.pos}</td>
+    <td><span class="pers" style="background:${c.bot ? PCOL(c.personality) : "var(--accent)"}"></span>${esc(c.name)} <span class="muted">${esc(c.model.replace(/^ks_/, "").replace(/_/g, " "))}</span></td>
+    <td class="num">${c.laps}</td><td class="num">${fmtLap(c.best)}</td><td class="num">${fmtLap(c.last)}</td><td class="num">${c.speed}</td>
+    <td>${c.bot ? bar(c.fuel, c.fuelCapacity) : ""}</td><td>${c.bot ? bar(c.tyres - 80, 20) : ""}</td><td>${statusTags(c)}</td></tr>`).join("");
+  $("field").innerHTML = rows;
+  $("field").querySelectorAll("tr.car").forEach(tr => tr.onclick = () => select(+tr.dataset.id));
+  renderDetail(false);
+}
+
+function select(id) { selected = id; renderField(); renderDetail(true); }
+
+let detailFor = null;
+function renderDetail(force) {
+  const c = state && state.cars.find(x => x.id === selected);
+  const box = $("detail");
+  if (!c) { box.innerHTML = `<p class="muted">Auto in der Tabelle oder auf der Karte anklicken, um es zu steuern.</p>`; detailFor = null; return; }
+  if (!force && detailFor === c.id) { // only refresh live numbers, keep the sliders the user is moving
+    const live = $("dLive"); if (live) live.innerHTML = liveInfo(c); return;
+  }
+  detailFor = c.id;
+  if (!c.bot) {
+    box.innerHTML = `<div class="card"><h3>${esc(c.name)} <span class="muted">${esc(c.model)}</span></h3>
+      <div id="dLive">${liveInfo(c)}</div>
+      <div class="row"><button class="btn danger" id="dKick">Kicken</button></div></div>`;
+    $("dKick").onclick = () => { if (confirm(`${c.name} kicken?`)) act("/raceai/api/server", { action: "kick", id: c.id }, "gekickt"); };
+    return;
+  }
+  const opts = state.ai.personalities.map(p => `<option${p === c.personality ? " selected" : ""}>${esc(p)}</option>`).join("");
+  box.innerHTML = `<div class="card"><h3><span class="pers" style="background:${PCOL(c.personality)}"></span>${esc(c.name)} <span class="muted">${esc(c.model)}</span></h3>
+    <div id="dLive">${liveInfo(c)}</div>
+    <div class="row"><label>Stärke</label><input type="range" id="dStr" min="60" max="105" step="0.5" value="${c.strength}"><span class="val" id="dStrV">${c.strength} %</span></div>
+    <div class="row"><label>Aggressivität</label><input type="range" id="dAgg" min="0" max="100" step="1" value="${c.aggression}"><span class="val" id="dAggV">${c.aggression}</span></div>
+    <div class="row"><label>Persönlichkeit</label><select id="dPers">${opts}</select></div>
+    <div class="row"><button class="btn primary" id="dApply">Übernehmen</button><button class="btn" id="dPit">In die Box schicken</button><button class="btn" id="dFollow">Auf der Karte folgen</button></div></div>`;
+  $("dStr").oninput = e => $("dStrV").textContent = e.target.value + " %";
+  $("dAgg").oninput = e => $("dAggV").textContent = e.target.value;
+  $("dApply").onclick = () => act(`/raceai/api/bot/${c.id}`, { strength: +$("dStr").value, aggression: +$("dAgg").value, personality: $("dPers").value }, `${c.name} angepasst`);
+  $("dPit").onclick = () => act(`/raceai/api/bot/${c.id}`, { pit: true }, `${c.name} kommt an die Box`);
+  $("dFollow").onclick = () => { follow = true; $("btnFollow").textContent = "◎ Folgen: an"; if (view.scale < 1.5) view.scale = 1.5; };
+}
+function liveInfo(c) {
+  const parts = [`P${c.pos}`, `Sektor ${c.sector}`, `${c.speed} km/h`, `Runde ${c.laps}`];
+  if (c.bot) parts.push(`Stärke ${c.strength} %`, `Fehlerquote ${Math.round(c.errors * 100)} %`, `Sprit ${c.fuel} l`, `Reifen ${c.tyres} %`,
+    `Schaden ${c.damage} % / Aufh. ${c.suspension} %`, `Fehler ${c.mistakes}`, `Dreher ${c.spins}`, `Stopps ${c.stops}`);
+  return `<p class="muted">${parts.join(" · ")}</p>`;
+}
+
+function renderLegend() {
+  const names = [...new Set(state.cars.filter(c => c.bot).map(c => c.personality))];
+  $("legend").innerHTML = `<span><i style="background:var(--accent)"></i>Spieler</span>` +
+    names.map(n => `<span><i style="background:${PCOL(n)}"></i>${esc(n)}</span>`).join("") +
+    `<span><i style="background:transparent;border:2px dashed #fff"></i>Geist</span>`;
+}
+
+// ---------------------------------------------------------------- AI tab
+const FEATURES = { errors: "Menschliche Fehler", spins: "Dreher", grass: "Gras", contacts: "Berührungen", damage: "Schaden",
+  blueflags: "Blaue Flagge", yellowflags: "Gelbe Flagge", flash: "Lichthupe", highbeams: "Fernlicht", raincaution: "Vorsicht bei Regen",
+  realweather: "Echtes Wetter", yellowchat: "Gelbe Fahne im Chat", overtakechat: "Überholungen im Chat" };
+let aiInit = false;
+function syncAi() {
+  const a = state.ai;
+  if (!aiInit) {
+    aiInit = true;
+    $("aiStrength").value = a.strength; $("aiSpread").value = a.spread; $("aiAggr").value = a.aggression;
+    ["aiStrength", "aiSpread", "aiAggr"].forEach(id => { $(id).oninput = () => upd(); }); upd();
+    function upd() { $("aiStrengthV").textContent = $("aiStrength").value + " %"; $("aiSpreadV").textContent = "± " + $("aiSpread").value; $("aiAggrV").textContent = $("aiAggr").value; }
+    $("features").innerHTML = Object.entries(FEATURES).map(([k, n]) => `<label class="switch"><span>${n}</span><input type="checkbox" data-f="${k}"></label>`).join("");
+    $("features").querySelectorAll("input").forEach(i => i.onchange = () => act("/raceai/api/ai", { feature: i.dataset.f, on: i.checked }, `${FEATURES[i.dataset.f]}: ${i.checked ? "an" : "aus"}`));
+  }
+  $("features").querySelectorAll("input").forEach(i => { if (document.activeElement !== i) i.checked = !!a.features[i.dataset.f]; });
+}
+$("aiApply").onclick = () => act("/raceai/api/ai", { strength: +$("aiStrength").value, spread: +$("aiSpread").value, aggression: +$("aiAggr").value }, "Stärke verteilt");
+$("lightTest").onclick = () => act("/raceai/api/ai", { lightTest: true }, "Licht-Test läuft");
+
+// ---------------------------------------------------------------- server tab
+$("sNext").onclick = () => act("/raceai/api/server", { action: "next" }, "nächste Session");
+$("sRestart").onclick = () => act("/raceai/api/server", { action: "restart" }, "Session neu gestartet");
+$("tSet").onclick = () => act("/raceai/api/server", { action: "time", text: $("tTime").value }, "Zeit gesetzt");
+$("wSet").onclick = () => act("/raceai/api/server", { action: "cspweather", text: $("wType").value, a: +$("wDur").value }, "Wetter gesetzt");
+[["rInt", "rIntV"], ["rWet", "rWetV"], ["rWat", "rWatV"]].forEach(([i, v]) => { $(i).oninput = () => $(v).textContent = Math.round($(i).value * 100) + " %"; $(i).oninput(); });
+$("rSet").onclick = () => act("/raceai/api/server", { action: "rain", a: +$("rInt").value, b: +$("rWet").value, c: +$("rWat").value }, "Regen gesetzt");
+$("gGrip").oninput = () => $("gGripV").textContent = +$("gGrip").value === 0 ? "dyn." : Math.round($("gGrip").value * 100) + " %"; $("gGrip").oninput();
+$("gSet").onclick = () => act("/raceai/api/server", { action: "grip", a: +$("gGrip").value }, "Grip gesetzt");
+$("chatSend").onclick = () => { const t = $("chatText").value; if (t.trim()) act("/raceai/api/server", { action: "chat", text: t }, "gesendet").then(() => $("chatText").value = ""); };
+$("chatText").onkeydown = e => { if (e.key === "Enter") $("chatSend").onclick(); };
+$("stopServer").onclick = () => { if (confirm("Server wirklich beenden? Alle Spieler fliegen raus.")) act("/raceai/api/server", { action: "stop" }, "Server wird beendet"); };
+(async () => { try { const types = await api("/raceai/api/server", { action: "weathertypes" }); $("wType").innerHTML = types.map(t => `<option value="${t}"${t === "Clear" ? " selected" : ""}>${esc(WX[t] ? `${WX[t]} (${t})` : t)}</option>`).join(""); } catch (e) {} })();
+
+// ---------------------------------------------------------------- log
+let logLines = [];
+async function loadLog() {
+  if (!$("tab-log").classList.contains("active")) return;
+  try { logLines = (await api("/raceai/api/log?lines=400")).lines; renderLog(); } catch (e) {}
+}
+function renderLog() {
+  const f = $("logFilter").value.toLowerCase();
+  $("log").innerHTML = logLines.filter(l => !f || l.toLowerCase().includes(f)).map(l => {
+    const cls = l.includes("[ERR]") || l.includes("[FTL]") ? "e" : l.includes("[WRN]") ? "w" : l.includes("Race AI") ? "r" : "";
+    return `<span class="${cls}">${esc(l)}</span>`;
+  }).join("\n");
+  if ($("logFollow").checked) $("tab-log").scrollTop = $("tab-log").scrollHeight;
+}
+$("logFilter").oninput = renderLog;
+setInterval(loadLog, 2000);
+
+resize(); loadTrack(); poll(); requestAnimationFrame(frame);
+</script>
+</body>
+</html>

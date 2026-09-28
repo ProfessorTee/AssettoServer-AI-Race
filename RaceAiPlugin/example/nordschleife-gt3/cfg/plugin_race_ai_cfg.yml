@@ -105,6 +105,9 @@ YellowFlagChat: true
 # emergency: after GhostAfterSeconds (20-40 recommended, 0 = off) the bot is a ghost for a few seconds (CSP 0.2.8+)
 UnstuckSeconds: 4
 GhostAfterSeconds: 25
+# Dashboard (desktop GUI, live map, bot control) at http://127.0.0.1:<HTTP_PORT>/raceai
+# false = only from the server computer; true = also from other computers with the ADMIN_PASSWORD
+DashboardRemoteAccess: false
 # Race craft
 # Seconds stuck behind a slower car until a bot is fully impatient (tries harder to overtake, follows closer, flashes its lights)
 ImpatienceSeconds: 25

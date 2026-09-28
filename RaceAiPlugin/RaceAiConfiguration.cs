@@ -294,6 +294,10 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
                               "and drives out of the jam. 0 = never")]
     public float GhostAfterSeconds { get; set; } = 25;
 
+    [YamlMember(Description = "Dashboard (desktop GUI) at http://<server>:<HTTP_PORT>/raceai. false = only from this computer (127.0.0.1). " +
+                              "true = also from other computers, then the ADMIN_PASSWORD is required")]
+    public bool DashboardRemoteAccess { get; set; } = false;
+
     [YamlMember(Description = "Announce bot pit stops in chat")]
     public bool AnnouncePitStops { get; set; } = true;
 
