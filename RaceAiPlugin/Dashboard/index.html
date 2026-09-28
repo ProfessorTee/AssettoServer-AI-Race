@@ -19,19 +19,19 @@ header h1 { font-size: 15px; margin: 0; font-weight: 600; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); display: inline-block; margin-right: 6px; }
 .dot.on { background: var(--ok); }
 .spacer { flex: 1; }
-main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(420px, 1fr); height: calc(100% - 46px); }
-#mapPanel { position: relative; border-right: 1px solid var(--line); overflow: hidden; }
-#map { width: 100%; height: 100%; display: block; cursor: grab; }
+main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(420px, 1fr); grid-template-rows: minmax(0, 1fr); height: calc(100% - 46px); overflow: hidden; }
+#mapPanel { position: relative; border-right: 1px solid var(--line); overflow: hidden; min-height: 0; }
+#map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
 #map.drag { cursor: grabbing; }
 .mapbar { position: absolute; left: 10px; top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
 .legend { position: absolute; left: 10px; bottom: 10px; background: rgba(22,27,33,.85); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; display: flex; gap: 10px; flex-wrap: wrap; }
 .legend span { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
 .legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-aside { display: flex; flex-direction: column; min-width: 0; }
+aside { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 nav { display: flex; border-bottom: 1px solid var(--line); background: var(--panel); }
 nav button { flex: 1; background: none; border: none; color: var(--muted); padding: 10px; cursor: pointer; font: inherit; border-bottom: 2px solid transparent; }
 nav button.active { color: var(--text); border-bottom-color: var(--accent); }
-.tab { display: none; overflow: auto; flex: 1; padding: 10px 12px; }
+.tab { display: none; overflow: auto; flex: 1; min-height: 0; padding: 10px 12px; }
 .tab.active { display: block; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 4px 6px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
@@ -66,7 +66,7 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
 .toast.show { opacity: 1; }
 #login { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; }
 #login .card { width: 320px; }
-@media (max-width: 900px) { main { grid-template-columns: 1fr; grid-template-rows: 45vh auto; height: auto; } #mapPanel { height: 45vh; border-right: none; border-bottom: 1px solid var(--line); } }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; grid-template-rows: 45vh auto; height: auto; overflow: visible; } aside { overflow: visible; } #mapPanel { height: 45vh; border-right: none; border-bottom: 1px solid var(--line); } }
 </style>
 </head>
 <body>
@@ -195,7 +195,14 @@ let view = { cx: 0, cz: 0, scale: 1 }, bounds = null, dpr = 1;
 const cars = new Map(); // id -> {x,z,px,pz,t}
 
 function resize() { dpr = window.devicePixelRatio || 1; cv.width = cv.clientWidth * dpr; cv.height = cv.clientHeight * dpr; }
-window.addEventListener("resize", () => { resize(); if (!follow) fit(false); });
+let lastSize = "";
+function onMapResize() {
+  const k = cv.clientWidth + "x" + cv.clientHeight;
+  if (k === lastSize) return;
+  lastSize = k; resize(); if (!follow) fit(false);
+}
+window.addEventListener("resize", onMapResize);
+if (window.ResizeObserver) new ResizeObserver(onMapResize).observe($("mapPanel"));
 function fit(reset = true) {
   if (!bounds) return;
   const w = cv.clientWidth, h = cv.clientHeight, pad = 30;
