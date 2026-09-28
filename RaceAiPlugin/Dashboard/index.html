@@ -53,9 +53,9 @@ tr.car.sel { background: #1d2b3a; }
 input[type=range] { flex: 1; min-width: 120px; accent-color: var(--accent); }
 input[type=text], input[type=time], input[type=number], input[type=password], select { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 5px 8px; font: inherit; }
 .val { min-width: 48px; text-align: right; font-variant-numeric: tabular-nums; }
-button.btn { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 6px 12px; cursor: pointer; font: inherit; }
-button.btn:hover { border-color: var(--accent); }
-button.btn.primary { background: #1f4f80; border-color: #2b6aa8; }
+button.btn, a.btn { text-decoration: none; display: inline-block; background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 6px 12px; cursor: pointer; font: inherit; }
+button.btn:hover, a.btn:hover { border-color: var(--accent); }
+button.btn.primary, a.btn.primary { background: #1f4f80; border-color: #2b6aa8; }
 button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
 .switches { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
 .switch { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; }
@@ -162,7 +162,19 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
         <div class="row"><input type="text" id="chatText" placeholder="Nachricht an alle" style="flex:1"><button class="btn" id="chatSend">Senden</button></div>
       </div>
       <div class="card">
+        <h3>Beitreten</h3>
+        <div class="row"><a class="btn primary" id="joinCm" href="#" target="_blank" rel="noopener">In Content Manager beitreten</a>
+          <a class="btn" id="joinPage" href="/raceai/join" target="_blank" rel="noopener">Seite für Freunde</a></div>
+        <div class="row"><label>Adresse</label><code id="joinAddr">–</code><button class="btn" data-copy="joinAddr">Kopieren</button></div>
+        <div class="row"><label>CM-Link</label><code id="joinLink" style="overflow-wrap:anywhere;flex:1">–</code><button class="btn" data-copy="joinLink">Kopieren</button></div>
+        <div class="row"><label>Im WLAN</label><code id="joinLan">–</code></div>
+        <div class="row"><span class="muted">Die „Seite für Freunde“ (<code>/raceai/join</code>) braucht kein Passwort: Content-Manager-Link, Adresse und eine Anleitung
+          für den Original-Launcher (der Server lässt sich dort nicht per Link öffnen, nur über Online → Favoriten).</span></div>
+      </div>
+      <div class="card">
         <h3>Server</h3>
+        <div class="row"><button class="btn" id="restartServer">Server neu starten</button><button class="btn" id="updateServer">Update holen &amp; neu starten</button></div>
+        <div class="row"><span class="muted" id="restartInfo">Neustart dauert etwa eine Minute (Bots werden neu kalibriert). Alle Spieler werden getrennt und können danach wieder beitreten.</span></div>
         <div class="row"><button class="btn danger" id="stopServer">Server beenden</button><span class="muted">beendet das Rennen für alle</span></div>
       </div>
     </div>
@@ -541,6 +553,33 @@ async function runCommand(text) {
 }
 $("cmdRun").onclick = () => { const t = $("cmdText").value.trim(); if (t) runCommand(t); };
 $("cmdText").onkeydown = e => { if (e.key === "Enter") $("cmdRun").onclick(); };
+async function loadJoin() {
+  try {
+    const j = await api("/raceai/api/join");
+    $("joinAddr").textContent = j.publicHost ? `${j.publicHost}:${j.httpPort}` : "öffentliche IP unbekannt";
+    $("joinLink").textContent = j.cmLink || "–";
+    if (j.cmLink) $("joinCm").href = j.cmLink;
+    $("joinLan").textContent = j.lanIp ? `${j.lanIp}:${j.httpPort}` : "–";
+  } catch (e) {}
+}
+loadJoin();
+document.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
+  const t = $(b.dataset.copy).textContent;
+  try { await navigator.clipboard.writeText(t); toast("Kopiert"); } catch (e) { prompt("Kopieren:", t); }
+});
+async function serverRestart(mode) {
+  const text = mode === "update" ? "Neueste Version von GitHub holen, installieren und den Server neu starten?" : "Server neu starten?";
+  if (!confirm(text + "\nAlle Spieler werden getrennt.")) return;
+  try {
+    await api("/raceai/api/server", { action: "restartserver", text: mode });
+    toast(mode === "update" ? "Update und Neustart laufen …" : "Neustart läuft …");
+    $("restartInfo").textContent = "Server startet neu … das Dashboard verbindet sich von selbst wieder.";
+  } catch (e) { toast("Fehler: " + e.message); }
+}
+$("restartServer").onclick = () => serverRestart("restart");
+$("updateServer").onclick = () => serverRestart("update");
+(async () => { try { const p = await api("/raceai/api/ping"); if (!p.supervised) { $("restartServer").disabled = $("updateServer").disabled = true;
+  $("restartInfo").textContent = "Neustart nur möglich, wenn der Server über race-ai/start-server.sh (Desktop-Symbol) gestartet wurde."; } } catch (e) {} })();
 $("stopServer").onclick = () => { if (confirm("Server wirklich beenden? Alle Spieler fliegen raus.")) act("/raceai/api/server", { action: "stop" }, "Server wird beendet"); };
 (async () => { try { const types = await api("/raceai/api/server", { action: "weathertypes" }); $("wType").innerHTML = types.map(t => `<option value="${t}"${t === "Clear" ? " selected" : ""}>${esc(WX[t] ? `${WX[t]} (${t})` : t)}</option>`).join(""); } catch (e) {} })();
 
@@ -556,11 +595,18 @@ async function loadLog() {
 }
 function renderLog() {
   const f = $("logFilter").value.toLowerCase();
-  $("log").innerHTML = logLines.filter(l => !f || l.toLowerCase().includes(f)).reverse().map(l => {
+  // newest lines come in at the top: keep the view where it is while somebody scrolls further down
+  const box = $("tab-log"), top = box.scrollTop;
+  const oldFirst = $("log").firstElementChild, anchorText = oldFirst ? oldFirst.textContent : null, anchorTop = oldFirst ? oldFirst.offsetTop : 0;
+  const shown = logLines.filter(l => !f || l.toLowerCase().includes(f)).reverse();
+  $("log").innerHTML = shown.map(l => {
     const cls = l.includes("[ERR]") || l.includes("[FTL]") ? "e" : l.includes("[WRN]") ? "w" : l.includes("Race AI") ? "r" : "";
     return `<span class="${cls}">${esc(l)}</span>`;
   }).join("\n");
-  if ($("logFollow").checked) $("tab-log").scrollTop = 0;
+  if (top < 40) { box.scrollTop = 0; return; }
+  const idx = anchorText === null ? -1 : shown.indexOf(anchorText);
+  const el = idx >= 0 ? $("log").children[idx] : null;
+  if (el) box.scrollTop = top + (el.offsetTop - anchorTop);
 }
 $("logFilter").oninput = renderLog;
 $("logFollow").onchange = loadLog;

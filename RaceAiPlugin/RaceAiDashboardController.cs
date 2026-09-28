@@ -25,10 +25,12 @@ public class RaceAiDashboardController : ControllerBase
     private readonly ACServerConfiguration _serverConfig;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly ChatService _chatService;
+    private readonly JoinInfo _joinInfo;
 
     public RaceAiDashboardController(RaceAiService service, SessionManager sessionManager, WeatherManager weatherManager,
-        EntryCarManager entryCarManager, ACServerConfiguration serverConfig, IHostApplicationLifetime lifetime, ChatService chatService)
+        EntryCarManager entryCarManager, ACServerConfiguration serverConfig, IHostApplicationLifetime lifetime, ChatService chatService, JoinInfo joinInfo)
     {
+        _joinInfo = joinInfo;
         _chatService = chatService;
         _service = service;
         _sessionManager = sessionManager;
@@ -63,8 +65,19 @@ public class RaceAiDashboardController : ControllerBase
         return Content(DashboardPage.Html, "text/html; charset=utf-8");
     }
 
+    /// <summary>Join links (public, no password: the same data a server list shows).</summary>
+    [HttpGet("/raceai/api/join")]
+    public async Task<IActionResult> Join() => Ok(await _joinInfo.GetAsync());
+
+    /// <summary>Public page for friends: Content Manager link, IP and ports.</summary>
+    [HttpGet("/raceai/join")]
+    public IActionResult JoinPage() => Content(JoinPageHtml.Html, "text/html; charset=utf-8");
+
     [HttpGet("/raceai/api/ping")]
-    public IActionResult Ping() => Ok(new { ok = true, server = _service.ServerName, local = IsLocal });
+    public IActionResult Ping() => Ok(new { ok = true, server = _service.ServerName, local = IsLocal, supervised = Supervised });
+
+    /// <summary>Started by race-ai/server-supervisor.sh, which starts the server again after a restart request.</summary>
+    private static bool Supervised => Environment.GetEnvironmentVariable("RACEAI_SUPERVISED") == "1";
 
     [HttpGet("/raceai/api/state")]
     public IActionResult State() => Allowed() ? Ok(_service.State()) : Denied();
@@ -186,6 +199,18 @@ public class RaceAiDashboardController : ControllerBase
             case "stop":
                 _ = Task.Run(async () => { await Task.Delay(500); _lifetime.StopApplication(); });
                 return Ok(new { ok = true });
+            case "restartserver":
+            {
+                // the start script (race-ai/server-supervisor.sh) starts the server again after it stopped; "update" pulls
+                // the newest version from GitHub and installs it first
+                if (!Supervised) return BadRequest(new { error = "Der Server wurde nicht über race-ai/start-server.sh gestartet, ein Neustart ist so nicht möglich." });
+                string mode = req.Text == "update" ? "update" : "restart";
+                System.IO.File.WriteAllText("restart.request", mode);
+                Serilog.Log.Information("Race AI: server {Mode} requested from the dashboard", mode);
+                _entryCarManager.BroadcastChat(mode == "update" ? "Server-Update und Neustart … / server update and restart …" : "Server-Neustart … / server restart …");
+                _ = Task.Run(async () => { await Task.Delay(1500); _lifetime.StopApplication(); });
+                return Ok(new { ok = true, mode });
+            }
             case "temperature":
             {
                 var w = _weatherManager.CurrentWeather;

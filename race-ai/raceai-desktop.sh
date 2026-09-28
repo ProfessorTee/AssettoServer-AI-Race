@@ -32,7 +32,8 @@ if ! ping; then
   mkdir -p "$SRV/logs"
   cd "$SRV" || exit 1
   START_TIME=$(date +%s)
-  setsid ./AssettoServer >> "$SRV/logs/console.log" 2>&1 < /dev/null &
+  # the supervisor starts the server again when the dashboard asks for a restart (or an update)
+  setsid "$HERE/server-supervisor.sh" "$SRV" >> "$SRV/logs/console.log" 2>&1 < /dev/null &
   SERVER_PID=$!
   STARTED=1
   command -v notify-send >/dev/null && notify-send "Race AI Server" "Server startet … (die Bots werden kalibriert, etwa 30 s)"

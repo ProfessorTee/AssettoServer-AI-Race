@@ -168,7 +168,12 @@ Das Dashboard läuft im Server selbst unter `http://127.0.0.1:<HTTP_PORT>/raceai
   Chat an alle, Server beenden.
 - **Admin-Befehle:** alle Server-Befehle mit Vorlagen (kick, ban, ballast, restrict, forcelights, pit, whois, set, whitelist …),
   mit Antwort. Bei Spielern gibt es Knöpfe für Ballast, Restriktor, Box, Licht erzwingen, Kicken und Bannen.
-- **Log:** live, mit Filter.
+- **Log:** live, mit Filter. Wer nach unten scrollt, bleibt dort stehen, auch wenn oben neue Zeilen dazukommen.
+- **Beitreten:** Content-Manager-Link (öffnet CM und verbindet), Adresse zum Kopieren und die öffentliche Seite
+  `http://<IP>:<HTTP_PORT>/raceai/join` für Freunde (ohne Passwort; mit Anleitung für den Original-Launcher, der keine
+  Beitritts-Links kennt). Die öffentliche IP wird automatisch ermittelt oder mit `PublicAddress` (z. B. DynDNS) festgelegt.
+- **Neustart aus der Ferne:** „Server neu starten“ und „Update holen & neu starten“ (git pull + `update-server.sh`). Das geht,
+  wenn der Server über `race-ai/start-server.sh` bzw. das Desktop-Symbol läuft: `race-ai/server-supervisor.sh` startet ihn neu.
 - Oben rechts lassen sich die Datenrate (1–10 pro Sekunde) und die Bildrate der Karte (10–60 fps) einstellen. Weniger heißt
   weniger Last, wenn Spiel und Dashboard auf demselben PC laufen. Die Strecke wird nur neu gezeichnet, wenn sich die Ansicht ändert.
 

@@ -222,6 +222,9 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     [YamlMember(Description = "Bots flash their headlights in the pit lane while the pit limiter is on, like real GT3 cars (and the players' cars with CSP)")]
     public bool PitLimiterFlash { get; set; } = true;
 
+    [YamlMember(Description = "Address your friends join with (e.g. a DynDNS name like myserver.ddns.net). Empty = the public IP is looked up automatically")]
+    public string PublicAddress { get; set; } = "";
+
     [YamlMember(Description = "No flashing of the lights in the first seconds of a race, while the field is bunched up")]
     public float FlashStartDelaySeconds { get; set; } = 90f;
 

@@ -5,6 +5,6 @@
 HERE="$(dirname "$(readlink -f "$0")")"
 if [ "${1:-}" = "--console" ]; then
   shift
-  cd "$HERE/server" && exec ./AssettoServer "$@"
+  exec "$HERE/server-supervisor.sh" "$HERE/server" "$@"
 fi
 exec "$HERE/raceai-desktop.sh" "$@"

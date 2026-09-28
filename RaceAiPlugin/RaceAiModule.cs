@@ -22,6 +22,7 @@ public class RaceAiModule : AssettoServerModule<RaceAiConfiguration>
     {
         builder.RegisterType<RaceAiService>().AsSelf().As<IHostedService>().SingleInstance();
         builder.RegisterType<RaceAiSlotFilter>().As<IOpenSlotFilter>().SingleInstance();
+        builder.RegisterType<JoinInfo>().AsSelf().SingleInstance();
         builder.RegisterType<RealWeatherService>().AsSelf().As<IHostedService>().SingleInstance();
     }
 }
