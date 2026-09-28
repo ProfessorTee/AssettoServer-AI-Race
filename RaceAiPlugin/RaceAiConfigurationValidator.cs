@@ -17,6 +17,9 @@ public class RaceAiConfigurationValidator : AbstractValidator<RaceAiConfiguratio
         RuleFor(cfg => cfg.HighBeamRange).InclusiveBetween(10, 1000);
         RuleFor(cfg => cfg.GhostAfterSeconds).Must(x => x == 0 || x is >= 10 and <= 300).WithMessage("GhostAfterSeconds: 0 or 10-300");
         RuleFor(cfg => cfg.UnstuckSeconds).InclusiveBetween(1, 60);
+        RuleFor(cfg => cfg.QualifyingBotDelaySeconds).InclusiveBetween(0, 600);
+        RuleFor(cfg => cfg.PracticeBotDelaySeconds).InclusiveBetween(0, 600);
+        RuleFor(cfg => cfg.PitReleaseIntervalSeconds).InclusiveBetween(1, 120);
         RuleFor(cfg => cfg.ChatLanguage).Must(x => x is "de" or "en").WithMessage("ChatLanguage: de or en");
         RuleForEach(cfg => cfg.Personalities).ChildRules(p =>
         {

@@ -65,6 +65,30 @@ public sealed partial class RaceWorld
         UpdateGrip(bot);
     }
 
+    /// <summary>
+    /// Session start from the pits: the bot starts standing in its box and drives down the pit lane onto the track (out lap).
+    /// False when there is no pit lane or no box, then the caller has to place the bot somewhere else.
+    /// </summary>
+    public bool ReleaseFromPitBox(RaceBot bot)
+    {
+        var lane = PitLane;
+        if (lane == null || bot.PitBoxS < 0) return false;
+        PlaceAt(bot, lane.TrackSAt(bot.PitBoxS, Line), lane.TrackOffsetAt(bot.PitBoxS), BotPhase.Racing);
+        bot.Pit = PitPhase.InLane;
+        bot.PitS = bot.PitBoxS;
+        bot.PitLateral = bot.PitBoxOffset;
+        bot.PitServiced = true;
+        bot.PittedThisLap = true;
+        bot.PitEnteredAt = _now;
+        bot.Speed = 0;
+        bot.LapStartTime = _now;
+        bot.CautiousUntil = _now + 3;
+        return true;
+    }
+
+    /// <summary>Distance along the pit lane of the bot's box (-1 = none).</summary>
+    public float PitBoxDistance(RaceBot bot) => bot.PitBoxS;
+
     /// <summary>Sends a bot into the pits at the next pit entry (e.g. admin command).</summary>
     public void RequestPitStop(RaceBot bot, string reason)
     {

@@ -44,6 +44,10 @@ Das Plugin besteht aus zwei Teilen:
 - Echte **Startaufstellung** (`AC_START_x` aus den kn5-Dateien bzw. aus `GridFile`), Startampel über das normale AC-Rennen,
   Reaktionszeit am Start
 - Offizielle Rundenzeiten in Training, Qualifying und Rennen; das Qualifying-Ergebnis bestimmt die Startaufstellung
+- **Boxenstart** in Training und Qualifying (`SessionStart: Pits`): Die Bots verlassen nacheinander ihre Boxen. Im Qualifying
+  bekommen die Spieler Vorrang (`QualifyingBotDelaySeconds`, 30 s). Ein Spieler, der gerade aus der Box fährt, wird nicht blockiert.
+- **Ende von Training/Qualifying** (`EstimateLapsAtSessionEnd`): Ist die Zeit um, wird eine laufende gezeitete Runde eines Bots
+  geschätzt (bisherige Zeit plus Rest im gewohnten Tempo). Danach fährt er sofort in die Box, die Session wartet nicht auf die Bots.
 - Nach der Zielflagge: Auslaufrunde, danach geht es in die Box (`AC_PIT_x`)
 - Grip der Strecke (Dynamic Track, Regen) macht die Bots langsamer, genau wie die Spieler
 - **Sprit und Gewicht:** Verbrauch aus `fuel_cons.ini` bzw. `car.ini` mal `FUEL_RATE`. Der Sprit zählt zum Gewicht: Ein voller Tank
@@ -144,7 +148,10 @@ Das Dashboard läuft im Server selbst unter `http://127.0.0.1:<HTTP_PORT>/raceai
   „In die Box schicken“. Spieler lassen sich kicken.
 - **KI:** Stärke, Streuung und Aggressivität für das ganze Feld. Alle Funktionen als Schalter (Fehler, Dreher, Gras, Berührungen,
   Schaden, Flaggen, Licht, Regen, echtes Wetter, Chat-Meldungen). Dazu der Licht-Test.
-- **Server:** nächste Session oder Neustart, Tageszeit, CSP-Wetter, Regen/Nässe/Wasser, Grip, Chat an alle, Server beenden.
+- **Server:** nächste Session oder Neustart, Tageszeit, CSP-Wetter, Regen/Nässe/Wasser, Luft- und Streckentemperatur, Grip,
+  Chat an alle, Server beenden.
+- **Admin-Befehle:** alle Server-Befehle mit Vorlagen (kick, ban, ballast, restrict, forcelights, pit, whois, set, whitelist …),
+  mit Antwort. Bei Spielern gibt es Knöpfe für Ballast, Restriktor, Box, Licht erzwingen, Kicken und Bannen.
 - **Log:** live, mit Filter.
 
 ## Einrichtung

@@ -19,6 +19,14 @@ PlayerGridPosition: Middle
 RandomizeBotGrid: true
 Practice: Drive
 Qualifying: Drive
+# Practice / qualifying: bots leave their pit boxes one after the other (Pits) or start spread over the track (Track)
+SessionStart: Pits
+# players first: seconds before the first bot leaves the pits, and between two bots
+QualifyingBotDelaySeconds: 30
+PracticeBotDelaySeconds: 10
+PitReleaseIntervalSeconds: 6
+# when practice / qualifying time is up: estimate the bots' running laps, don't wait for them
+EstimateLapsAtSessionEnd: true
 # Your Assetto Corsa folder: car data (data.acd), racing line (fast_lane.ai), ai_hints.ini, sections.ini and the start grid are read from here
 # when they are not in the server's content folder
 AssettoCorsaPath: /mnt/GameDrive/SteamLibrary/steamapps/common/assettocorsa

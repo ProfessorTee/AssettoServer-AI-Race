@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using AssettoServer.Commands;
 using AssettoServer.Server;
 using AssettoServer.Server.Configuration;
 using AssettoServer.Server.Weather;
@@ -23,10 +24,12 @@ public class RaceAiDashboardController : ControllerBase
     private readonly EntryCarManager _entryCarManager;
     private readonly ACServerConfiguration _serverConfig;
     private readonly IHostApplicationLifetime _lifetime;
+    private readonly ChatService _chatService;
 
     public RaceAiDashboardController(RaceAiService service, SessionManager sessionManager, WeatherManager weatherManager,
-        EntryCarManager entryCarManager, ACServerConfiguration serverConfig, IHostApplicationLifetime lifetime)
+        EntryCarManager entryCarManager, ACServerConfiguration serverConfig, IHostApplicationLifetime lifetime, ChatService chatService)
     {
+        _chatService = chatService;
         _service = service;
         _sessionManager = sessionManager;
         _weatherManager = weatherManager;
@@ -181,6 +184,23 @@ public class RaceAiDashboardController : ControllerBase
             case "stop":
                 _ = Task.Run(async () => { await Task.Delay(500); _lifetime.StopApplication(); });
                 return Ok(new { ok = true });
+            case "temperature":
+            {
+                var w = _weatherManager.CurrentWeather;
+                if (req.A > -40 && req.A < 60) w.TemperatureAmbient = req.A;
+                if (req.B > -40 && req.B < 80) w.TemperatureRoad = req.B;
+                _weatherManager.SendWeather();
+                return Ok(new { ok = true });
+            }
+            case "command":
+            {
+                if (string.IsNullOrWhiteSpace(req.Text)) return BadRequest(new { error = "empty" });
+                var context = new DashboardCommandContext(_entryCarManager, HttpContext.RequestServices);
+                string command = req.Text.Trim().TrimStart('/');
+                Serilog.Log.Information("Race AI dashboard command: /{Command}", command);
+                await _chatService.ProcessCommandAsync(context, command);
+                return Ok(new { ok = true, output = context.Output.ToString().Trim() });
+            }
             case "weathertypes":
                 return Ok(Enum.GetNames<WeatherFxType>().Where(n => n != "None"));
         }

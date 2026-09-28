@@ -98,7 +98,7 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
     </nav>
     <div class="tab active" id="tab-field">
       <table>
-        <thead><tr><th class="num">P</th><th>Fahrer</th><th class="num">Rd</th><th class="num">Beste</th><th class="num">Letzte</th><th class="num">km/h</th><th>Sprit</th><th>Reifen</th><th>Status</th></tr></thead>
+        <thead><tr><th class="num">P</th><th>Fahrer</th><th class="num">Rd</th><th class="num">Beste</th><th class="num">Letzte</th><th class="num">km/h</th><th class="num">Sprit</th><th>Reifen</th><th>Status</th></tr></thead>
         <tbody id="field"></tbody>
       </table>
       <div id="detail" style="margin-top:10px"></div>
@@ -133,7 +133,15 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
         <div class="row"><label>Nässe</label><input type="range" id="rWet" min="0" max="1" step="0.05" value="0"><span class="val" id="rWetV"></span></div>
         <div class="row"><label>Wasser</label><input type="range" id="rWat" min="0" max="1" step="0.05" value="0"><span class="val" id="rWatV"></span></div>
         <div class="row"><button class="btn" id="rSet">Regen setzen</button><span class="muted">Echtes Wetter (KI → Funktionen) sonst wieder aus</span></div>
+        <div class="row"><label>Luft °C</label><input type="number" id="tAir" step="0.5" style="width:80px"><label style="min-width:0">Strecke °C</label><input type="number" id="tRoad" step="0.5" style="width:80px"><button class="btn" id="tempSet">Setzen</button></div>
+        <div class="row"><span class="muted">Echtes Wetter setzt die Temperaturen alle paar Minuten neu – dafür unter KI → Funktionen „Echtes Wetter“ aus.</span></div>
         <div class="row"><label>Grip</label><input type="range" id="gGrip" min="0" max="1" step="0.01" value="0"><span class="val" id="gGripV"></span><button class="btn" id="gSet">Setzen</button></div>
+      </div>
+      <div class="card">
+        <h3>Admin-Befehle</h3>
+        <div class="row"><select id="cmdTpl" style="flex:1"></select></div>
+        <div class="row"><input type="text" id="cmdText" placeholder="Befehl ohne / – z. B. ballast 3 50" style="flex:1"><button class="btn primary" id="cmdRun">Ausführen</button></div>
+        <pre id="cmdOut" class="muted" style="white-space:pre-wrap;margin:6px 0 0;max-height:160px;overflow:auto"></pre>
       </div>
       <div class="card">
         <h3>Chat</h3>
@@ -145,7 +153,7 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
       </div>
     </div>
     <div class="tab" id="tab-log">
-      <div class="row"><input type="text" id="logFilter" placeholder="Filter (z. B. Race AI, yellow, connected)" style="flex:1"><label style="min-width:0"><input type="checkbox" id="logFollow" checked> mitlaufen</label></div>
+      <div class="row"><input type="text" id="logFilter" placeholder="Filter (z. B. Race AI, yellow, connected)" style="flex:1"><label style="min-width:0"><input type="checkbox" id="logFollow" checked> live (neueste oben)</label><span class="muted" id="logInfo"></span></div>
       <pre id="log"></pre>
     </div>
   </aside>
@@ -324,7 +332,7 @@ async function poll() {
       (se.type === "Race" && se.laps ? `Runde ${Math.min(se.leaderLap + 1, se.laps)}/${se.laps}` : fmtTime(se.timeLeft)) +
       (se.type === "Race" && !se.raceStarted ? " · Start folgt" : "");
     const w = s.weather;
-    $("weatherChip").innerHTML = `<b>${w.time}</b>${w.type && w.type !== "None" ? " · " + esc(WX[w.type] || w.type) : ""} · ${w.ambient} °C` +
+    $("weatherChip").innerHTML = `<b>${w.time}</b>${w.type && w.type !== "None" ? " · " + esc(WX[w.type] || w.type) : ""} · Luft ${w.ambient} °C · Strecke ${w.road} °C` +
       (w.wetness > 0.05 ? ` · nass ${Math.round(w.wetness * 100)} %` : "") + ` · Grip ${Math.round(w.grip * 100)} %`;
     const bots = s.cars.filter(c => c.bot).length;
     $("countChip").textContent = `${s.cars.length - bots} Spieler · ${bots} Bots`;
@@ -336,6 +344,7 @@ async function poll() {
       else { o.px = o.x; o.pz = o.z; o.tx = c.x; o.tz = c.z; o.t = now; }
     }
     for (const id of [...cars.keys()]) if (!seen.has(id)) cars.delete(id);
+    if (!poll.tempInit) { poll.tempInit = true; $("tAir").value = w.ambient; $("tRoad").value = w.road; }
     renderField(); renderLegend(); syncAi();
   } catch (e) {
     $("conn").classList.remove("on"); $("connText").textContent = "keine Verbindung";
@@ -364,9 +373,9 @@ const bar = (v, max = 100) => v == null ? "" : `<span class="bar"><i style="widt
 function renderField() {
   const rows = state.cars.map(c => `<tr class="car${c.id === selected ? " sel" : ""}" data-id="${c.id}">
     <td class="num">${c.pos}</td>
-    <td><span class="pers" style="background:${c.bot ? PCOL(c.personality) : "var(--accent)"}"></span>${esc(c.name)} <span class="muted">${esc(c.model.replace(/^ks_/, "").replace(/_/g, " "))}</span></td>
+    <td><span class="pers" style="background:${c.bot ? PCOL(c.personality) : "var(--accent)"}"></span><span title="${esc(c.model)}">${esc(c.name)}</span> <span class="muted">#${c.id}</span></td>
     <td class="num">${c.laps}</td><td class="num">${fmtLap(c.best)}</td><td class="num">${fmtLap(c.last)}</td><td class="num">${c.speed}</td>
-    <td>${c.bot ? bar(c.fuel, c.fuelCapacity) : ""}</td><td>${c.bot ? bar(c.tyres - 80, 20) : ""}</td><td>${statusTags(c)}</td></tr>`).join("");
+    <td class="num">${c.bot ? Math.round(c.fuel) + " l" : ""}</td><td>${c.bot ? bar(c.tyres - 80, 20) : ""}</td><td>${statusTags(c)}</td></tr>`).join("");
   $("field").innerHTML = rows;
   $("field").querySelectorAll("tr.car").forEach(tr => tr.onclick = () => select(+tr.dataset.id));
   renderDetail(false);
@@ -386,8 +395,20 @@ function renderDetail(force) {
   if (!c.bot) {
     box.innerHTML = `<div class="card"><h3>${esc(c.name)} <span class="muted">${esc(c.model)}</span></h3>
       <div id="dLive">${liveInfo(c)}</div>
-      <div class="row"><button class="btn danger" id="dKick">Kicken</button></div></div>`;
+      <div class="row"><label>Ballast kg</label><input type="number" id="dBal" value="0" min="0" style="width:80px"><button class="btn" id="dBalSet">Setzen</button>
+        <label style="min-width:0">Restriktor</label><input type="number" id="dRes" value="0" min="0" max="400" style="width:80px"><button class="btn" id="dResSet">Setzen</button></div>
+      <div class="row"><button class="btn" id="dPitP">In die Box setzen</button><button class="btn" id="dLights">Licht erzwingen</button><button class="btn" id="dFollowP">Auf der Karte folgen</button>
+        <button class="btn danger" id="dKick">Kicken</button><button class="btn danger" id="dBan">Bannen</button></div>
+      <pre id="dOut" class="muted" style="white-space:pre-wrap;margin:6px 0 0"></pre></div>`;
+    const cmd = async t => { try { const r = await api("/raceai/api/server", { action: "command", text: t }); $("dOut").textContent = r.output || "OK"; } catch (e) { $("dOut").textContent = "Fehler: " + e.message; } };
+    $("dBalSet").onclick = () => cmd(`ballast ${c.id} ${+$("dBal").value}`);
+    $("dResSet").onclick = () => cmd(`restrict ${c.id} ${+$("dRes").value}`);
+    $("dPitP").onclick = () => cmd(`pit ${c.id}`);
+    let lightsOn = false;
+    $("dLights").onclick = () => { lightsOn = !lightsOn; cmd(`forcelights ${lightsOn ? "on" : "off"} ${c.id}`); $("dLights").textContent = lightsOn ? "Licht nicht mehr erzwingen" : "Licht erzwingen"; };
+    $("dFollowP").onclick = () => { follow = true; $("btnFollow").textContent = "◎ Folgen: an"; if (view.scale < 1.5) view.scale = 1.5; };
     $("dKick").onclick = () => { if (confirm(`${c.name} kicken?`)) act("/raceai/api/server", { action: "kick", id: c.id }, "gekickt"); };
+    $("dBan").onclick = () => { if (confirm(`${c.name} bannen? Er kommt nicht mehr auf den Server.`)) cmd(`ban ${c.id} Ban aus dem Dashboard`); };
     return;
   }
   const opts = state.ai.personalities.map(p => `<option${p === c.personality ? " selected" : ""}>${esc(p)}</option>`).join("");
@@ -448,24 +469,52 @@ $("gGrip").oninput = () => $("gGripV").textContent = +$("gGrip").value === 0 ? "
 $("gSet").onclick = () => act("/raceai/api/server", { action: "grip", a: +$("gGrip").value }, "Grip gesetzt");
 $("chatSend").onclick = () => { const t = $("chatText").value; if (t.trim()) act("/raceai/api/server", { action: "chat", text: t }, "gesendet").then(() => $("chatText").value = ""); };
 $("chatText").onkeydown = e => { if (e.key === "Enter") $("chatSend").onclick(); };
+$("tempSet").onclick = () => act("/raceai/api/server", { action: "temperature", a: +$("tAir").value, b: +$("tRoad").value }, "Temperatur gesetzt");
+const COMMANDS = [
+  ["", "— Befehl wählen (ID = Nummer des Autos, siehe Fahrerfeld) —"],
+  ["next_session", "Nächste Session"], ["restart_session", "Session neu starten"],
+  ["kick ID Grund", "Spieler kicken"], ["ban ID Grund", "Spieler bannen"], ["whitelist STEAMID64", "Spieler auf die Whitelist"],
+  ["ballast ID KG", "Ballast (kg) für einen Spieler"], ["restrict ID 0-400", "Restriktor für einen Spieler"],
+  ["forcelights on ID", "Licht bei einem Spieler erzwingen"], ["forcelights off ID", "Licht nicht mehr erzwingen"],
+  ["pit ID", "Spieler in die Box setzen"], ["whois ID", "Infos zu einem Spieler"],
+  ["settime 22:00", "Tageszeit"], ["setweather 0", "Wetter-Konfiguration aus server_cfg.ini (WEATHER_x)"],
+  ["setcspweather HeavyRain 30", "CSP-Wetter mit Übergang (s)"], ["cspweather", "Liste der CSP-Wetter"],
+  ["setrain 0.5 0.5 0.1", "Regen, Nässe, Wasser (0–1)"], ["setgrip 0.95", "Grip der Strecke (0–1)"],
+  ["say Nachricht", "Nachricht als CONSOLE an alle"], ["set KEY WERT", "Konfigurationswert ändern (z. B. Server.SleepTime)"],
+  ["raceai", "Bots mit Stärke, Sprit, Reifen …"], ["raceai_strength 90 5", "Stärke ± Streuung"], ["raceai_aggression 60", "Aggressivität"],
+  ["raceai_set spins off", "KI-Funktion an/aus"], ["raceai_lighttest", "Licht-Test"]
+];
+$("cmdTpl").innerHTML = COMMANDS.map(([c, d]) => `<option value="${esc(c)}">${c ? esc(c) + "  –  " : ""}${esc(d)}</option>`).join("");
+$("cmdTpl").onchange = () => { $("cmdText").value = $("cmdTpl").value; $("cmdText").focus(); };
+async function runCommand(text) {
+  try { const r = await api("/raceai/api/server", { action: "command", text }); $("cmdOut").textContent = "/" + text + "\n" + (r.output || "(keine Antwort)"); }
+  catch (e) { $("cmdOut").textContent = "Fehler: " + e.message; }
+}
+$("cmdRun").onclick = () => { const t = $("cmdText").value.trim(); if (t) runCommand(t); };
+$("cmdText").onkeydown = e => { if (e.key === "Enter") $("cmdRun").onclick(); };
 $("stopServer").onclick = () => { if (confirm("Server wirklich beenden? Alle Spieler fliegen raus.")) act("/raceai/api/server", { action: "stop" }, "Server wird beendet"); };
 (async () => { try { const types = await api("/raceai/api/server", { action: "weathertypes" }); $("wType").innerHTML = types.map(t => `<option value="${t}"${t === "Clear" ? " selected" : ""}>${esc(WX[t] ? `${WX[t]} (${t})` : t)}</option>`).join(""); } catch (e) {} })();
 
 // ---------------------------------------------------------------- log
 let logLines = [];
 async function loadLog() {
-  if (!$("tab-log").classList.contains("active")) return;
-  try { logLines = (await api("/raceai/api/log?lines=400")).lines; renderLog(); } catch (e) {}
+  if (!$("tab-log").classList.contains("active") || !$("logFollow").checked) return;
+  try {
+    const lines = (await api("/raceai/api/log?lines=400")).lines;
+    if (lines && lines.length) { logLines = lines; renderLog(); }
+    $("logInfo").textContent = "aktualisiert " + new Date().toLocaleTimeString();
+  } catch (e) { $("logInfo").textContent = "Log nicht erreichbar"; }
 }
 function renderLog() {
   const f = $("logFilter").value.toLowerCase();
-  $("log").innerHTML = logLines.filter(l => !f || l.toLowerCase().includes(f)).map(l => {
+  $("log").innerHTML = logLines.filter(l => !f || l.toLowerCase().includes(f)).reverse().map(l => {
     const cls = l.includes("[ERR]") || l.includes("[FTL]") ? "e" : l.includes("[WRN]") ? "w" : l.includes("Race AI") ? "r" : "";
     return `<span class="${cls}">${esc(l)}</span>`;
   }).join("\n");
-  if ($("logFollow").checked) $("tab-log").scrollTop = $("tab-log").scrollHeight;
+  if ($("logFollow").checked) $("tab-log").scrollTop = 0;
 }
 $("logFilter").oninput = renderLog;
+$("logFollow").onchange = loadLog;
 setInterval(loadLog, 2000);
 
 resize(); loadTrack(); poll(); requestAnimationFrame(frame);

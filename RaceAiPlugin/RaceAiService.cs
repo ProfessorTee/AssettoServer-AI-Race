@@ -413,11 +413,24 @@ public sealed partial class RaceAiService : IHostedService
             }
         }
 
+        _pitQueue.Clear();
+        _estimated.Clear();
         if (driving.Count > 0)
-            _world.SpreadOnTrack(driving, now);
+        {
+            if (_config.SessionStart == BotSessionStart.Pits && _world.PitLane != null && driving.All(b => _world.PitBoxDistance(b) >= 0))
+            {
+                // start from the pit boxes like the players; in qualifying the players get the pit lane first
+                _pitQueue.AddRange(driving.OrderBy(_ => _rng.Next()));
+                _nextPitRelease = now + (_sessionType == SessionType.Qualifying ? _config.QualifyingBotDelaySeconds : _config.PracticeBotDelaySeconds);
+            }
+            else
+            {
+                _world.SpreadOnTrack(driving, now);
+            }
+        }
 
         Log.Information("Race AI: session {Session} ({Type}), {Count} bots {Mode}", session.Configuration.Name, _sessionType,
-            _slots.Count(s => s.Active), _sessionType == SessionType.Race ? "on the grid" : driving.Count > 0 ? "on track" : "parked");
+            _slots.Count(s => s.Active), _sessionType == SessionType.Race ? "on the grid" : _pitQueue.Count > 0 ? "leaving the pits" : driving.Count > 0 ? "on track" : "parked");
     }
 
     /// <summary>Content Manager style starting position of the players, plus random bot order, for races that don't follow a qualifying.</summary>
@@ -503,6 +516,12 @@ public sealed partial class RaceAiService : IHostedService
         else if ((_sessionType == SessionType.Practice && _config.Practice == BotSessionMode.Drive)
                  || (_sessionType == SessionType.Qualifying && _config.Qualifying == BotSessionMode.Drive))
         {
+            if (_config.SessionStart == BotSessionStart.Pits && _world!.PitLane != null && _world.PitBoxDistance(slot.Bot) >= 0)
+            {
+                // back into the session from the pit box
+                if (!_pitQueue.Contains(slot.Bot)) _pitQueue.Add(slot.Bot);
+                return;
+            }
             // somewhere on the lap; overlaps with other cars are pushed apart by the world
             double s = _track!.StartLineS + 200 + _rng.NextDouble() * (_track.Line.Length - 400);
             _world!.PlaceAt(slot.Bot, s, 0, BotPhase.Racing);
@@ -510,6 +529,86 @@ public sealed partial class RaceAiService : IHostedService
             slot.Bot.LapStartTime = Now;
         }
         _ = late;
+    }
+
+    // ------------------------------------------------------------------ pit starts and the end of practice / qualifying
+
+    private readonly List<RaceBot> _pitQueue = [];
+    private double _nextPitRelease;
+    private readonly HashSet<int> _estimated = [];
+
+    /// <summary>Lets the waiting bots out of their boxes one after the other, never into a player who is on his way out.</summary>
+    private void ReleaseFromPits(RaceWorld world, double now)
+    {
+        if (_pitQueue.Count == 0 || now < _nextPitRelease || world.PitLane == null) return;
+        var bot = _pitQueue[0];
+        if (!_slotsBySessionId.TryGetValue((byte)bot.Id, out var slot) || !slot.Active || bot.Phase != BotPhase.Parked)
+        {
+            _pitQueue.RemoveAt(0);
+            return;
+        }
+        if (PitLaneBusy(world, world.PitBoxDistance(bot)))
+        {
+            _nextPitRelease = now + 1;
+            return;
+        }
+        _pitQueue.RemoveAt(0);
+        world.ReleaseFromPitBox(bot);
+        _nextPitRelease = now + _config.PitReleaseIntervalSeconds * (0.7 + 0.6 * _rng.NextDouble());
+    }
+
+    /// <summary>A player (or bot) in the pit lane around/behind the box that would be in the way.</summary>
+    private bool PitLaneBusy(RaceWorld world, float boxS)
+    {
+        var lane = world.PitLane!;
+        foreach (var car in _entryCarManager.EntryCars)
+        {
+            if (car.Client is not { HasSentFirstUpdate: true }) continue;
+            if (car.Status.Velocity.LengthSquared() < 4) continue; // standing in the box: not in the way
+            var pos = car.Status.Position;
+            var (s, off) = lane.Project(pos);
+            if (MathF.Abs(off) > 12) continue; // not in the pit lane / boxes
+            if (s > boxS - 60 && s < boxS + 40) return true;
+        }
+        foreach (var other in world.Bots)
+        {
+            if (!other.InPitLane) continue;
+            if (other.PitS > boxS - 40 && other.PitS < boxS + 25) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Practice / qualifying is over: bots that are still out don't hold the session up. A bot on a timed lap gets that lap estimated
+    /// (time so far plus the rest at its usual pace), everybody else goes straight to the box.
+    /// </summary>
+    private void FinishSessionEarly(SessionState session)
+    {
+        if (!_config.EstimateLapsAtSessionEnd || _sessionType == SessionType.Race || !session.SessionOverFlag || session.Results == null) return;
+        _pitQueue.Clear();
+        foreach (var slot in _slots)
+        {
+            if (!slot.Active || !_estimated.Add(slot.EntryCar.SessionId)) continue;
+            var bot = slot.Bot;
+            if (!session.Results.TryGetValue(slot.EntryCar.SessionId, out var result) || result.HasCompletedLastLap) continue;
+            if (bot.Phase == BotPhase.Racing && bot.TimingValid && !bot.InPitLane && !bot.PittedThisLap)
+            {
+                var line = _track!.Line;
+                float done = line.WrapS((float)bot.Distance - _track.StartLineS) / line.Length;
+                float usual = bot.BestLapSeconds < 1e6f ? bot.BestLapSeconds
+                    : _calibrations.TryGetValue(bot.Car, out var cal) ? cal.LapTimeFor(bot.Driver.Level, _referenceBestLap) * 1.02f : 0;
+                if (usual > 0 && done > 0.02f)
+                {
+                    float elapsed = (float)(Now - bot.LapStartTime);
+                    float estimate = elapsed + (1 - done) * usual * (1 + 0.012f * ((float)_rng.NextDouble() - 0.3f));
+                    uint ms = (uint)Math.Round(estimate * 1000);
+                    _sessionManager.OnAiLapCompleted(slot.EntryCar, ms);
+                    Log.Information("Race AI: {Name} lap estimated at the end of the session: {Time} ({Done:P0} driven)", bot.Name, FormatLap(estimate), done);
+                }
+            }
+            result.HasCompletedLastLap = true;
+            ParkInPitBox(slot);
+        }
     }
 
     private double Now => _sessionManager.ServerTimeMilliseconds / 1000.0;
@@ -612,6 +711,8 @@ public sealed partial class RaceAiService : IHostedService
         foreach (var slot in _slots)
             slot.Bot.RemainingLaps = RemainingLaps(slot, session);
 
+        ReleaseFromPits(world, now);
+        FinishSessionEarly(session);
         world.Advance(now);
 
         long serverTime = _sessionManager.ServerTimeMilliseconds;

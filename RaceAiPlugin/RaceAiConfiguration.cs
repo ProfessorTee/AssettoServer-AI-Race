@@ -5,6 +5,12 @@ using YamlDotNet.Serialization;
 
 namespace RaceAiPlugin;
 
+public enum BotSessionStart
+{
+    Pits,
+    Track
+}
+
 public enum PlayerGridPosition
 {
     /// <summary>Keep the order AssettoServer uses (entry list order or qualifying result).</summary>
@@ -297,6 +303,20 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     [YamlMember(Description = "Dashboard (desktop GUI) at http://<server>:<HTTP_PORT>/raceai. false = only from this computer (127.0.0.1). " +
                               "true = also from other computers, then the ADMIN_PASSWORD is required")]
     public bool DashboardRemoteAccess { get; set; } = false;
+
+    [YamlMember(Description = "Practice / qualifying start: Pits = the bots leave their boxes one after the other (players first), Track = spread over the track at speed")]
+    public BotSessionStart SessionStart { get; set; } = BotSessionStart.Pits;
+
+    [YamlMember(Description = "Seconds before the first bot leaves the pits in qualifying (players get a clear pit lane and track first) / in practice")]
+    public float QualifyingBotDelaySeconds { get; set; } = 30;
+    public float PracticeBotDelaySeconds { get; set; } = 10;
+
+    [YamlMember(Description = "About this many seconds between two bots leaving the pits")]
+    public float PitReleaseIntervalSeconds { get; set; } = 6;
+
+    [YamlMember(Description = "When practice / qualifying time is up, bots on a timed lap get that lap estimated and go to the box at once, " +
+                              "so the session doesn't wait for them. false = they finish their lap like players")]
+    public bool EstimateLapsAtSessionEnd { get; set; } = true;
 
     [YamlMember(Description = "Announce bot pit stops in chat")]
     public bool AnnouncePitStops { get; set; } = true;
