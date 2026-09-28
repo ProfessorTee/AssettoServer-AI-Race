@@ -85,8 +85,10 @@ public class PersonalityConfiguration
     public float Share { get; set; } = 1;
     [YamlMember(Description = "Added to the aggression (-100..100)")]
     public float Aggression { get; set; }
-    [YamlMember(Description = "0..1: brakes later (more when attacking), dives from further back, sometimes too late")]
-    public float LateBraking { get; set; }
+    [YamlMember(Description = "-1..1: -1 smooth and careful (earlier, squeezes the pedal), 0 normal, 1 extremely late, stamps on the brakes, dives from far back")]
+    public float BrakeBehavior { get; set; }
+    [YamlMember(Description = "Old name of BrakeBehavior (0..1), still read")]
+    public float? LateBraking { get => null; set { if (value is { } v) BrakeBehavior = v; } }
     [YamlMember(Description = "0..1: attacks and defends on the inside; 0.5 and above never tries round the outside")]
     public float InsideLine { get; set; }
     [YamlMember(Description = "Tyre wear multiplier (1.0 = 100 %)")]
@@ -101,18 +103,24 @@ public class PersonalityConfiguration
     public float Weaving { get; set; } = 0.4f;
     [YamlMember(Description = "Mistake multiplier (1.0 = 100 %)")]
     public float Mistakes { get; set; } = 1;
+    [YamlMember(Description = "Line error multiplier (1.0 = 100 %): missed apex, running wide, early braking points")]
+    public float LineErrors { get; set; } = 1;
+    [YamlMember(Description = "0..1: patience behind a slower car. 0 = flashes after a few seconds, 1 = waits long and hardly flashes")]
+    public float Patience { get; set; } = 0.5f;
 
     public Personality ToPersonality() => new()
     {
-        Name = Name, Aggression = Aggression / 100f, LateBraking = LateBraking, InsideLine = InsideLine, TyreWear = TyreWear, FuelUse = FuelUse,
-        Smoothness = Smoothness, Composure = Composure, Weaving = Weaving, Mistakes = Mistakes
+        Name = Name, Aggression = Aggression / 100f, BrakeBehavior = Math.Clamp(BrakeBehavior, -1, 1), InsideLine = InsideLine, TyreWear = TyreWear,
+        FuelUse = FuelUse, Smoothness = Smoothness, Composure = Composure, Weaving = Weaving, Mistakes = Mistakes, LineErrors = LineErrors,
+        Patience = Math.Clamp(Patience, 0, 1)
     };
 
     public static List<PersonalityConfiguration> Defaults() => Personality.Defaults().Select(d => new PersonalityConfiguration
     {
-        Name = d.Personality.Name, Share = d.Share, Aggression = d.Personality.Aggression * 100, LateBraking = d.Personality.LateBraking,
+        Name = d.Personality.Name, Share = d.Share, Aggression = d.Personality.Aggression * 100, BrakeBehavior = d.Personality.BrakeBehavior,
         InsideLine = d.Personality.InsideLine, TyreWear = d.Personality.TyreWear, FuelUse = d.Personality.FuelUse,
-        Smoothness = d.Personality.Smoothness, Composure = d.Personality.Composure, Weaving = d.Personality.Weaving, Mistakes = d.Personality.Mistakes
+        Smoothness = d.Personality.Smoothness, Composure = d.Personality.Composure, Weaving = d.Personality.Weaving, Mistakes = d.Personality.Mistakes,
+        LineErrors = d.Personality.LineErrors, Patience = d.Personality.Patience
     }).ToList();
 }
 
@@ -208,6 +216,12 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
 
     [YamlMember(Description = "Seconds stuck behind a slower car until a bot is fully impatient (closer, earlier and more determined attacks, no crashes). 0 = off")]
     public float ImpatienceSeconds { get; set; } = 25f;
+
+    [YamlMember(Description = "Bots flash their headlights in the pit lane while the pit limiter is on, like real GT3 cars (and the players' cars with CSP)")]
+    public bool PitLimiterFlash { get; set; } = true;
+
+    [YamlMember(Description = "No flashing of the lights in the first seconds of a race, while the field is bunched up")]
+    public float FlashStartDelaySeconds { get; set; } = 90f;
 
     [YamlMember(Description = "Blue flags: lapped bots move over to the side and indicate when the leaders come through")]
     public bool BlueFlags { get; set; } = true;

@@ -323,6 +323,8 @@ public static class Simulator
                               $"light brake {_pedals[3] * 100 / tot} %, medium {_pedals[4] * 100 / tot} %, hard {_pedals[5] * 100 / tot} %");
             Console.WriteLine($"overlap frames {_overlapFrames} (max penetration {_maxPenetration:F2} m), off-track frames {_offTrackFrames} (max {_maxOffTrack:F2} m), " +
                               $"position changes {_positionChanges / 2}, max lateral speed {_maxLatSpeed:F1} m/s, frames {_frames}");
+            Console.WriteLine($"flashes: {_w.Bots.Sum(b => b.FlashCount)} ({string.Join(", ", _w.Bots.Where(b => b.FlashCount > 0).Select(b => $"{b.Driver.Personality.Name} {b.FlashCount}"))})");
+            Console.WriteLine($"tyre temps: {string.Join(" ", _w.Bots.Select(b => $"{b.TyreTempFront:F0}/{b.TyreTempRear:F0}"))}");
             Console.WriteLine($"corner lines: clean {_lineKinds[0]}, wide {_lineKinds[1]}, early apex {_lineKinds[2]}, late apex {_lineKinds[3]}, largest line error {_maxShift:F2} m");
         }
     }

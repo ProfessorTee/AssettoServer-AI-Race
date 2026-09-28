@@ -22,7 +22,7 @@ public sealed partial class RaceWorld
 
     /// <summary>0..1: how imprecise the driver is right now (same inputs as the mistakes, so the strength calibration covers it).</summary>
     private float Imprecision(RaceBot me)
-        => Settings.LineErrors ? ErrorLevel(me) : 0;
+        => Settings.LineErrors ? Math.Clamp(ErrorLevel(me) * me.Driver.Personality.LineErrors, 0, 1) : 0;
 
     /// <summary>Finds the next corner that starts within <paramref name="range"/> metres ahead.</summary>
     private bool FindCorner(float fromS, float range, out float startS, out float apexS, out float endS, out float sign)
@@ -63,7 +63,8 @@ public sealed partial class RaceWorld
         if (me.PlanActive && Line.Delta(me.PlanEndS, myS) < 0) return; // still in (or before) the planned corner
 
         float v = MathF.Max(me.Speed, 20);
-        float range = v * v / (2 * 9f) + 80;
+        // far enough ahead that the plan (with its early braking point) is known before the braking starts
+        float range = v * v / (2 * 6f) + 150;
         me.PlanActive = false;
         if (!FindCorner(myS, range, out float start, out float apex, out float end, out float sign)) return;
         // just left a corner: the same one again is not a new corner
@@ -84,7 +85,8 @@ public sealed partial class RaceWorld
 
         // every driver below the limit: brakes a bit too early here, waits a moment before full throttle there
         float skill = me.Driver.Pace + me.PaceNoise;
-        me.PlanBrakeMargin = DriverProfile.BrakeMargin(skill) * (0.3f + 1.4f * _rng.NextSingle());
+        me.PlanBrakeMargin = DriverProfile.BrakeMargin(skill) * (0.3f + 1.4f * _rng.NextSingle())
+                             + 6f * MathF.Max(0, -me.Driver.Personality.BrakeBehavior) * _rng.NextSingle();
         me.PlanExitDelay = DriverProfile.ExitHesitation(skill) * (0.2f + 1.6f * _rng.NextSingle());
 
         float ip = Imprecision(me);
@@ -170,12 +172,19 @@ public sealed partial class RaceWorld
                 me.PlanLiftAt = _now;
                 me.PlanLiftSpeed = me.Speed * 0.95f;
             }
-            if (_now - me.PlanLiftAt < 0.45) vTarget = MathF.Min(vTarget, me.PlanLiftSpeed);
+            if (_now - me.PlanLiftAt < 0.45)
+            {
+                vTarget = MathF.Min(vTarget, me.PlanLiftSpeed);
+                me.LiftOnlyUntil = _now + 0.1;
+            }
             else me.PlanLift = false;
         }
 
         // hesitating on the throttle after the apex: holds the speed for a moment
         if (me.PlanExitDelay > 0 && !double.IsNaN(me.PlanApexPassedAt) && _now - me.PlanApexPassedAt < me.PlanExitDelay)
+        {
+            if (vTarget > me.Speed) me.LiftOnlyUntil = _now + 0.1;
             vTarget = MathF.Min(vTarget, me.Speed + 0.15f);
+        }
     }
 }

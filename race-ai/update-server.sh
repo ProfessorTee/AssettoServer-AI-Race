@@ -30,6 +30,27 @@ for key in ["VirtualWetTyres", "WetTyres"]:
     # whole lines only (with their comment lines above)
     s = re.sub(r"(?m)^(#[^\n]*\n)*" + key + r":[^\n]*\n", "", s)
 s = re.sub(r"(?m)^[A-Za-z]*# ", "# ", s)  # repair lines broken by the first version of this script
+# personalities: LateBraking (0..1) became BrakeBehavior (-1..1) with Patience and LineErrors; the unchanged old default block
+# is replaced by the new one with its explanations, a changed one only gets the key renamed
+def section(text):
+    # from the comment block above UsePersonalities to the end of the Personalities list
+    i = text.find("# Driver personalities"); p = text.find("\nPersonalities:", i)
+    if i < 0 or p < 0: return (-1, -1)
+    m = re.compile(r"(?m)^[^ \n-]").search(text, p + 15)
+    return (i, m.start() if m else len(text))
+i, j = section(s); ei, ej = section(ex)
+if i >= 0 and "LateBraking" in s[i:j]:
+    old_default = [l.split("#")[0].strip() for l in s[i:j].splitlines() if l.strip() and not l.strip().startswith("#")]
+    if old_default == ["UsePersonalities: true", "Personalities:", "- Name: Balanced", "Share: 40", "- Name: DiveBomber", "Share: 20",
+                       "Aggression: 25", "LateBraking: 1", "InsideLine: 1", "TyreWear: 1.25", "FuelUse: 1.05", "Composure: 0.4",
+                       "Weaving: 0.9", "Mistakes: 1.2", "- Name: Chill", "Share: 20", "Aggression: -20", "TyreWear: 0.75", "FuelUse: 0.97",
+                       "Smoothness: 0.5", "Composure: 0.9", "Weaving: 0.1", "Mistakes: 0.8", "- Name: FuelSaver", "Share: 20",
+                       "Aggression: -10", "TyreWear: 0.9", "FuelUse: 0.85", "Smoothness: 0.7", "Composure: 0.7", "Weaving: 0.2"] and ei >= 0:
+        s = s[:i] + ex[ei:ej] + s[j:]
+        print("personalities: updated to the new defaults (BrakeBehavior, Patience, LineErrors)")
+    else:
+        s = re.sub(r"(?m)^(\s*)LateBraking:", r"\1BrakeBehavior:", s)
+        print("personalities: LateBraking renamed to BrakeBehavior")
 # new top-level options: copy them with their comment block from the example, in front of "# Race craft" (or at the end)
 def blocks(text):
     out, comment = [], []

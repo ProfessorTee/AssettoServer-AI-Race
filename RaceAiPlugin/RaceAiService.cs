@@ -138,6 +138,8 @@ public sealed partial class RaceAiService : IHostedService
             SlipstreamStrength = 0.35f * _config.SlipstreamStrength,
             YellowFlags = _config.YellowFlags,
             ImpatienceTime = _config.ImpatienceSeconds,
+            FlashStartDelay = _config.FlashStartDelaySeconds,
+            PitLimiterFlash = _config.PitLimiterFlash,
             FuelRate = _config.Fuel ? _serverConfig.Server.FuelConsumptionRate : 0,
             TyreWearRate = _config.TyreWear ? _serverConfig.Server.TyreConsumptionRate : 0,
             TyreWearScale = 0.15f * _config.TyreWearFactor,
@@ -468,10 +470,25 @@ public sealed partial class RaceAiService : IHostedService
     private void ArrangePlayers(SessionState session, SessionState? previous)
     {
         if (session.Grid == null) return;
-        bool fromQualifying = previous is { Configuration.Type: SessionType.Qualifying or SessionType.Practice }
-                              && previous.Results != null && previous.Results.Values.Any(r => r.NumLaps > 0);
+        bool fromQualifying = previous is { Configuration.Type: SessionType.Qualifying or SessionType.Practice } && previous.Results != null;
         bool fromRace = previous is { Configuration.Type: SessionType.Race };
-        if (fromQualifying || fromRace) return;
+        if (fromRace) return;
+        if (fromQualifying)
+        {
+            // qualifying result: cars with a time in order, then bots without a time (quickest first),
+            // then players without a time at the back (skipped the qualifying), free slots last
+            bool HasTime(IEntryCar<IClient> c) => previous!.Results!.TryGetValue(c.SessionId, out var r) && r.BestLap < 999_999_999u;
+            var all = session.Grid.ToList();
+            var timed = all.Where(HasTime).ToList(); // AssettoServer already sorted them by best lap
+            var noTimeBots = all.Where(c => !HasTime(c) && IsActiveBot(c)).OrderBy(ExpectedLap).ToList();
+            var noTimePlayers = all.Where(c => !HasTime(c) && !IsActiveBot(c) && c.Client != null).ToList();
+            var rest = all.Except(timed).Except(noTimeBots).Except(noTimePlayers).ToList();
+            session.Grid = [..timed, ..noTimeBots, ..noTimePlayers, ..rest];
+            if (noTimeBots.Count + noTimePlayers.Count > 0)
+                Log.Information("Race AI: grid after qualifying: {Timed} with a time, {Bots} bots and {Players} players without a time at the back",
+                    timed.Count(c => c.Client != null || IsActiveBot(c)), noTimeBots.Count, noTimePlayers.Count);
+            return;
+        }
 
         var grid = session.Grid.ToList();
         var bots = grid.Where(c => _slotsBySessionId.TryGetValue(c.SessionId, out var s) && s.Active).ToList();
@@ -710,7 +727,9 @@ public sealed partial class RaceAiService : IHostedService
             if (client == null) continue;
             var ext = world.GetOrAddExternal(car.SessionId);
             bool active = client.HasSentFirstUpdate && !car.IsSpectator;
-            world.UpdateExternal(ext, car.Status.Position, car.Status.Velocity, active);
+            // the last position update is already a little old (network delay): the bots see where the car is now
+            float age = Math.Clamp((_sessionManager.ServerTimeMilliseconds - car.Status.Timestamp) / 1000f, 0, 0.3f);
+            world.UpdateExternal(ext, car.Status.Position + car.Status.Velocity * age, car.Status.Velocity, active);
             ext.Laps = session.Results != null && session.Results.TryGetValue(car.SessionId, out var res) ? (int)res.NumLaps : 0;
         }
 
@@ -736,6 +755,9 @@ public sealed partial class RaceAiService : IHostedService
         float grip = weather.TrackGrip > 0.3f ? weather.TrackGrip : 1f;
         world.Settings.GripFactor = Math.Clamp(grip, 0.4f, 1.05f);
         world.Settings.Wetness = Math.Clamp(weather.RainWetness, 0, 1);
+        world.Settings.AmbientTemp = weather.TemperatureAmbient;
+        world.Settings.RoadTemp = weather.TemperatureRoad;
+        world.Settings.IsRace = _sessionType == SessionType.Race;
         world.Settings.Water = Math.Clamp(weather.RainWater, 0, 1);
         world.Settings.RainIntensity = Math.Clamp(weather.RainIntensity, 0, 1);
 

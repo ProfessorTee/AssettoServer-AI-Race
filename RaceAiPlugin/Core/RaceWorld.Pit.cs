@@ -47,6 +47,7 @@ public sealed partial class RaceWorld
         bot.Fuel = Math.Clamp(fuel, 0, bot.Car.FuelCapacity);
         bot.TyreVirtualKm = 0;
         bot.TyreKm = warmTyres ? 10 : 0;
+        SetTyreTemperature(bot, warmTyres ? TyreOptimum - 5 : ColdTyreTemperature());
         bot.Pit = PitPhase.None;
         bot.PitReason = "";
         bot.PitStops = 0;
@@ -83,6 +84,8 @@ public sealed partial class RaceWorld
         bot.Speed = 0;
         bot.LapStartTime = _now;
         bot.CautiousUntil = _now + 3;
+        // standing in the box: the tyres are as warm as the air around them
+        SetTyreTemperature(bot, ColdTyreTemperature());
         return true;
     }
 
@@ -119,13 +122,18 @@ public sealed partial class RaceWorld
             bot.FuelPerKmEma = bot.FuelPerKmEma <= 0 ? perKm : bot.FuelPerKmEma + (perKm - bot.FuelPerKmEma) * alpha;
         }
 
-        if (Settings.TyreWearRate > 0 && ds > 0)
         {
             float k = bot.InPitLane ? 0 : Line.CurvatureAt(Line.WrapS((float)bot.Distance));
-            float lat = bot.Speed * bot.Speed * MathF.Abs(k) / (car.LateralGrip * CarSpec.G);
+            float lat = Math.Clamp(bot.Speed * bot.Speed * MathF.Abs(k) / (car.LateralGrip * CarSpec.G), 0, 1.2f);
             float lon = MathF.Abs(bot.Accel) / (car.BrakeGrip * CarSpec.G);
-            float usage = Math.Clamp(MathF.Max(lat, lon), 0, 1.2f);
-            bot.TyreVirtualKm += TyreStyle(bot) * ds / 1000f * Settings.TyreWearScale * Settings.TyreWearRate * (0.3f + 1.4f * usage) * (0.9f + 0.2f * bot.Driver.Aggression);
+            float brakeUse = bot.Accel < 0 ? Math.Clamp(lon, 0, 1.2f) : 0, driveUse = bot.Accel > 0 ? Math.Clamp(lon, 0, 1.2f) : 0;
+            UpdateTyreTemperatures(bot, dt, lat, brakeUse, driveUse);
+            if (Settings.TyreWearRate > 0 && ds > 0)
+            {
+                float usage = Math.Clamp(MathF.Max(lat, lon), 0, 1.2f);
+                bot.TyreVirtualKm += TyreStyle(bot) * ds / 1000f * Settings.TyreWearScale * Settings.TyreWearRate * (0.3f + 1.4f * usage)
+                                     * (0.9f + 0.2f * bot.Driver.Aggression) * TyreTempWear(bot);
+            }
         }
         bot.TyreKm += ds / 1000f;
         UpdateGrip(bot);
@@ -135,7 +143,7 @@ public sealed partial class RaceWorld
     {
         var car = bot.Car;
         float tyre = Settings.TyreWearRate > 0 ? car.TyreGripAt(bot.TyreVirtualKm) : 1f;
-        float cold = bot.TyreKm < 3 ? 0.94f + 0.06f * bot.TyreKm / 3 : 1f;
+        float cold = TyreTemperatureGrip(bot);
         float mass = car.ReferenceMass - 25 * FuelDensity + bot.Fuel * FuelDensity;
         bot.MassRatio = Settings.FuelRate > 0 ? Math.Clamp(mass / car.ReferenceMass, 0.8f, 1.3f) : 1f;
         float massGrip = 1 - 0.3f * (bot.MassRatio - 1);
@@ -278,6 +286,7 @@ public sealed partial class RaceWorld
                 {
                     bot.TyreVirtualKm = 0;
                     bot.TyreKm = 0;
+                    SetTyreTemperature(bot, ColdTyreTemperature());
                 }
                 if (bot.PitRepair) RepairDamage(bot);
                 bot.PitStops++;

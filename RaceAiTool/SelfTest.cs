@@ -45,7 +45,7 @@ public static class SelfTest
                 Name = $"Bot {i}",
                 Car = new CarSpec(),
                 // slowest bots in front so the faster ones have to overtake
-                Driver = DriverProfile.FromLevel(85 + i * 1.5f, 60)
+                Driver = DriverProfile.FromLevel(82 + i * 2f, 60)
             });
         }
         world.PlaceOnGrid(world.Bots);

@@ -68,12 +68,22 @@ Das Plugin besteht aus zwei Teilen:
   - `FuelSaver`: Lift and Coast, spart Sprit
   - `Balanced`: normal
 
-  Werte pro Persönlichkeit: Aggressivität, spätes Bremsen, Innenbahn, Reifen- und Spritverbrauch, Sanftheit, Nervenstärke,
-  Pendeln und Fehlerquote. Die Zuteilung ist zufällig nach `Share` oder fest pro Fahrer (`Drivers[].Personality`).
+  Werte pro Persönlichkeit (alle in der cfg erklärt): `Aggression`, `BrakeBehavior` (-1 sanft und vorsichtig bis 1 extrem spät,
+  „in die Eisen“), `InsideLine`, `Smoothness`, `Composure`, `Weaving`, `Patience` (Geduld hinter Langsameren, Lichthupe),
+  `Mistakes`, `LineErrors`, `TyreWear`, `FuelUse`. Das alte `LateBraking` wird noch als `BrakeBehavior` gelesen.
+  Die Zuteilung ist zufällig nach `Share` oder fest pro Fahrer (`Drivers[].Personality`).
 - **Druck von hinten:** Sitzt ein Spieler oder Bot lange im Windschatten, wird der Vordermann nervös und macht etwas mehr Fehler,
   abhängig von `Composure`. Der Verfolger fängt auf der Geraden nach einer Weile an zu pendeln, um ihn zu verunsichern (`Weaving`).
 - **Ungeduld:** Wer hinter einem langsameren Auto festhängt, wird mit der Zeit ungeduldig (`ImpatienceSeconds`). Er fährt dichter auf,
   greift früher an, sucht öfter eine Lücke und gibt die Lichthupe (nachts Fernlicht, tagsüber Scheinwerfer). Crashs vermeidet er trotzdem.
+  Die Lichthupe gibt es nur, wenn er wirklich deutlich schneller wäre, nicht in den ersten `FlashStartDelaySeconds` (90) eines Rennens,
+  und je nach `Patience`: ein DiveBomber nach wenigen Sekunden, ein Chill-Fahrer kaum.
+- **Reifentemperatur:** Vorder- und Hinterachse werden warm gefahren. Kalte Reifen nach der Box oder auf der Out-Lap haben weniger Grip,
+  Rutscher und lange Zweikämpfe überhitzen sie, Regen kühlt. Das ändert Grip und Verschleiß. Auf der Out-Lap in Training und Qualifying
+  pendeln die Bots auf den Geraden, um die Reifen aufzuwärmen. Die Temperaturen zeigt das Dashboard; im Spiel kann die Reifen-App
+  sie nicht anzeigen, weil das AC-Netzwerkprotokoll für fremde Autos keine Reifentemperaturen überträgt.
+- **Pit-Limiter:** In der Boxengasse blinken die Scheinwerfer wie bei echten GT3-Autos (`PitLimiterFlash`). Das machen die Autos
+  der Spieler mit CSP genauso.
 - **Blaue Flagge:** Ein überrundeter Bot fährt an den Rand, setzt den Blinker zu dieser Seite und nimmt etwas Gas weg. Der Führende
   fährt auf der anderen Seite vorbei.
 - **Gelbe Flagge:** Steht ein Auto auf der Strecke, schalten die Bots in der Nähe den Warnblinker ein, fahren langsamer und überholen nicht.
@@ -159,6 +169,8 @@ Das Dashboard läuft im Server selbst unter `http://127.0.0.1:<HTTP_PORT>/raceai
 - **Admin-Befehle:** alle Server-Befehle mit Vorlagen (kick, ban, ballast, restrict, forcelights, pit, whois, set, whitelist …),
   mit Antwort. Bei Spielern gibt es Knöpfe für Ballast, Restriktor, Box, Licht erzwingen, Kicken und Bannen.
 - **Log:** live, mit Filter.
+- Oben rechts lassen sich die Datenrate (1–10 pro Sekunde) und die Bildrate der Karte (10–60 fps) einstellen. Weniger heißt
+  weniger Last, wenn Spiel und Dashboard auf demselben PC laufen. Die Strecke wird nur neu gezeichnet, wenn sich die Ansicht ändert.
 
 ## Einrichtung
 

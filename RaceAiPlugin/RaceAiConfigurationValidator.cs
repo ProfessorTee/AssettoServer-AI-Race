@@ -28,9 +28,13 @@ public class RaceAiConfigurationValidator : AbstractValidator<RaceAiConfiguratio
             p.RuleFor(x => x.TyreWear).InclusiveBetween(0.2f, 3);
             p.RuleFor(x => x.FuelUse).InclusiveBetween(0.5f, 2);
             p.RuleFor(x => x.Mistakes).InclusiveBetween(0, 5);
+            p.RuleFor(x => x.LineErrors).InclusiveBetween(0, 5);
+            p.RuleFor(x => x.BrakeBehavior).InclusiveBetween(-1, 1);
+            p.RuleFor(x => x.Patience).InclusiveBetween(0, 1);
         });
         RuleFor(cfg => cfg.RainGripLoss).InclusiveBetween(0, 3);
         RuleFor(cfg => cfg.ImpatienceSeconds).InclusiveBetween(0, 600);
+        RuleFor(cfg => cfg.FlashStartDelaySeconds).InclusiveBetween(0, 3600);
         RuleFor(cfg => cfg.RealWeatherUpdateMinutes).InclusiveBetween(1, 1440);
         RuleFor(cfg => cfg.RealWeatherTransitionSeconds).InclusiveBetween(1, 3600);
         RuleFor(cfg => cfg.TyreChangeGrip).InclusiveBetween(0.5f, 1);

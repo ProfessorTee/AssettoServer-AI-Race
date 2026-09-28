@@ -77,39 +77,64 @@ RainCaution: true
 HighBeams: true
 # ... when nobody is within this distance ahead (m)
 HighBeamRange: 85
-# Driver personalities: every bot gets one (random by Share, or Drivers[].Personality)
-#   Aggression -100..100 (added), LateBraking/InsideLine/Smoothness/Composure/Weaving 0..1, TyreWear/FuelUse/Mistakes multipliers
+# Driver personalities: every bot gets one (random by Share, or Drivers[].Personality). The strength (lap time) stays the same,
+# the personality decides HOW the bot gets there. You can change these, delete some or add your own (any Name).
+#
+#   Share          how often it is picked, relative to the others (40/20/20/20 = 40 %, 20 %, ...)
+#   Aggression     -100..100, added to AiAggression: how readily it attacks and defends
+#   BrakeBehavior  -1..1:  -1 = smooth and careful (brakes earlier, squeezes the pedal, rolls into the corner)
+#                            0 = normal
+#                            1 = extremely late, stamps on the brakes, dives from far back when attacking, sometimes too late
+#   InsideLine     0..1:   attacks and defends on the inside; 0.5 and above never tries round the outside
+#   Smoothness     0..1:   gentle inputs, lift and coast: saves fuel and tyres, costs a little time
+#   Composure      0..1:   calm when somebody sits in the slipstream for long (0 = gets nervous, more mistakes; 1 = ice cold)
+#   Weaving        0..1:   weaves behind the car in front after a while in its slipstream
+#   Patience       0..1:   behind a slower car: 0 = impatient, flashes the lights after a few seconds; 1 = waits long, hardly ever flashes
+#   Mistakes       x       multiplier for mistakes (braking too late, slides, spins, grass); 1 = normal
+#   LineErrors     x       multiplier for line errors (missed apex, running wide, early braking points); 1 = normal
+#   TyreWear       x       tyre wear multiplier (1.25 = 25 % more wear)
+#   FuelUse        x       fuel use multiplier (0.85 = 15 % less fuel)
 UsePersonalities: true
 Personalities:
-  - Name: Balanced
+  - Name: Balanced        # the normal driver
     Share: 40
-  - Name: DiveBomber      # late on the brakes, always down the inside, hard on the tyres
+    BrakeBehavior: 0
+    Patience: 0.5
+  - Name: DiveBomber      # late on the brakes, always down the inside, impatient, hard on the tyres
     Share: 20
     Aggression: 25
-    LateBraking: 1
+    BrakeBehavior: 1
     InsideLine: 1
     TyreWear: 1.25
     FuelUse: 1.05
     Composure: 0.4
     Weaving: 0.9
+    Patience: 0.1
     Mistakes: 1.2
-  - Name: Chill           # smooth, keeps the tyres in the green
+    LineErrors: 1.1
+  - Name: Chill           # smooth and patient, keeps the tyres in the green
     Share: 20
     Aggression: -20
+    BrakeBehavior: -0.6
     TyreWear: 0.75
     FuelUse: 0.97
     Smoothness: 0.5
     Composure: 0.9
     Weaving: 0.1
+    Patience: 0.9
     Mistakes: 0.8
-  - Name: FuelSaver       # lift and coast
+    LineErrors: 0.8
+  - Name: FuelSaver       # lift and coast, careful on the brakes
     Share: 20
     Aggression: -10
+    BrakeBehavior: -0.4
     TyreWear: 0.9
     FuelUse: 0.85
     Smoothness: 0.7
     Composure: 0.7
     Weaving: 0.2
+    Patience: 0.7
+    LineErrors: 0.9
 # Chat messages (de or en), yellow flag message when a car spins, crashes or stops on the track
 ChatLanguage: en
 YellowFlagChat: true
@@ -123,9 +148,13 @@ DashboardRemoteAccess: false
 # Race craft
 # Seconds stuck behind a slower car until a bot is fully impatient (tries harder to overtake, follows closer, flashes its lights)
 ImpatienceSeconds: 25
+# No flashing in the first seconds of a race (the field is bunched up after the start)
+FlashStartDelaySeconds: 90
 # Flash the headlights when impatient (high beam at night; FlashLightsDaytime: also switch the lights on during the day)
 FlashLights: true
 FlashLightsDaytime: true
+# Headlights flash in the pit lane while the pit limiter is on (like real GT3 cars and the players' cars with CSP)
+PitLimiterFlash: true
 # Lapped bots move to the side with the indicator on and let the leader through (race only)
 BlueFlags: true
 # Bots slow down near a stopped car and switch the hazard lights on

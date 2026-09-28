@@ -9,8 +9,11 @@ public sealed class Personality
     public string Name { get; set; } = "Balanced";
     /// <summary>Added to the driver's aggression (-1..1).</summary>
     public float Aggression { get; set; }
-    /// <summary>0..1: brakes later (more in attacks), dives from further back, a bit more prone to braking too late.</summary>
-    public float LateBraking { get; set; }
+    /// <summary>
+    /// -1..1: how the driver brakes. -1 = smooth and careful (brakes earlier, squeezes the pedal), 0 = normal,
+    /// 1 = extremely late, stamps on the brakes, dives from far back when attacking, sometimes too late.
+    /// </summary>
+    public float BrakeBehavior { get; set; }
     /// <summary>0..1: attacks and defends on the inside; at 0.5 and above never tries the outside.</summary>
     public float InsideLine { get; set; }
     /// <summary>Tyre wear multiplier (1 = normal).</summary>
@@ -25,6 +28,10 @@ public sealed class Personality
     public float Weaving { get; set; } = 0.4f;
     /// <summary>Multiplier on the chance of mistakes.</summary>
     public float Mistakes { get; set; } = 1f;
+    /// <summary>Multiplier on the line errors (missed apex, running wide, early braking points).</summary>
+    public float LineErrors { get; set; } = 1f;
+    /// <summary>0..1: patience behind a slower car. 0 = flashes the lights after a few seconds, 1 = waits a long time and hardly ever flashes.</summary>
+    public float Patience { get; set; } = 0.5f;
 
     public static Personality Balanced => new();
 
@@ -32,11 +39,11 @@ public sealed class Personality
     public static List<(Personality Personality, float Share)> Defaults() =>
     [
         (new Personality { Name = "Balanced" }, 40),
-        (new Personality { Name = "DiveBomber", Aggression = 0.25f, LateBraking = 1f, InsideLine = 1f, TyreWear = 1.25f, FuelUse = 1.05f,
-            Composure = 0.4f, Weaving = 0.9f, Mistakes = 1.2f }, 20),
-        (new Personality { Name = "Chill", Aggression = -0.2f, TyreWear = 0.75f, FuelUse = 0.97f, Smoothness = 0.5f, Composure = 0.9f,
-            Weaving = 0.1f, Mistakes = 0.8f }, 20),
-        (new Personality { Name = "FuelSaver", Aggression = -0.1f, TyreWear = 0.9f, FuelUse = 0.85f, Smoothness = 0.7f, Composure = 0.7f,
-            Weaving = 0.2f }, 20)
+        (new Personality { Name = "DiveBomber", Aggression = 0.25f, BrakeBehavior = 1f, InsideLine = 1f, TyreWear = 1.25f, FuelUse = 1.05f,
+            Composure = 0.4f, Weaving = 0.9f, Mistakes = 1.2f, LineErrors = 1.1f, Patience = 0.1f }, 20),
+        (new Personality { Name = "Chill", Aggression = -0.2f, BrakeBehavior = -0.6f, TyreWear = 0.75f, FuelUse = 0.97f, Smoothness = 0.5f,
+            Composure = 0.9f, Weaving = 0.1f, Mistakes = 0.8f, LineErrors = 0.8f, Patience = 0.9f }, 20),
+        (new Personality { Name = "FuelSaver", Aggression = -0.1f, BrakeBehavior = -0.4f, TyreWear = 0.9f, FuelUse = 0.85f, Smoothness = 0.7f,
+            Composure = 0.7f, Weaving = 0.2f, LineErrors = 0.9f, Patience = 0.7f }, 20)
     ];
 }

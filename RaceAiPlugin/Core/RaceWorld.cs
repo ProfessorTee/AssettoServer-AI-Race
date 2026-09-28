@@ -58,9 +58,9 @@ public sealed class DriverProfile
     public static float BrakeSkill(float pace) => pace >= 1 ? pace : MathF.Max(0.55f, 1 - (1 - pace) * 0.8f);
     public static float ThrottleSkill(float pace) => pace >= 1 ? pace : MathF.Max(0.55f, 1 - (1 - pace) * 0.7f);
     /// <summary>Average metres a driver brakes too early and rolls towards the corner at corner speed.</summary>
-    public static float BrakeMargin(float pace) => Math.Clamp(1 - pace, 0, 0.7f) * 70f;
+    public static float BrakeMargin(float pace) => MathF.Pow(Math.Clamp(1 - pace, 0, 0.7f), 1.5f) * 100f;
     /// <summary>Average seconds after the apex before going back to full throttle.</summary>
-    public static float ExitHesitation(float pace) => Math.Clamp(1 - pace, 0, 0.7f) * 1.3f;
+    public static float ExitHesitation(float pace) => MathF.Pow(Math.Clamp(1 - pace, 0, 0.7f), 1.5f) * 2.0f;
 
     public static float ErrorsFor(float strengthPercent, float below = 87, float full = 75)
         => below <= full ? 0 : Math.Clamp((below - strengthPercent) / (below - full), 0, 1);
@@ -169,6 +169,9 @@ public sealed class RaceBot
     public float TyreVirtualKm { get; set; }
     /// <summary>Real km driven on the current set (for the warm-up of new tyres).</summary>
     public float TyreKm { get; set; } = 10f;
+    /// <summary>Core tyre temperatures of the front and rear axle (°C).</summary>
+    public float TyreTempFront { get; set; } = RaceWorld.TyreOptimum;
+    public float TyreTempRear { get; set; } = RaceWorld.TyreOptimum;
     /// <summary>Laps still to be completed in this session including the current one (int.MaxValue = open end).</summary>
     public int RemainingLaps { get; set; } = int.MaxValue;
     public PitPhase Pit { get; internal set; }
@@ -206,6 +209,7 @@ public sealed class RaceBot
     internal double LastBlockedAt;
     internal double FlashUntil;
     internal double NextFlashAt;
+    public int FlashCount { get; internal set; }
     internal double YellowUntil;
     internal bool YellowHazards;
     internal double BlueFlagUntil;
@@ -248,6 +252,8 @@ public sealed class RaceBot
     internal bool PlanLift;
     internal double PlanApexPassedAt = double.NaN, PlanLiftAt = double.NaN;
     internal float PlanLiftSpeed;
+    /// <summary>Only lifting (no brake pedal) until this time: small corrections in a corner.</summary>
+    internal double LiftOnlyUntil;
     /// <summary>Lateral shift from the corner plan applied to the target offset in the last Think.</summary>
     internal float LineShiftNow;
     internal float MisjudgeTowards;
@@ -342,6 +348,10 @@ public sealed class RaceWorldSettings
     public bool YellowFlags { get; set; } = true;
     /// <summary>Seconds stuck behind a slower car until a bot is fully impatient (0 = never).</summary>
     public float ImpatienceTime { get; set; } = 25f;
+    /// <summary>No flashing of the lights in the first seconds of a race (everybody is bunched up).</summary>
+    public float FlashStartDelay { get; set; } = 90f;
+    /// <summary>Flash the headlights with the pit limiter on (like real GT3 cars).</summary>
+    public bool PitLimiterFlash { get; set; } = true;
     /// <summary>Race start time (for the yellow flag detection, which is off during the start).</summary>
     public double RaceStartTime { get; set; } = double.NegativeInfinity;
     /// <summary>Slipstream range (m).</summary>
@@ -387,6 +397,11 @@ public sealed class RaceWorldSettings
     // ---- rain
     /// <summary>Track wetness and standing water (0..1, from the server's weather) and how hard it rains right now.</summary>
     public float Wetness { get; set; }
+    /// <summary>Air and track temperature (°C), for the tyre temperatures.</summary>
+    public float AmbientTemp { get; set; } = 20;
+    public float RoadTemp { get; set; } = 28;
+    /// <summary>The current session is a race (no out-lap tyre warming, etc.).</summary>
+    public bool IsRace { get; set; } = true;
     public float Water { get; set; }
     public float RainIntensity { get; set; }
     /// <summary>Server extra_cfg RainTrackGripReductionPercent (0..0.5): the server already lowers the grip for everybody (slicks).</summary>
@@ -799,7 +814,7 @@ public sealed partial class RaceWorld
             decel *= Math.Clamp(0.4f + 0.6f * (v - vLim) / 14f, 0.4f, 1f);
             // late brakers brake later (even more when attacking), smooth drivers earlier and softer (lift and coast)
             var pers = bot.Driver.Personality;
-            decel *= (1 + 0.05f * pers.LateBraking * (bot.OvertakeTargetId >= 0 ? 1.6f : 1f)) * (1 - 0.15f * pers.Smoothness);
+            decel *= (1 + 0.05f * pers.BrakeBehavior * (bot.OvertakeTargetId >= 0 && pers.BrakeBehavior > 0 ? 1.6f : 1f)) * (1 - 0.15f * pers.Smoothness);
             if (inPlan || (plan && Line.Delta(s0 + d, bot.PlanStartS) >= 0)) decel *= bot.PlanBrake; // this corner's braking point
             // braking too early: at corner speed already some metres before the corner (only for real braking zones)
             float margin = 0;
@@ -1029,6 +1044,8 @@ public sealed partial class RaceWorld
             }
             // impatience: the longer I'm stuck behind a slower car, the harder I push
             float closing = me.Speed - a.Speed;
+            // held up by the car in front (flashing additionally needs a clear speed advantage, see below:
+            // a group at the same pace closes and opens the gaps all the time, that's no reason to flash)
             if (aheadGap < 30 && (me.PressureEma > 0.2f || closing > 0.5f))
             {
                 if (me.BlockedById != a.Id || double.IsNaN(me.BlockedSince))
@@ -1038,13 +1055,16 @@ public sealed partial class RaceWorld
                 }
                 me.LastBlockedAt = _now;
             }
+            // patient drivers take a lot longer to get impatient
+            float patience = Math.Clamp(me.Driver.Personality.Patience, 0, 1);
+            float impTime = Settings.ImpatienceTime * (0.4f + 1.6f * patience);
             float imp = Settings.ImpatienceTime > 0 && !double.IsNaN(me.BlockedSince)
-                ? Math.Clamp((float)(_now - me.BlockedSince) / Settings.ImpatienceTime, 0, 1) * (0.4f + 0.6f * me.Driver.Aggression)
+                ? Math.Clamp((float)(_now - me.BlockedSince) / impTime, 0, 1) * (0.4f + 0.6f * me.Driver.Aggression)
                 : 0;
             me.Impatience = imp;
 
             float attackRange = 3 + me.Speed * (0.12f + 0.18f * me.Driver.Aggression) + imp * 8
-                                + 4 * me.Driver.Personality.InsideLine + 3 * me.Driver.Personality.LateBraking;
+                                + 4 * me.Driver.Personality.InsideLine + 3 * me.Driver.Personality.BrakeBehavior;
 
             // stuck in the slipstream on a straight for a while: weave a little to unsettle the car in front
             if (me.Draft > 0.05f && !gripLimited && aheadGap > 4 && aheadGap < 30 && me.OvertakeTargetId != a.Id)
@@ -1060,10 +1080,19 @@ public sealed partial class RaceWorld
             float needAdvantage = (1.2f - 0.9f * me.Driver.Aggression) * (1 - imp);
 
             // flash the lights at the car in front
-            if (imp > 0.4f && aheadGap < 25 && _now >= me.NextFlashAt && !yellow)
+            // not in the first minute of a race, not in the pits, only when I'm clearly quicker and right behind
+            bool flashAllowed = !Settings.IsRace || _now - Settings.RaceStartTime > Settings.FlashStartDelay;
+            if (flashAllowed && imp > 0.45f + 0.35f * patience && aheadGap < 25 && me.PressureEma > 1.6f && _now >= me.NextFlashAt
+                && !yellow && !blueFlag && !me.InPitLane && !(a.IsBot && a.Bot!.InPitLane) && me.Phase == BotPhase.Racing
+                && _rng.NextSingle() < 1 - 0.8f * patience)
             {
                 me.FlashUntil = _now + 0.9;
-                me.NextFlashAt = _now + 5 + _rng.NextDouble() * 7 * (1.2 - imp);
+                me.FlashCount++;
+                me.NextFlashAt = _now + (8 + _rng.NextDouble() * 10 * (1.2 - imp)) * (0.6 + 2 * patience);
+            }
+            else if (_now >= me.NextFlashAt && imp > 0.4f)
+            {
+                me.NextFlashAt = _now + 3; // decided not to flash this time
             }
 
             if (me.OvertakeTargetId != a.Id && !cautious && !yellow && !blueFlag && me.Phase == BotPhase.Racing && _now >= me.OvertakeCooldownUntil
@@ -1144,6 +1173,10 @@ public sealed partial class RaceWorld
             }
         }
 
+        // out-lap with cold tyres and nobody around: weave on the straights to get heat into them
+        float warmWeave = !me.Weaving && me.OvertakeTargetId < 0 && !blueFlag && aheadGap > 80 && behindGap > 60 && WantsTyreWarmWeave(me, myS)
+            ? 0.8f * MathF.Sin((float)(_now * 2 * Math.PI / 1.7) + me.Id) : 0;
+
         if (me.Weaving && me.OvertakeTargetId < 0 && !blueFlag)
         {
             float amp = 0.5f + 0.7f * me.Driver.Personality.Weaving;
@@ -1152,11 +1185,11 @@ public sealed partial class RaceWorld
 
         float shiftBase = float.NaN;
         // imprecise line through this corner (only when driving alone on the line, not while fighting)
-        if (me.PlanActive && me.PlanKind != CornerLineKind.Clean && me.OvertakeTargetId < 0 && _now >= me.DefendUntil
+        if (((me.PlanActive && me.PlanKind != CornerLineKind.Clean) || warmWeave != 0) && me.OvertakeTargetId < 0 && _now >= me.DefendUntil
             && !blueFlag && !me.Weaving && me.Mistake == MistakeKind.None)
         {
             shiftBase = me.TargetOffset;
-            me.LineShiftNow = CornerShift(me, myS);
+            me.LineShiftNow = CornerShift(me, myS) + warmWeave;
             me.TargetOffset += me.LineShiftNow;
         }
 
@@ -1294,7 +1327,7 @@ public sealed partial class RaceWorld
         // is released gradually towards the apex (trail braking), and small corrections are done by lifting only (no brake lights)
         float drag = me.Car.DragCoefficient * v * v * DamageDrag(me);
         float coast = drag + 1.0f; // lifting: drag + engine braking
-        float maxBrake = me.Car.BrakeAt(v, DriverProfile.BrakeSkill(skill) * phys, me.MassRatio);
+        float maxBrake = me.Car.BrakeAt(v, MathF.Min(1, DriverProfile.BrakeSkill(skill) + 0.06f * MathF.Max(0, me.Driver.Personality.BrakeBehavior)) * phys, me.MassRatio);
         float physBrake = me.Car.BrakeAt(v, phys, me.MassRatio); // what the car could do: the pedal is shown relative to this
         float targetFall = double.IsNaN(me.PrevTargetSpeed) ? 0 : MathF.Max(0, (me.PrevTargetSpeed - target) / dt);
         me.PrevTargetSpeed = target;
@@ -1302,9 +1335,11 @@ public sealed partial class RaceWorld
         if (target < v - 0.05f)
         {
             float want = Math.Clamp(MathF.Min(targetFall, maxBrake) * 0.95f + (v - target) / 0.35f, 0, maxBrake);
-            float pedal = want <= coast ? 0 : Math.Clamp((want - coast) / MathF.Max(0.5f, physBrake - coast), 0, 1);
-            // quick to press (0.12 s to full), slower to release (0.4 s)
-            me.Brake += Math.Clamp(pedal - me.Brake, -dt / 0.4f, dt / 0.12f);
+            float pedal = want <= coast || _now < me.LiftOnlyUntil ? 0 : Math.Clamp((want - coast) / MathF.Max(0.5f, physBrake - coast), 0, 1);
+            // quick to press (0.12 s to full), slower to release (0.4 s); late brakers stamp on it, careful drivers squeeze it
+            float bb = me.Driver.Personality.BrakeBehavior;
+            float press = 0.12f * (1 - 0.35f * bb), release = 0.4f * (1 - 0.2f * bb);
+            me.Brake += Math.Clamp(pedal - me.Brake, -dt / release, dt / press);
             me.Throttle = MathF.Max(0, me.Throttle - dt / 0.1f);
             accel = -MathF.Min(maxBrake, coast + me.Brake * (physBrake - coast));
             v = MathF.Max(target, v + accel * dt);
@@ -1502,6 +1537,10 @@ public sealed partial class RaceWorld
                        || (bot.Mistake == MistakeKind.Spin && bot.SpinPhase >= 1);
         // two short flashes
         bool flash = _now < bot.FlashUntil && (bot.FlashUntil - _now) % 0.45 > 0.22;
+        // pit limiter on: GT3 cars flash their headlights in the pit lane (like the players' cars with CSP)
+        if (Settings.PitLimiterFlash && bot.InPitLane && PitLane != null && bot.Pit != PitPhase.Stopped
+            && bot.PitS >= PitLane.LimiterStart && bot.PitS <= PitLane.LimiterEnd)
+            flash = (_now + bot.Id * 0.13) % 0.8 < 0.4;
         int indicator = hazards ? 0 : bot.Indicator;
         bool brake = bot.Brake > 0.04f || (bot.Phase == BotPhase.Grid) || (bot.Speed < 0.5f && bot.Phase == BotPhase.Racing);
         if (bot.Mistake == MistakeKind.Slide && _now - bot.MistakeStart < bot.MistakeDuration * 0.5) throttle = 230; // too much gas

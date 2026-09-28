@@ -105,6 +105,7 @@ public sealed partial class RaceAiService
                     d["fuel"] = MathF.Round(b.Fuel, 1);
                     d["fuelCapacity"] = b.Car.FuelCapacity;
                     d["tyres"] = MathF.Round(b.Car.TyreGripAt(b.TyreVirtualKm) * 100, 1);
+                    d["tyreTemp"] = new[] { MathF.Round(b.TyreTempFront), MathF.Round(b.TyreTempRear) };
                     d["damage"] = MathF.Round(RaceWorld.BodyDamagePercent(b));
                     d["suspension"] = MathF.Round(b.Suspension * 100);
                     d["mistake"] = b.Mistake == MistakeKind.None ? null : b.Mistake.ToString();

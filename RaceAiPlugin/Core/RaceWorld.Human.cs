@@ -128,7 +128,7 @@ public sealed partial class RaceWorld
         if (!MistakesAllowed(me)) return;
         float e = ErrorLevel(me);
         double r = _rng.NextDouble();
-        if (r < 0.07 * e * (1 + 0.5 * me.Driver.Personality.LateBraking))
+        if (r < 0.07 * e * (1 + 0.5 * me.Driver.Personality.BrakeBehavior))
         {
             // braked too late: the plan assumes more braking than the car has
             StartMistake(me, MistakeKind.LateBrake, 0, 0.4f + 0.6f * _rng.NextSingle(), 6f);

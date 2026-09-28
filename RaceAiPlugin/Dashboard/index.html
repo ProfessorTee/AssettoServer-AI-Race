@@ -18,6 +18,7 @@ header h1 { font-size: 15px; margin: 0; font-weight: 600; }
 .chip b { color: var(--text); font-weight: 600; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); display: inline-block; margin-right: 6px; }
 .dot.on { background: var(--ok); }
+select.mini { background: transparent; border: none; color: var(--text); font: inherit; padding: 0 2px; }
 .spacer { flex: 1; }
 main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(420px, 1fr); grid-template-rows: minmax(0, 1fr); height: calc(100% - 46px); overflow: hidden; }
 #mapPanel { position: relative; border-right: 1px solid var(--line); overflow: hidden; min-height: 0; }
@@ -77,6 +78,10 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
   <span class="chip" id="weatherChip">Wetter –</span>
   <span class="chip" id="countChip">–</span>
   <span class="spacer"></span>
+  <label class="chip" title="Wie oft das Dashboard neue Daten vom Server holt">Daten
+    <select id="rateSel" class="mini"><option value="1">1/s</option><option value="2">2/s</option><option value="4">4/s</option><option value="10">10/s</option></select></label>
+  <label class="chip" title="Bilder pro Sekunde der Karte (weniger = weniger Last für den PC)">Karte
+    <select id="fpsSel" class="mini"><option value="10">10 fps</option><option value="20">20 fps</option><option value="30">30 fps</option><option value="60">60 fps</option></select></label>
 </header>
 <main>
   <section id="mapPanel">
@@ -176,7 +181,14 @@ const $ = id => document.getElementById(id);
 let password = "";
 try { password = localStorage.getItem("raceaiPw") || ""; } catch (e) {}
 let state = null, track = null, selected = null, follow = false, nameMode = 1, showSections = false;
-const PCOL = n => getComputedStyle(document.documentElement).getPropertyValue("--p-" + n).trim() || getComputedStyle(document.documentElement).getPropertyValue("--p-other").trim();
+// CSS colours are read once (reading them every frame costs a lot)
+const CSSV = {};
+const cssVar = n => CSSV[n] ?? (CSSV[n] = getComputedStyle(document.documentElement).getPropertyValue(n).trim());
+const PCOL = n => cssVar("--p-" + n) || cssVar("--p-other");
+// update rate and map frame rate: per viewer, remembered in this browser
+const pref = (k, d) => { try { const v = +localStorage.getItem(k); return v > 0 ? v : d; } catch (e) { return d; } };
+const savePref = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+let pollHz = pref("raceaiPollHz", 4), mapFps = pref("raceaiMapFps", 30);
 
 async function api(path, body) {
   const opt = { headers: { "Content-Type": "application/json" } };
@@ -266,17 +278,30 @@ async function loadTrack() {
   } catch (e) {}
 }
 
+// the track is drawn into its own canvas and only redrawn when the view changes
+const trackLayer = document.createElement("canvas"), tctx = trackLayer.getContext("2d");
+let trackKey = "";
 function drawTrack() {
   if (!track || !track.available) return;
+  const key = [view.cx.toFixed(1), view.cz.toFixed(1), view.scale.toFixed(5), cv.width, cv.height, showSections].join();
+  if (key !== trackKey) {
+    trackKey = key;
+    if (trackLayer.width !== cv.width || trackLayer.height !== cv.height) { trackLayer.width = cv.width; trackLayer.height = cv.height; }
+    tctx.setTransform(1, 0, 0, 1, 0, 0); tctx.clearRect(0, 0, trackLayer.width, trackLayer.height);
+    renderTrack(tctx);
+  }
+  ctx.drawImage(trackLayer, 0, 0);
+}
+function renderTrack(ctx) {
   const L = track.line;
   // road surface: quads between the left and right edges
-  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--road");
+  ctx.fillStyle = cssVar("--road");
   ctx.beginPath();
   for (let i = 0; i < L.length; i++) { const p = L[i]; i ? ctx.lineTo(sx(p[2]), sz(p[3])) : ctx.moveTo(sx(p[2]), sz(p[3])); }
   for (let i = L.length - 1; i >= 0; i--) { const p = L[i]; ctx.lineTo(sx(p[4]), sz(p[5])); }
   ctx.closePath(); ctx.fill("evenodd");
   // make sure thin roads stay visible when zoomed out
-  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--road-edge");
+  ctx.strokeStyle = cssVar("--road-edge");
   ctx.lineWidth = Math.max(3 * dpr, 8 * view.scale * dpr); ctx.lineJoin = "round";
   ctx.beginPath(); L.forEach((p, i) => i ? ctx.lineTo(sx(p[0]), sz(p[1])) : ctx.moveTo(sx(p[0]), sz(p[1]))); ctx.closePath(); ctx.stroke();
   ctx.strokeStyle = "rgba(255,255,255,.12)"; ctx.lineWidth = 1 * dpr;
@@ -295,11 +320,16 @@ function drawTrack() {
   }
 }
 
+let lastFrame = 0;
 function frame(now) {
+  requestAnimationFrame(frame);
+  if (now - lastFrame < 1000 / mapFps - 2) return; // frame rate cap
+  lastFrame = now;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, cv.width, cv.height);
   // smooth movement between the updates (4 per second)
-  for (const c of cars.values()) { const k = Math.min(1, (now - c.t) / 260); c.x = c.px + (c.tx - c.px) * k; c.z = c.pz + (c.tz - c.pz) * k; }
+  const span = 1000 / pollHz + 10;
+  for (const c of cars.values()) { const k = Math.min(1, (now - c.t) / span); c.x = c.px + (c.tx - c.px) * k; c.z = c.pz + (c.tz - c.pz) * k; }
   if (follow && selected !== null && cars.has(selected)) { const c = cars.get(selected); view.cx += (c.x - view.cx) * 0.2; view.cz += (c.z - view.cz) * 0.2; }
   drawTrack();
   if (state) {
@@ -308,7 +338,7 @@ function frame(now) {
       const c = cars.get(car.id); if (!c) continue;
       const x = sx(c.x), y = sz(c.z), r = (car.id === selected ? 8 : 6.5) * dpr;
       ctx.beginPath(); ctx.arc(x, y, r, 0, 7);
-      ctx.fillStyle = car.bot ? PCOL(car.personality) : getComputedStyle(document.documentElement).getPropertyValue("--accent");
+      ctx.fillStyle = car.bot ? PCOL(car.personality) : cssVar("--accent");
       ctx.fill();
       ctx.lineWidth = 2 * dpr; ctx.strokeStyle = car.ghost ? "#ffffff" : car.mistake ? "#ef5b5b" : "rgba(0,0,0,.6)";
       if (car.ghost) ctx.setLineDash([3 * dpr, 2 * dpr]);
@@ -325,7 +355,6 @@ function frame(now) {
       }
     }
   }
-  requestAnimationFrame(frame);
 }
 
 // ---------------------------------------------------------------- state
@@ -365,7 +394,8 @@ async function poll() {
   } catch (e) {
     $("conn").classList.remove("on"); $("connText").textContent = "keine Verbindung";
   }
-  setTimeout(poll, 250);
+  // hidden window (minimised): only once per second
+  setTimeout(poll, document.hidden ? 1000 : 1000 / pollHz);
 }
 
 function statusTags(c) {
@@ -391,7 +421,7 @@ function renderField() {
     <td class="num">${c.pos}</td>
     <td><span class="pers" style="background:${c.bot ? PCOL(c.personality) : "var(--accent)"}"></span><span title="${esc(c.model)}">${esc(c.name)}</span> <span class="muted">#${c.id}</span></td>
     <td class="num">${c.laps}</td><td class="num">${fmtLap(c.best)}</td><td class="num">${fmtLap(c.last)}</td><td class="num">${c.speed}</td>
-    <td class="num">${c.bot ? Math.round(c.fuel) + " l" : ""}</td><td>${c.bot ? bar(c.tyres - 80, 20) : ""}</td><td>${statusTags(c)}</td></tr>`).join("");
+    <td class="num">${c.bot ? Math.round(c.fuel) + " l" : ""}</td><td>${c.bot ? bar(c.tyres - 80, 20) + (c.tyreTemp ? ` <span class="muted" title="Reifentemperatur vorne/hinten">${c.tyreTemp[0]}°/${c.tyreTemp[1]}°</span>` : "") : ""}</td><td>${statusTags(c)}</td></tr>`).join("");
   $("field").innerHTML = rows;
   $("field").querySelectorAll("tr.car").forEach(tr => tr.onclick = () => select(+tr.dataset.id));
   renderDetail(false);
@@ -443,6 +473,7 @@ function renderDetail(force) {
 function liveInfo(c) {
   const parts = [`P${c.pos}`, `Sektor ${c.sector}`, `${c.speed} km/h`, `Runde ${c.laps}`];
   if (c.bot) parts.push(`Stärke ${c.strength} %`, `Fehlerquote ${Math.round(c.errors * 100)} %`, `Sprit ${c.fuel} l`, `Reifen ${c.tyres} %`,
+    ...(c.tyreTemp ? [`Reifentemp. vorne ${c.tyreTemp[0]} °C / hinten ${c.tyreTemp[1]} °C`] : []),
     `Schaden ${c.damage} % / Aufh. ${c.suspension} %`, `Fehler ${c.mistakes}`, `Dreher ${c.spins}`, `Stopps ${c.stops}`);
   return `<p class="muted">${parts.join(" · ")}</p>`;
 }
@@ -535,6 +566,9 @@ $("logFilter").oninput = renderLog;
 $("logFollow").onchange = loadLog;
 setInterval(loadLog, 2000);
 
+$("rateSel").value = String(pollHz); $("fpsSel").value = String(mapFps);
+$("rateSel").onchange = () => { pollHz = +$("rateSel").value; savePref("raceaiPollHz", pollHz); };
+$("fpsSel").onchange = () => { mapFps = +$("fpsSel").value; savePref("raceaiMapFps", mapFps); };
 resize(); loadTrack(); poll(); requestAnimationFrame(frame);
 </script>
 </body>
