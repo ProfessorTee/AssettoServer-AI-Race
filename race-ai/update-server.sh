@@ -26,8 +26,10 @@ import re, sys
 cfg, example = sys.argv[1], sys.argv[2]
 s = open(cfg).read(); ex = open(example).read()
 # options that don't exist any more
-for key in ["WetTyres", "VirtualWetTyres"]:
-    s = re.sub(r"(#[^\n]*\n)*" + key + r":[^\n]*\n", "", s)
+for key in ["VirtualWetTyres", "WetTyres"]:
+    # whole lines only (with their comment lines above)
+    s = re.sub(r"(?m)^(#[^\n]*\n)*" + key + r":[^\n]*\n", "", s)
+s = re.sub(r"(?m)^[A-Za-z]*# ", "# ", s)  # repair lines broken by the first version of this script
 # new top-level options: copy them with their comment block from the example, in front of "# Race craft" (or at the end)
 def blocks(text):
     out, comment = [], []
