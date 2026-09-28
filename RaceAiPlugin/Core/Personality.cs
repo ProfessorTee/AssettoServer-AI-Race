@@ -20,7 +20,10 @@ public sealed class Personality
     public float TyreWear { get; set; } = 1f;
     /// <summary>Fuel use multiplier (1 = normal).</summary>
     public float FuelUse { get; set; } = 1f;
-    /// <summary>0..1: gentle inputs, earlier and softer braking with a bit of lift and coast: saves tyres and fuel, costs a little time.</summary>
+    /// <summary>
+    /// 0..1: 0 = normal, 1 = very smooth: presses the brake pedal and the throttle more gently, brakes earlier and softer
+    /// with a bit of lift and coast. Saves tyres (up to 30 %) and fuel (up to 8 %), costs a little time.
+    /// </summary>
     public float Smoothness { get; set; }
     /// <summary>0..1: how well the driver copes with somebody sitting in his slipstream for a long time (1 = ice cold).</summary>
     public float Composure { get; set; } = 0.5f;

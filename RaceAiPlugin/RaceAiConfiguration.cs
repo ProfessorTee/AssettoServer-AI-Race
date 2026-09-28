@@ -95,7 +95,7 @@ public class PersonalityConfiguration
     public float TyreWear { get; set; } = 1;
     [YamlMember(Description = "Fuel use multiplier (1.0 = 100 %)")]
     public float FuelUse { get; set; } = 1;
-    [YamlMember(Description = "0..1: gentle inputs, earlier and softer braking, lift and coast: saves tyres and fuel, costs a little time")]
+    [YamlMember(Description = "0..1: 0 normal, 1 very smooth: gentle on brake pedal and throttle, brakes earlier and softer, lift and coast. Saves tyres (up to 30 %) and fuel (up to 8 %), costs a little time")]
     public float Smoothness { get; set; }
     [YamlMember(Description = "0..1: calm under pressure when somebody sits in the slipstream for long (1 = no extra mistakes)")]
     public float Composure { get; set; } = 0.5f;

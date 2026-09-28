@@ -1338,7 +1338,8 @@ public sealed partial class RaceWorld
             float pedal = want <= coast || _now < me.LiftOnlyUntil ? 0 : Math.Clamp((want - coast) / MathF.Max(0.5f, physBrake - coast), 0, 1);
             // quick to press (0.12 s to full), slower to release (0.4 s); late brakers stamp on it, careful drivers squeeze it
             float bb = me.Driver.Personality.BrakeBehavior;
-            float press = 0.12f * (1 - 0.35f * bb), release = 0.4f * (1 - 0.2f * bb);
+            float smooth = Math.Clamp(me.Driver.Personality.Smoothness, 0, 1);
+            float press = 0.12f * (1 - 0.35f * bb) * (1 + 0.8f * smooth), release = 0.4f * (1 - 0.2f * bb);
             me.Brake += Math.Clamp(pedal - me.Brake, -dt / release, dt / press);
             me.Throttle = MathF.Max(0, me.Throttle - dt / 0.1f);
             accel = -MathF.Min(maxBrake, coast + me.Brake * (physBrake - coast));
@@ -1351,7 +1352,9 @@ public sealed partial class RaceWorld
             // full throttle when far below the target, part throttle to hold the speed near it (fast corners, following)
             float hold = MathF.Max(0, full) > 0.1f ? Math.Clamp(drag / (full + drag), 0, 1) : 1;
             float pedal = Math.Clamp(hold + (target - v) / 0.6f, 0, 1);
-            me.Throttle += Math.Clamp(pedal - me.Throttle, -dt / 0.15f, dt / 0.2f);
+            // smooth drivers roll onto the throttle more gently
+            float rise = 0.2f * (1 + 1.5f * Math.Clamp(me.Driver.Personality.Smoothness, 0, 1));
+            me.Throttle += Math.Clamp(pedal - me.Throttle, -dt / 0.15f, dt / rise);
             // net acceleration: the full-throttle value scaled by the pedal, minus drag the engine doesn't cover
             accel = me.Throttle * (full + drag) - drag;
             if (me.Brake > 0.05f) accel -= me.Brake * (physBrake - coast);

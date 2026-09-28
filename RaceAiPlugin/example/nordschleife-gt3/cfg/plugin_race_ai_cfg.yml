@@ -86,7 +86,8 @@ HighBeamRange: 85
 #                            0 = normal
 #                            1 = extremely late, stamps on the brakes, dives from far back when attacking, sometimes too late
 #   InsideLine     0..1:   attacks and defends on the inside; 0.5 and above never tries round the outside
-#   Smoothness     0..1:   gentle inputs, lift and coast: saves fuel and tyres, costs a little time
+#   Smoothness     0..1:   0 = normal, 1 = very smooth: gentle on brake pedal and throttle, brakes earlier and softer, lift and coast;
+#                          saves tyres (up to 30 %) and fuel (up to 8 %), costs a little time. (Hard, late braking: BrakeBehavior 1)
 #   Composure      0..1:   calm when somebody sits in the slipstream for long (0 = gets nervous, more mistakes; 1 = ice cold)
 #   Weaving        0..1:   weaves behind the car in front after a while in its slipstream
 #   Patience       0..1:   behind a slower car: 0 = impatient, flashes the lights after a few seconds; 1 = waits long, hardly ever flashes
