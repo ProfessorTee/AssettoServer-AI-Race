@@ -248,6 +248,9 @@ public static class Simulator
         private readonly Dictionary<int, int> _order = new();
         private int _positionChanges;
         private double _lastOrderCheck;
+        private readonly Dictionary<int, float> _planApex = new();
+        private readonly int[] _lineKinds = new int[4];
+        private float _maxShift;
 
         public SimStats(RaceWorld w) => _w = w;
 
@@ -262,6 +265,12 @@ public static class Simulator
                 float sa = line.WrapS((float)a.Distance);
                 int idx = line.IndexAt(sa);
                 if (a.InPitLane) continue;
+                if (a.Phase == BotPhase.Racing && a.PlanActive && (!_planApex.TryGetValue(a.Id, out var apex) || apex != a.PlanApexS))
+                {
+                    _planApex[a.Id] = a.PlanApexS;
+                    _lineKinds[(int)a.PlanKind]++;
+                }
+                _maxShift = MathF.Max(_maxShift, a.PlanActive ? a.PlanAmp : 0);
                 if (a.Phase == BotPhase.Racing)
                 {
                     int bucket = a.Brake < 0.04f ? (a.Throttle > 0.95f ? 0 : a.Throttle > 0.05f ? 1 : 2) : a.Brake < 0.35f ? 3 : a.Brake < 0.8f ? 4 : 5;
@@ -314,6 +323,7 @@ public static class Simulator
                               $"light brake {_pedals[3] * 100 / tot} %, medium {_pedals[4] * 100 / tot} %, hard {_pedals[5] * 100 / tot} %");
             Console.WriteLine($"overlap frames {_overlapFrames} (max penetration {_maxPenetration:F2} m), off-track frames {_offTrackFrames} (max {_maxOffTrack:F2} m), " +
                               $"position changes {_positionChanges / 2}, max lateral speed {_maxLatSpeed:F1} m/s, frames {_frames}");
+            Console.WriteLine($"corner lines: clean {_lineKinds[0]}, wide {_lineKinds[1]}, early apex {_lineKinds[2]}, late apex {_lineKinds[3]}, largest line error {_maxShift:F2} m");
         }
     }
 }

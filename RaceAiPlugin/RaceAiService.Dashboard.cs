@@ -176,6 +176,7 @@ public sealed partial class RaceAiService
             ["errors"] = s?.HumanErrors ?? false,
             ["spins"] = s?.Spins ?? false,
             ["grass"] = s?.GrassMoments ?? false,
+            ["lines"] = s?.LineErrors ?? false,
             ["contacts"] = s?.BotContacts ?? false,
             ["damage"] = s?.Damage ?? false,
             ["blueflags"] = _config.BlueFlags,

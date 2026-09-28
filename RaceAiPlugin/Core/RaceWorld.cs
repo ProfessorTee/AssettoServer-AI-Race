@@ -53,8 +53,14 @@ public sealed class DriverProfile
     // A slower driver mostly brakes earlier and softer and is later on the throttle out of a corner;
     // the speed through the corner itself drops much less (that's how a lap time gap between amateurs and pros looks).
     public static float CornerSkill(float pace) => pace >= 1 ? pace : 1 - (1 - pace) * 0.5f;
-    public static float BrakeSkill(float pace) => pace >= 1 ? pace : MathF.Max(0.35f, 1 - (1 - pace) * 1.4f);
-    public static float ThrottleSkill(float pace) => pace >= 1 ? pace : MathF.Max(0.3f, 1 - (1 - pace) * 1.3f);
+    // Braking itself stays fairly firm; slower drivers mostly brake earlier and then roll into the corner (see BrakeMargin),
+    // and they wait longer before going to full throttle (corner plan), instead of pressing every pedal only half way.
+    public static float BrakeSkill(float pace) => pace >= 1 ? pace : MathF.Max(0.55f, 1 - (1 - pace) * 0.8f);
+    public static float ThrottleSkill(float pace) => pace >= 1 ? pace : MathF.Max(0.55f, 1 - (1 - pace) * 0.7f);
+    /// <summary>Average metres a driver brakes too early and rolls towards the corner at corner speed.</summary>
+    public static float BrakeMargin(float pace) => Math.Clamp(1 - pace, 0, 0.7f) * 70f;
+    /// <summary>Average seconds after the apex before going back to full throttle.</summary>
+    public static float ExitHesitation(float pace) => Math.Clamp(1 - pace, 0, 0.7f) * 1.3f;
 
     public static float ErrorsFor(float strengthPercent, float below = 87, float full = 75)
         => below <= full ? 0 : Math.Clamp((below - strengthPercent) / (below - full), 0, 1);
@@ -233,6 +239,17 @@ public sealed class RaceBot
     internal float DraftTime;
     public bool Weaving { get; internal set; }
     internal float WeaveCenter;
+
+    // ---- how the current corner is driven (RaceWorld.Lines.cs)
+    public bool PlanActive { get; internal set; }
+    internal bool PlanRolled;
+    internal float PlanStartS, PlanApexS, PlanEndS, PlanSign, PlanAmp, PlanPace = 1, PlanBrake = 1, PlanExitDelay, PlanBrakeMargin;
+    public CornerLineKind PlanKind { get; internal set; }
+    internal bool PlanLift;
+    internal double PlanApexPassedAt = double.NaN, PlanLiftAt = double.NaN;
+    internal float PlanLiftSpeed;
+    /// <summary>Lateral shift from the corner plan applied to the target offset in the last Think.</summary>
+    internal float LineShiftNow;
     internal float MisjudgeTowards;
     internal double LastContactAt = double.NegativeInfinity;
     internal int LastContactWith = -1;
@@ -356,6 +373,8 @@ public sealed class RaceWorldSettings
     public bool Spins { get; set; } = true;
     /// <summary>Bots may run wide with wheels on the grass (beyond the track edge).</summary>
     public bool GrassMoments { get; set; } = true;
+    /// <summary>Imprecise lines of weaker bots: missed apexes, early turn-in, running wide, early braking, hesitant throttle.</summary>
+    public bool LineErrors { get; set; } = true;
     /// <summary>How far beyond the track edge (m, car centre) a bot may get.</summary>
     public float GrassAllowance { get; set; } = 1.2f;
     /// <summary>Light touches between bots in close fights.</summary>
@@ -470,6 +489,9 @@ public sealed partial class RaceWorld
         bot.Pit = PitPhase.None;
         bot.PitS = 0;
         bot.LastDecisionLap = long.MinValue;
+        bot.PlanActive = false;
+        bot.PlanRolled = false;
+        bot.LineShiftNow = 0;
     }
 
     /// <summary>Parks a bot at a fixed position (e.g. its pit box). It is no longer an obstacle and does not drive.</summary>
@@ -745,19 +767,26 @@ public sealed partial class RaceWorld
         // braked too late: plans with more braking than the car has
         float lateBrake = bot.Mistake == MistakeKind.LateBrake ? 1.2f + 0.3f * bot.MistakeSeverity : 1f;
         float step = MathF.Max(Line.Spacing, 2f);
+        bool plan = bot.PlanActive && bot.Phase == BotPhase.Racing;
+        bool shifted = plan && bot.LineShiftNow != 0 || plan && bot.PlanKind != CornerLineKind.Clean;
 
         for (float d = 0; d <= horizon; d += step)
         {
             int i = Line.IndexAt(s0 + d);
             float k = Line.Curvature[i];
+            float off = offset;
+            bool inPlan = plan && InPlannedCorner(bot, s0 + d);
+            if (shifted && inPlan) off += CornerShift(bot, s0 + d);
             // radius changes when driving off the line: positive curvature turns towards +offset (inside)
             if (MathF.Abs(k) > 1e-5f)
             {
-                float r = 1f / MathF.Abs(k) - offset * MathF.Sign(k);
+                float r = 1f / MathF.Abs(k) - off * MathF.Sign(k);
                 k = MathF.Sign(k) / MathF.Max(r, 4f);
             }
+            // a line that wanders across the road bends the path on top of the corner itself
+            if (shifted && inPlan) k += CornerShiftCurvature(bot, s0 + d);
 
-            float vLim = car.CornerLimit(k, Line.VerticalCurvature[i], pace, bot.MassRatio);
+            float vLim = car.CornerLimit(k, Line.VerticalCurvature[i], inPlan ? pace * bot.PlanPace : pace, bot.MassRatio);
             if (Settings.UseTrackHints)
                 vLim = MathF.Min(vLim * MathF.Sqrt(Line.HintFactor[i]), Line.MaxSpeed[i]); // hint scales the usable grip
             if (Settings.SpeedHintScale > 0 && Line.SpeedHint[i] > 5)
@@ -771,7 +800,12 @@ public sealed partial class RaceWorld
             // late brakers brake later (even more when attacking), smooth drivers earlier and softer (lift and coast)
             var pers = bot.Driver.Personality;
             decel *= (1 + 0.05f * pers.LateBraking * (bot.OvertakeTargetId >= 0 ? 1.6f : 1f)) * (1 - 0.15f * pers.Smoothness);
-            float allowed = MathF.Sqrt(vLim * vLim + 2 * decel * d);
+            if (inPlan || (plan && Line.Delta(s0 + d, bot.PlanStartS) >= 0)) decel *= bot.PlanBrake; // this corner's braking point
+            // braking too early: at corner speed already some metres before the corner (only for real braking zones)
+            float margin = 0;
+            if (bot.Phase == BotPhase.Racing && v - vLim > 5)
+                margin = plan && (inPlan || Line.Delta(s0 + d, bot.PlanStartS) >= 0) ? bot.PlanBrakeMargin : DriverProfile.BrakeMargin(skill);
+            float allowed = MathF.Sqrt(vLim * vLim + 2 * decel * MathF.Max(0, d - margin));
             if (allowed < best) best = allowed;
         }
 
@@ -886,6 +920,10 @@ public sealed partial class RaceWorld
         me.PressureTime = pressed ? me.PressureTime + _stepDt : MathF.Max(0, me.PressureTime - 2 * _stepDt);
         me.Pressure = Math.Clamp((me.PressureTime - 5) / 25f, 0, 1) * (1 - Math.Clamp(me.Driver.Personality.Composure, 0, 1));
         me.Weaving = false;
+        // the corner plan's shift is added on top of the intended lane at the end; take it off again first
+        me.TargetOffset -= me.LineShiftNow;
+        me.LineShiftNow = 0;
+        UpdateCornerPlan(me, myS);
         float vLine = LineSpeedLimit(me, me.TargetOffset, 0);
         float vTarget = vLine;
 
@@ -1112,6 +1150,16 @@ public sealed partial class RaceWorld
             me.TargetOffset = me.WeaveCenter + amp * MathF.Sin((float)(_now * 2 * Math.PI / 2.4) + me.Id);
         }
 
+        float shiftBase = float.NaN;
+        // imprecise line through this corner (only when driving alone on the line, not while fighting)
+        if (me.PlanActive && me.PlanKind != CornerLineKind.Clean && me.OvertakeTargetId < 0 && _now >= me.DefendUntil
+            && !blueFlag && !me.Weaving && me.Mistake == MistakeKind.None)
+        {
+            shiftBase = me.TargetOffset;
+            me.LineShiftNow = CornerShift(me, myS);
+            me.TargetOffset += me.LineShiftNow;
+        }
+
         if (_now < me.MistakeUntil)
         {
             // run a bit wide
@@ -1138,6 +1186,8 @@ public sealed partial class RaceWorld
 
         if (_now < me.MarginOverrideUntil && me.Mistake == MistakeKind.None && lo <= hi)
             me.TargetOffset = Math.Clamp(me.Offset + me.MisjudgeTowards * 0.5f, lo, hi); // leans on the other car
+        if (!float.IsNaN(shiftBase)) me.LineShiftNow = me.TargetOffset - shiftBase; // after clamping to the room there is
+                CornerExecution(me, myS, ref vTarget);
         MistakeThink(me, ref vTarget);
         me.TargetSpeed = MathF.Max(0, vTarget);
         if (me.Id == TraceBotId && Trace != null && _now - _lastTrace >= 0.5)

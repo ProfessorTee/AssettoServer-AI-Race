@@ -27,6 +27,10 @@ Das Plugin besteht aus zwei Teilen:
   Die Kalibrierung rechnet beides ein.
 - **Dreher** (`Spins`): Aus einem bösen Rutscher wird manchmal ein Dreher. Der Bot bleibt mit Warnblinker stehen, wartet eine Lücke ab,
   dreht um und fährt vorsichtig wieder los. Die anderen sehen die gelbe Flagge.
+- **Linienfehler** (`LineErrors`): Jede Kurve wird einzeln „gefahren“. Schwächere Bots treffen manche Kurve sauber, in anderen
+  verpassen sie den Scheitelpunkt, lenken zu früh ein und tragen es am Ausgang nach außen, oder lenken zu spät ein. Sie bremsen
+  mal früher, mal später und rollen dann in die Kurve, warten nach dem Scheitelpunkt einen Moment mit dem Vollgas oder gehen in
+  der Kurve kurz vom Gas. Statt überall gleichmäßig langsamer zu sein, verlieren sie ihre Zeit so wie Menschen: ungleichmäßig.
 - **Gras** (`GrassMoments`): Ab und zu kommt ein Bot mit zwei Rädern aufs Gras und verliert dabei etwas Tempo.
 - **Leichte Berührungen** (`BotContacts`): In engen Zweikämpfen verschätzt sich ein Bot manchmal und lehnt sich an den anderen.
   Es gibt einen Rempler, beide wackeln kurz, aber keine großen Unfälle.
@@ -116,7 +120,7 @@ Weitere Optionen: `Practice`/`Qualifying` (`Drive` oder `Parked`), `SlipstreamSt
 Renn-Verhalten: `ImpatienceSeconds`, `FlashLights`, `FlashLightsDaytime`, `BlueFlags`, `YellowFlags`, `RainGripLoss`,
 `RealWeather`, `RealWeatherUpdateMinutes`, `RealWeatherTransitionSeconds`.
 
-Menschliches Verhalten: `HumanErrors`, `HumanErrorsBelow`, `HumanErrorsFull`, `Spins`, `GrassMoments`, `BotContacts`, `BotDamage`,
+Menschliches Verhalten: `HumanErrors`, `HumanErrorsBelow`, `HumanErrorsFull`, `Spins`, `LineErrors`, `GrassMoments`, `BotContacts`, `BotDamage`,
 `BotDamageFactor`, `RainCaution`, `HighBeams`, `HighBeamRange`, `UsePersonalities`, `Personalities`, `YellowFlagChat`,
 `ChatLanguage`, `UnstuckSeconds`, `GhostAfterSeconds`. Jede dieser Funktionen lässt sich mit `false` abschalten, während der Sitzung auch per Chat (siehe unten).
 
@@ -128,7 +132,7 @@ Chat-Befehle:
 - Als Admin (`/admin <Passwort>`):
   - `/raceai_strength <%> [spread]` und `/raceai_aggression <0-100>`
   - `/raceai_grid Qualifying|SlowestFirst|Random`: Startaufstellung der Bots ab dem nächsten Rennen
-  - `/raceai_set <Funktion> on|off` schaltet bis zum Neustart ein und aus: `errors`, `spins`, `grass`, `contacts`, `damage`,
+  - `/raceai_set <Funktion> on|off` schaltet bis zum Neustart ein und aus: `errors`, `lines`, `spins`, `grass`, `contacts`, `damage`,
     `blueflags`, `yellowflags`, `flash`, `highbeams`, `raincaution`, `realweather`
   - `/raceai_lighttest`: Licht-Test. Alle Bots zeigen nacheinander je etwa 6 s linken Blinker, rechten Blinker, Warnblinker,
     Lichthupe, Bremslicht und Fernlicht, mit eingeschaltetem Licht. Für Nacht vorher `/settime 22:00`.

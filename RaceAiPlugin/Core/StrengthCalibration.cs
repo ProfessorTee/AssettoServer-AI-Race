@@ -130,6 +130,7 @@ public sealed class StrengthCalibration
             HumanErrors = errors > 0,
             Spins = template.Spins,
             GrassMoments = template.GrassMoments,
+            LineErrors = template.LineErrors,
             GrassAllowance = template.GrassAllowance,
             BotContacts = false,
             Damage = false,

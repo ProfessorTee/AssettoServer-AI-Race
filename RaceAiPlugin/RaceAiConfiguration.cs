@@ -270,6 +270,9 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     [YamlMember(Description = "A bad slide can end in a spin: the bot stops (hazard lights), waits for a gap, turns round and rejoins. Needs HumanErrors")]
     public bool Spins { get; set; } = true;
 
+    [YamlMember(Description = "Imprecise lines of weaker bots: missed apex, turning in too early and running wide, braking too early, hesitating on the throttle. Scales with HumanErrors")]
+    public bool LineErrors { get; set; } = true;
+
     [YamlMember(Description = "Bots sometimes run wide with two wheels on the grass")]
     public bool GrassMoments { get; set; } = true;
 

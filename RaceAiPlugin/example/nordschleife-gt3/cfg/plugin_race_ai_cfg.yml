@@ -62,6 +62,8 @@ HumanErrorsBelow: 87
 HumanErrorsFull: 75
 # A bad slide can end in a spin (hazards on, waits for a gap, rejoins)
 Spins: true
+# Imprecise lines: missed apex, early turn-in and running wide, braking too early, hesitating on the throttle
+LineErrors: true
 # Two wheels on the grass now and then
 GrassMoments: true
 # Light touches in close fights

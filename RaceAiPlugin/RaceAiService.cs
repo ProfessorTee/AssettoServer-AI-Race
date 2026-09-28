@@ -147,6 +147,7 @@ public sealed partial class RaceAiService : IHostedService
             HumanErrors = _config.HumanErrors,
             Spins = _config.HumanErrors && _config.Spins,
             GrassMoments = _config.GrassMoments,
+            LineErrors = _config.LineErrors,
             BotContacts = _config.BotContacts,
             Damage = _config.BotDamage && _serverConfig.Server.MechanicalDamageRate > 0,
             DamageRate = _serverConfig.Server.MechanicalDamageRate * _config.BotDamageFactor,
@@ -1017,6 +1018,7 @@ public sealed partial class RaceAiService : IHostedService
                     break;
                 case "spins": s.Spins = on; break;
                 case "grass": s.GrassMoments = on; break;
+                case "lines": s.LineErrors = on; break;
                 case "contacts": s.BotContacts = on; break;
                 case "damage": s.Damage = on && s.DamageRate > 0; break;
                 case "blueflags": _config.BlueFlags = on; s.BlueFlags = on && _sessionType == SessionType.Race; break;
