@@ -16,7 +16,7 @@ G
 REFS=$(ls $EXT/*.dll | grep -v "/AssettoServer.dll$" | sed 's/^/-r:/' | tr '\n' ' ')
 find $REPO/RaceAiPlugin -name "*.cs" -not -path "*/obj/*" -not -path "*/bin/*" > pfiles.txt
 dotnet $CSC -noconfig -nostdlib -nologo -target:library -langversion:preview -nullable:enable -nowarn:1701,1702 -warnaserror- \
-  -features:runtime-async=on -out:$OUT/RaceAiPlugin.dll \
+  -features:runtime-async=on -out:$OUT/RaceAiPlugin.dll -resource:$REPO/RaceAiPlugin/Dashboard/index.html,RaceAiPlugin.Dashboard.index.html \
   -analyzer:$AN/System.Text.RegularExpressions.Generator.dll \
   -r:$OUT/AssettoServer.dll $REFS globalusings.cs @pfiles.txt 2>&1 | grep -E "error|warning" | sort | uniq | head -60
 ls -la $OUT
