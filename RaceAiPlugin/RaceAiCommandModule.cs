@@ -64,6 +64,14 @@ public class RaceAiCommandModule : ACModuleBase
             : "Unknown feature. Use: errors, spins, grass, contacts, damage, blueflags, yellowflags, flash, highbeams, raincaution, realweather");
     }
 
+    [Command("raceai_grid"), RequireAdmin]
+    public void SetGrid(string order)
+    {
+        Reply(_service.SetGridOrder(order)
+            ? $"Race AI: bot grid order {order} from the next race"
+            : "Use: /raceai_grid Qualifying | SlowestFirst | Random");
+    }
+
     [Command("raceai_aggression"), RequireAdmin]
     public void SetAggression(float aggression)
     {

@@ -437,6 +437,36 @@ public sealed partial class RaceAiService : IHostedService
     private void ArrangeGrid(SessionState session, SessionState? previous)
     {
         if (session.Grid == null) return;
+        if (_config.BotGridOrder != BotGridOrder.Qualifying)
+        {
+            // players keep their spots (qualifying result or start position setting), the bot spots are refilled
+            ArrangePlayers(session, previous);
+            var list = session.Grid.ToList();
+            var botCars = list.Where(IsActiveBot).ToList();
+            if (botCars.Count == 0) return;
+            botCars = _config.BotGridOrder == BotGridOrder.SlowestFirst
+                ? botCars.OrderByDescending(ExpectedLap).ToList()
+                : botCars.OrderBy(_ => _rng.Next()).ToList();
+            session.Grid = MergeKeepingPlayerSpots(list, botCars);
+            Log.Information("Race AI: grid order {Order}: {Bots}", _config.BotGridOrder,
+                string.Join(", ", botCars.Select(c => $"{_slotsBySessionId[c.SessionId].Bot.Name} {FormatLap(ExpectedLap(c))}")));
+            return;
+        }
+        ArrangePlayers(session, previous);
+    }
+
+    private bool IsActiveBot(IEntryCar<IClient> c) => _slotsBySessionId.TryGetValue(c.SessionId, out var s) && s.Active;
+
+    /// <summary>Expected lap time of a bot, from its strength and car (slowest = longest).</summary>
+    private float ExpectedLap(IEntryCar<IClient> c)
+    {
+        var bot = _slotsBySessionId[c.SessionId].Bot;
+        return _calibrations.TryGetValue(bot.Car, out var cal) ? cal.LapTimeFor(bot.Driver.Level, _referenceBestLap) : 1000 - bot.Driver.Level;
+    }
+
+    private void ArrangePlayers(SessionState session, SessionState? previous)
+    {
+        if (session.Grid == null) return;
         bool fromQualifying = previous is { Configuration.Type: SessionType.Qualifying or SessionType.Practice }
                               && previous.Results != null && previous.Results.Values.Any(r => r.NumLaps > 0);
         bool fromRace = previous is { Configuration.Type: SessionType.Race };

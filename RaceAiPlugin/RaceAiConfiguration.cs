@@ -11,6 +11,16 @@ public enum BotSessionStart
     Track
 }
 
+public enum BotGridOrder
+{
+    /// <summary>Like real racing: qualifying result (or the player start position setting when there was no qualifying).</summary>
+    Qualifying,
+    /// <summary>Weakest bots in front, strongest at the back: they have to fight their way through the field.</summary>
+    SlowestFirst,
+    /// <summary>Bots in random order.</summary>
+    Random
+}
+
 public enum PlayerGridPosition
 {
     /// <summary>Keep the order AssettoServer uses (entry list order or qualifying result).</summary>
@@ -150,6 +160,9 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
 
     [YamlMember(Description = "Content Manager 'starting position' for races that are not started from a qualifying result: Default, First, Last, Middle, Random")]
     public PlayerGridPosition PlayerGridPosition { get; set; } = PlayerGridPosition.Default;
+
+    [YamlMember(Description = "Order of the bots on the race grid: Qualifying (result, like real racing), SlowestFirst (weakest in front, strongest at the back), Random. Players keep their positions")]
+    public BotGridOrder BotGridOrder { get; set; } = BotGridOrder.Qualifying;
 
     [YamlMember(Description = "Shuffle the bots among themselves on the grid of races that are not started from a qualifying result")]
     public bool RandomizeBotGrid { get; set; } = true;

@@ -16,6 +16,8 @@ AiAggressionVariation: 15
 # Weaker bots lose their time in corners (later throttle on exit, earlier braking), not on the straights
 # Where the players start in a race that doesn't follow a qualifying: Default, First, Last, Middle, Random
 PlayerGridPosition: Middle
+# Bot order on the race grid: Qualifying (result, like real racing), SlowestFirst (weakest in front, strongest at the back), Random
+BotGridOrder: Qualifying
 RandomizeBotGrid: true
 Practice: Drive
 Qualifying: Drive

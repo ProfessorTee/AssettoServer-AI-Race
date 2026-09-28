@@ -105,6 +105,7 @@ Das Plugin besteht aus zwei Teilen:
 | KI-Aggressivität | `AiAggression` (0–100), `AiAggressionVariation` |
 | Startposition | `PlayerGridPosition`: `Default`, `First`, `Last`, `Middle`, `Random` |
 | Zufällige Startaufstellung | `RandomizeBotGrid` |
+| Reihenfolge der Bots im Rennen | `BotGridOrder`: `Qualifying` (Ergebnis, wie echt), `SlowestFirst` (schwächste vorne, stärkste hinten), `Random`. Spieler behalten ihren Platz. Live: `/raceai_grid` oder Dashboard |
 | Fahrernamen / Nationen | `DRIVERNAME` in `entry_list.ini`, `Names`, `Drivers` (auch Stärke/Aggressivität pro Fahrer) |
 
 Faktoren wie `SlipstreamStrength`, `TyreWearFactor` und `RainGripLoss`: 1.0 = 100 % (normal), 0.5 = halb, 2.0 = doppelt.
@@ -126,6 +127,7 @@ Chat-Befehle:
 - `/raceai`: Bots mit Stärke, Sprit, Reifen, Stopps, Fehlern und Schaden
 - Als Admin (`/admin <Passwort>`):
   - `/raceai_strength <%> [spread]` und `/raceai_aggression <0-100>`
+  - `/raceai_grid Qualifying|SlowestFirst|Random`: Startaufstellung der Bots ab dem nächsten Rennen
   - `/raceai_set <Funktion> on|off` schaltet bis zum Neustart ein und aus: `errors`, `spins`, `grass`, `contacts`, `damage`,
     `blueflags`, `yellowflags`, `flash`, `highbeams`, `raincaution`, `realweather`
   - `/raceai_lighttest`: Licht-Test. Alle Bots zeigen nacheinander je etwa 6 s linken Blinker, rechten Blinker, Warnblinker,

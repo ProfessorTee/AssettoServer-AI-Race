@@ -120,6 +120,7 @@ public class RaceAiDashboardController : ControllerBase
         public string? Feature { get; set; }
         public bool On { get; set; }
         public bool LightTest { get; set; }
+        public string? GridOrder { get; set; }
     }
 
     [HttpPost("/raceai/api/ai")]
@@ -130,6 +131,7 @@ public class RaceAiDashboardController : ControllerBase
         if (req.Aggression is { } ag) _service.SetGlobalAggression(ag);
         if (!string.IsNullOrEmpty(req.Feature) && !_service.SetDashboardFeature(req.Feature, req.On)) return BadRequest(new { error = "unknown feature" });
         if (req.LightTest) _service.StartSignalTest();
+        if (!string.IsNullOrEmpty(req.GridOrder) && !_service.SetGridOrder(req.GridOrder)) return BadRequest(new { error = "unknown grid order" });
         return Ok(new { ok = true });
     }
 

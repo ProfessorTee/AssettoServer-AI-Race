@@ -159,6 +159,7 @@ public sealed partial class RaceAiService
                     strength = _config.AiStrength,
                     spread = _config.AiStrengthSpread,
                     aggression = _config.AiAggression,
+                    gridOrder = _config.BotGridOrder.ToString(),
                     features = FeatureStates(),
                     personalities = _personalities.Select(p => p.Personality.Name).DefaultIfEmpty("Balanced").ToList()
                 },
@@ -229,6 +230,14 @@ public sealed partial class RaceAiService
         _config.AiStrength = Math.Clamp(strength, 50, 110);
         _config.AiStrengthSpread = Math.Clamp(spread, 0, 30);
         SetStrength(_config.AiStrength, _config.AiStrengthSpread);
+    }
+
+    public bool SetGridOrder(string order)
+    {
+        if (!Enum.TryParse<BotGridOrder>(order, true, out var o)) return false;
+        _config.BotGridOrder = o;
+        Serilog.Log.Information("Race AI: grid order for the next race: {Order}", o);
+        return true;
     }
 
     public void SetGlobalAggression(float aggression)

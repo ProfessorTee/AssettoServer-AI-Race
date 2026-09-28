@@ -112,6 +112,15 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
         <div class="row"><button class="btn primary" id="aiApply">Auf alle Bots anwenden</button><span class="muted">verteilt die Stärken neu</span></div>
       </div>
       <div class="card">
+        <h3>Startaufstellung der Bots</h3>
+        <div class="row"><label>Reihenfolge</label><select id="gridOrder">
+          <option value="Qualifying">Nach Qualifying (wie echt)</option>
+          <option value="SlowestFirst">Schwächste vorne, stärkste hinten</option>
+          <option value="Random">Zufällig</option>
+        </select></div>
+        <div class="row"><span class="muted">Gilt ab dem nächsten Rennstart. Spieler behalten ihren Startplatz.</span></div>
+      </div>
+      <div class="card">
         <h3>Funktionen</h3>
         <div class="switches" id="features"></div>
       </div>
@@ -461,7 +470,9 @@ function syncAi() {
     $("features").querySelectorAll("input").forEach(i => i.onchange = () => act("/raceai/api/ai", { feature: i.dataset.f, on: i.checked }, `${FEATURES[i.dataset.f]}: ${i.checked ? "an" : "aus"}`));
   }
   $("features").querySelectorAll("input").forEach(i => { if (document.activeElement !== i) i.checked = !!a.features[i.dataset.f]; });
+  if (document.activeElement !== $("gridOrder") && a.gridOrder) $("gridOrder").value = a.gridOrder;
 }
+$("gridOrder").onchange = () => act("/raceai/api/ai", { gridOrder: $("gridOrder").value }, "Startaufstellung: " + $("gridOrder").selectedOptions[0].textContent);
 $("aiApply").onclick = () => act("/raceai/api/ai", { strength: +$("aiStrength").value, spread: +$("aiSpread").value, aggression: +$("aiAggr").value }, "Stärke verteilt");
 $("lightTest").onclick = () => act("/raceai/api/ai", { lightTest: true }, "Licht-Test läuft");
 
@@ -489,7 +500,7 @@ const COMMANDS = [
   ["setrain 0.5 0.5 0.1", "Regen, Nässe, Wasser (0–1)"], ["setgrip 0.95", "Grip der Strecke (0–1)"],
   ["say Nachricht", "Nachricht als CONSOLE an alle"], ["set KEY WERT", "Konfigurationswert ändern (z. B. Server.SleepTime)"],
   ["raceai", "Bots mit Stärke, Sprit, Reifen …"], ["raceai_strength 90 5", "Stärke ± Streuung"], ["raceai_aggression 60", "Aggressivität"],
-  ["raceai_set spins off", "KI-Funktion an/aus"], ["raceai_lighttest", "Licht-Test"]
+  ["raceai_set spins off", "KI-Funktion an/aus"], ["raceai_grid SlowestFirst", "Startaufstellung: Qualifying / SlowestFirst / Random"], ["raceai_lighttest", "Licht-Test"]
 ];
 $("cmdTpl").innerHTML = COMMANDS.map(([c, d]) => `<option value="${esc(c)}">${c ? esc(c) + "  –  " : ""}${esc(d)}</option>`).join("");
 $("cmdTpl").onchange = () => { $("cmdText").value = $("cmdTpl").value; $("cmdText").focus(); };
