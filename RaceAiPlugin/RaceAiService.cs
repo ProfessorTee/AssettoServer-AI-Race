@@ -152,14 +152,18 @@ public sealed class RaceAiService : IHostedService
             DamageRate = _serverConfig.Server.MechanicalDamageRate * _config.BotDamageFactor,
             RainGripLoss = _config.RainGripLoss,
             ServerRainReduction = (float)_serverConfig.Extra.RainTrackGripReductionPercent,
-            WetTyres = _config.WetTyres,
-            VirtualWetTyres = _config.VirtualWetTyres,
             RainCaution = _config.RainCaution
         };
         Log.Information("Race AI: human errors {Errors} (below {Below} %), spins {Spins}, grass {Grass}, contacts {Contacts}, damage {Damage} ({Rate:P0})",
             settings.HumanErrors ? "on" : "off", _config.HumanErrorsBelow, settings.Spins ? "on" : "off", settings.GrassMoments ? "on" : "off",
             settings.BotContacts ? "on" : "off", settings.Damage ? "on" : "off", settings.DamageRate);
-        var world = new RaceWorld(_track.Line, settings) { PitLane = _config.PitStops ? _track.PitLane : null };
+        var world = new RaceWorld(_track.Line, settings)
+        {
+            PitLane = _config.PitStops ? _track.PitLane : null,
+            UnstuckAfter = _config.UnstuckSeconds,
+            GhostAfter = _config.GhostAfterSeconds
+        };
+        _sectorSplits = _track.Info.SectorLines.Select(p => _track.Line.WrapS(_track.Line.Project(p).S - _track.StartLineS)).OrderBy(x => x).ToList();
         if (_config.PitStops && _track.PitLane == null)
             Log.Warning("Race AI: no pit_lane.ai found, bots will not make pit stops");
         Log.Information("Race AI: fuel rate {Fuel:P0}, tyre wear rate {Wear:P0}, pit stops {Pits}",
@@ -208,6 +212,8 @@ public sealed class RaceAiService : IHostedService
                 if (string.IsNullOrEmpty(nation) && n < nations.Count) nation = nations[n];
             }
 
+            var personality = PickPersonality(driverCfg?.Personality);
+            aggression = Math.Clamp(aggression + personality.Aggression * 100, 0, 100);
             var bot = new RaceBot
             {
                 Id = entryCar.SessionId,
@@ -215,6 +221,7 @@ public sealed class RaceAiService : IHostedService
                 Car = spec,
                 Driver = DriverProfile.FromStrength(strength, 0, aggression)
             };
+            bot.Driver.Personality = personality;
             ApplyStrength(bot, strength, calibration);
             world.Bots.Add(bot);
             if (_track.Info.PitBoxes.FirstOrDefault(p => p.Index == slotIndex) is var box && box.Index == slotIndex && _track.Info.PitBoxes.Count > 0)
@@ -225,8 +232,8 @@ public sealed class RaceAiService : IHostedService
             _slotsBySessionId[entryCar.SessionId] = slot;
             TakeSlot(slot, broadcast: false);
 
-            Log.Information("Race AI: slot {Slot} {Model} -> {Name} (strength {Strength:F1} %, aggression {Aggression:F0})",
-                slotIndex, entryCar.Model, bot.Name, strength, aggression);
+            Log.Information("Race AI: slot {Slot} {Model} -> {Name} (strength {Strength:F1} %, aggression {Aggression:F0}, {Personality})",
+                slotIndex, entryCar.Model, bot.Name, strength, aggression, personality.Name);
         }
 
         if (_config.AiStrengthReference == StrengthReference.Field && _calibrations.Count > 0)
@@ -245,6 +252,7 @@ public sealed class RaceAiService : IHostedService
                 bot.Driver.Errors > 0 ? $"  (human errors {bot.Driver.Errors:P0})" : "");
 
         world.LapCompleted += OnBotLapCompleted;
+        world.YellowFlag += OnYellowFlag;
         world.PitStopCompleted += OnBotPitStop;
         _world = world;
 
@@ -304,7 +312,7 @@ public sealed class RaceAiService : IHostedService
                 if (slot.Active)
                 {
                     Log.Information("Race AI: {Player} took over bot slot {Slot} ({Model}), bot {Bot} left", client.Name, client.SessionId, slot.EntryCar.Model, slot.Bot.Name);
-                    _entryCarManager.BroadcastChat($"{slot.Bot.Name} made room for {client.Name}");
+                    _entryCarManager.BroadcastChat(T($"{slot.Bot.Name} made room for {client.Name}", $"{slot.Bot.Name} macht Platz für {client.Name}"));
                 }
                 ReleaseSlot(slot);
             }
@@ -593,7 +601,7 @@ public sealed class RaceAiService : IHostedService
         }
 
         // track grip (dynamic track, and rain if the server's RainTrackGripReductionPercent is set) slows the bots down like everybody else;
-        // the wet grip of their tyres (slicks / rain tyres) is worked out per bot from wetness and standing water
+        // the wet grip is worked out from wetness and standing water
         var weather = _weatherManager.CurrentWeather;
         float grip = weather.TrackGrip > 0.3f ? weather.TrackGrip : 1f;
         world.Settings.GripFactor = Math.Clamp(grip, 0.4f, 1.05f);
@@ -616,6 +624,13 @@ public sealed class RaceAiService : IHostedService
             var pose = world.GetPose(slot.Bot);
             slot.WriteStatus(pose, serverTime, lights, wipers, _config.FlashLights || world.SignalTestPhase(now) != 0, _config.FlashLightsDaytime,
                 _config.HighBeams || world.SignalTestPhase(now) != 0);
+            bool ghost = slot.Bot.GhostUntil > now;
+            if (ghost != slot.Ghosted)
+            {
+                slot.Ghosted = ghost;
+                slot.EntryCar.SetCollisions(!ghost);
+                if (ghost) Log.Information("Race AI: {Name} stuck for {Seconds:F0} s, ghost for a moment to get out", slot.Bot.Name, _config.GhostAfterSeconds);
+            }
             if (slot.SentDamageVersion != slot.Bot.DamageVersion)
             {
                 slot.SentDamageVersion = slot.Bot.DamageVersion;
@@ -674,15 +689,83 @@ public sealed class RaceAiService : IHostedService
             6 => "high beams",
             _ => null
         };
-        _entryCarManager.BroadcastChat(what != null ? $"Race AI signal test: {what}" : "Race AI signal test finished");
+        _entryCarManager.BroadcastChat(what != null ? T($"Race AI signal test: {what}", $"Race-AI Licht-Test: {GermanSignal(phase)}")
+            : T("Race AI signal test finished", "Race-AI Licht-Test beendet"));
+    }
+
+    private string T(string en, string de) => _config.ChatLanguage == "de" ? de : en;
+
+    private static string GermanSignal(int phase) => phase switch
+    {
+        1 => "Blinker links", 2 => "Blinker rechts", 3 => "Warnblinker", 4 => "Lichthupe", 5 => "Bremslicht", 6 => "Fernlicht", _ => ""
+    };
+
+    private List<float> _sectorSplits = [];
+    private readonly Dictionary<int, double> _lastYellowBySector = new();
+
+    /// <summary>Timing sector (1-based) of a racing line position.</summary>
+    private int SectorAt(float s)
+    {
+        float fromStart = _track!.Line.WrapS(s - _track.StartLineS);
+        return 1 + _sectorSplits.Count(x => x < fromStart);
+    }
+
+    private void OnYellowFlag(YellowFlagEvent e)
+    {
+        if (!_config.YellowFlagChat || _track == null) return;
+        if (_sessionType == SessionType.Race && !_raceStarted) return;
+        int sector = SectorAt(e.S);
+        double now = Now;
+        // one message per sector every 15 s is enough when several cars are involved
+        if (_lastYellowBySector.TryGetValue(sector, out var last) && now - last < 15) return;
+        _lastYellowBySector[sector] = now;
+
+        string name = e.IsBot && _slotsBySessionId.TryGetValue((byte)e.CarId, out var slot) ? slot.Bot.Name
+            : _entryCarManager.EntryCars.ElementAtOrDefault(e.CarId)?.Client?.Name ?? "?";
+        var section = _track.Info.SectionAt(_track.Line.WrapS(e.S - _track.StartLineS) / _track.Line.Length);
+        string where = section != null ? $" ({section})" : "";
+        string en = e.Kind switch { "spin" => $"{name} spun", "crash" => $"{name} crashed", _ => $"{name} stopped on track" };
+        string de = e.Kind switch { "spin" => $"{name} hat sich gedreht", "crash" => $"Unfall: {name}", _ => $"{name} steht auf der Strecke" };
+        _entryCarManager.BroadcastChat(T($"Yellow flag in sector {sector}{where}: {en}", $"Gelbe Fahne in Sektor {sector}{where}: {de}"));
+        Log.Information("Race AI: yellow flag sector {Sector}{Where}: {What}", sector, where, en);
+    }
+
+    private readonly List<(Personality Personality, float Share)> _personalities = [];
+
+    private Personality PickPersonality(string? name)
+    {
+        if (!_config.UsePersonalities) return Personality.Balanced;
+        if (_personalities.Count == 0)
+        {
+            var list = _config.Personalities.Count > 0
+                ? _config.Personalities.Select(p => (p.ToPersonality(), p.Share)).ToList()
+                : Personality.Defaults();
+            _personalities.AddRange(list);
+        }
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            var match = _personalities.FirstOrDefault(p => p.Personality.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            if (match.Personality != null) return match.Personality;
+            Log.Warning("Race AI: unknown personality {Name}", name);
+        }
+        float total = _personalities.Sum(p => MathF.Max(0, p.Share));
+        if (total <= 0) return Personality.Balanced;
+        float r = (float)_rng.NextDouble() * total;
+        foreach (var (p, share) in _personalities)
+        {
+            r -= MathF.Max(0, share);
+            if (r <= 0) return p;
+        }
+        return _personalities[^1].Personality;
     }
 
     private void OnBotPitStop(RaceBot bot, float seconds, float litres, bool tyres)
     {
-        string what = string.Join(" + ", new[] { tyres ? (bot.OnWets ? "rain tyres" : "slicks") : null, litres >= 0.5f ? $"{litres:F0} l" : null, bot.PitRepair ? "repair" : null }.Where(x => x != null));
+        string what = string.Join(" + ", new[] { tyres ? "tyres" : null, litres >= 0.5f ? $"{litres:F0} l" : null, bot.PitRepair ? "repair" : null }.Where(x => x != null));
         Log.Information("Race AI: {Name} pit stop ({Reason}): {What}, {Seconds:F1} s", bot.Name, bot.PitReason, what, seconds);
         if (_config.AnnouncePitStops && _sessionType == SessionType.Race)
-            _entryCarManager.BroadcastChat($"{bot.Name} pit stop: {what} ({seconds:F1} s)");
+            _entryCarManager.BroadcastChat(T($"{bot.Name} pit stop: {what} ({seconds:F1} s)",
+                $"{bot.Name} Boxenstopp: {what.Replace("tyres", "Reifen").Replace("repair", "Reparatur")} ({seconds:F1} s)"));
     }
 
     private void OnBotLapCompleted(RaceBot bot, float lapSeconds)
@@ -746,12 +829,11 @@ public sealed class RaceAiService : IHostedService
                 {
                     var player = _entryCarManager.EntryCars[ext.Id].Client;
                     var section = _track!.Info.SectionAt(line.WrapS(botS - _track.StartLineS) / line.Length);
-                    string where = section != null ? $" at {section}" : "";
                     if (player != null)
                     {
-                        _entryCarManager.BroadcastChat(rel > 0
-                            ? $"{slot.Bot.Name} overtook {player.Name}{where}"
-                            : $"{player.Name} overtook {slot.Bot.Name}{where}");
+                        string where = section != null ? T($" at {section}", $" bei {section}") : "";
+                        var (a, b) = rel > 0 ? (slot.Bot.Name, player.Name) : (player.Name, slot.Bot.Name);
+                        _entryCarManager.BroadcastChat(T($"{a} overtook {b}{where}", $"{a} überholt {b}{where}"));
                     }
                 }
                 _lastRelative[key] = rel;
@@ -809,8 +891,6 @@ public sealed class RaceAiService : IHostedService
                 case "blueflags": _config.BlueFlags = on; s.BlueFlags = on && _sessionType == SessionType.Race; break;
                 case "yellowflags": s.YellowFlags = on; break;
                 case "flash": _config.FlashLights = on; break;
-                case "wettyres": _config.WetTyres = on; s.WetTyres = on; break;
-                case "virtualwets": _config.VirtualWetTyres = on; s.VirtualWetTyres = on; break;
                 case "raincaution": _config.RainCaution = on; s.RainCaution = on; break;
                 case "realweather": _config.RealWeather = on; break;
                 case "highbeams": _config.HighBeams = on; break;

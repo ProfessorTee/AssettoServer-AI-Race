@@ -23,6 +23,9 @@ public sealed class BotSlot : IExternalAiController
     /// <summary>Last <see cref="RaceBot.DamageVersion"/> sent to the clients.</summary>
     public int SentDamageVersion { get; set; } = -1;
 
+    /// <summary>Collisions switched off for the clients (emergency ghost).</summary>
+    public bool Ghosted { get; set; }
+
     public BotSlot(EntryCar entryCar, RaceBot bot, string nation)
     {
         EntryCar = entryCar;

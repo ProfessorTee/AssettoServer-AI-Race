@@ -11,9 +11,10 @@ public class RaceAiModule : AssettoServerModule<RaceAiConfiguration>
     {
         BotSlots = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
         AssettoCorsaPath = "C:/Program Files (x86)/Steam/steamapps/common/assettocorsa",
+        Personalities = PersonalityConfiguration.Defaults(),
         Drivers =
         [
-            new BotDriverConfiguration { Slot = 1, Name = "Max Reuter", Nation = "AUT", Strength = 97, Aggression = 70 }
+            new BotDriverConfiguration { Slot = 1, Name = "Max Reuter", Nation = "AUT", Strength = 97, Aggression = 70, Personality = "DiveBomber" }
         ]
     };
 

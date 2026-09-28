@@ -11,52 +11,65 @@ public sealed partial class RaceWorld
     private float ErrorLevel(RaceBot me)
     {
         float e = Settings.HumanErrors ? Math.Clamp(me.Driver.Errors, 0, 1) : 0;
-        // a wet track makes everybody less precise, on slicks a lot
-        if (Settings.RainCaution) e += WetFactor() * (me.OnWets ? 0.1f : 0.45f);
+        // somebody sitting in the slipstream for a long time: slightly more mistakes
+        e += 0.15f * me.Pressure;
+        e *= me.Driver.Personality.Mistakes;
+        // a wet track makes everybody less precise
+        if (Settings.RainCaution) e += WetFactor() * 0.4f;
         return Math.Clamp(e, 0, 1);
     }
 
     /// <summary>0 = dry, 1 = soaking wet with standing water.</summary>
     private float WetFactor() => Math.Clamp(Settings.Wetness * 0.6f + Settings.Water * 1.2f, 0, 1);
 
-    /// <summary>Grip of the bot's tyres on the current track (1 = dry slicks).</summary>
+    /// <summary>Grip on the current track (1 = dry). Slicks lose a lot in the wet and on standing water.</summary>
     public float RainGrip(RaceBot bot)
     {
+        // the server already lowers the track grip for everybody when RainTrackGripReductionPercent is set
+        if (Settings.ServerRainReduction > 0) return 1;
         float w = Math.Clamp(Settings.Wetness, 0, 1), water = Math.Clamp(Settings.Water, 0, 1);
-        float g;
-        if (bot.OnWets)
-        {
-            // rain tyres: little loss in the wet, slower (and overheating) in the dry
-            float dry = 1 - 0.07f * (1 - Math.Clamp(w * 1.5f, 0, 1));
-            if (Settings.ServerRainReduction > 0)
-            {
-                float loss = Settings.ServerRainReduction * (0.3f * w + 0.7f * water);
-                g = dry * (1 - 0.3f * loss) / MathF.Max(0.5f, 1 - loss);
-            }
-            else g = dry * (1 - Settings.RainGripLoss * (0.04f * w + 0.08f * water));
-        }
-        else
-        {
-            // slicks: the server already lowers the track grip for everybody when RainTrackGripReductionPercent is set
-            g = Settings.ServerRainReduction > 0 ? 1 : 1 - Settings.RainGripLoss * (0.15f * w + 0.25f * water);
-        }
-        return Math.Clamp(g, 0.4f, 1.05f);
+        return Math.Clamp(1 - Settings.RainGripLoss * (0.15f * w + 0.25f * water), 0.4f, 1f);
     }
 
-    /// <summary>Should this bot be on rain tyres now (with some hysteresis)?</summary>
-    public bool WantsWets(RaceBot bot)
+    /// <summary>
+    /// Where water stands: in dips (compressions) and in the grooves of the racing line. Real puddle maps are computed by CSP
+    /// on the clients, the server doesn't know them, so this is the typical pattern.
+    /// </summary>
+    private float PuddleRisk(RaceBot me)
     {
-        if (!Settings.WetTyres || !(bot.Car.HasWetTyres || Settings.VirtualWetTyres)) return false;
-        float w = Settings.Wetness, water = Settings.Water;
-        if (bot.OnWets) return !(w < 0.2f && water < 0.03f && Settings.RainIntensity < 0.05f);
-        return (w > 0.45f || water > 0.15f) && (Settings.RainIntensity > 0.05f || water > 0.25f);
+        int i = Line.IndexAt(Line.WrapS((float)me.Distance));
+        float dip = Math.Clamp(Line.VerticalCurvature[i] * 150f, 0, 1);
+        float onLine = MathF.Abs(me.Offset) < 0.8f ? 1.4f : 0.7f;
+        return (1 + 2.5f * dip) * onLine;
+    }
+
+    /// <summary>
+    /// Rain line: in the wet the bots leave the rubbered racing line (slippery, water in the grooves) a little towards the outside
+    /// of the next corner, and move aside before dips where water collects.
+    /// </summary>
+    private float RainLineOffset(RaceBot me, float myS, float minOff, float maxOff)
+    {
+        if (!Settings.RainCaution) return 0;
+        float wf = WetFactor();
+        if (wf < 0.2f) return 0;
+        float off = -NextCornerSign(myS, 150) * 1.0f * wf;
+        for (float d = 10; d < 80; d += 10)
+        {
+            if (Line.VerticalCurvature[Line.IndexAt(myS + d)] * 150f > 0.5f && Settings.Water > 0.1f)
+            {
+                var (rm, rp) = Line.MinRoom(myS + d, 20);
+                off += (rp >= rm ? 1 : -1) * 1.2f * Math.Clamp(Settings.Water * 3, 0, 1);
+                break;
+            }
+        }
+        return Math.Clamp(Math.Clamp(off, -1.5f, 1.5f), minOff, maxOff);
     }
 
     /// <summary>Aquaplaning on standing water at speed (called every Think).</summary>
     private void Aquaplaning(RaceBot me)
     {
         if (!Settings.RainCaution || Settings.Water < 0.2f || me.Speed < 40 || !MistakesAllowed(me)) return;
-        float perSecond = (Settings.Water - 0.2f) * 0.35f * (me.OnWets ? 0.2f : 1f) * (me.Speed / 70f);
+        float perSecond = (Settings.Water - 0.2f) * 0.35f * (me.Speed / 70f) * PuddleRisk(me);
         if (_rng.NextSingle() < perSecond * _stepDt)
         {
             StartMistake(me, MistakeKind.Slide, _rng.NextSingle() < 0.5f ? -1 : 1, 0.2f + 0.4f * _rng.NextSingle(), 1.0f);
@@ -115,7 +128,7 @@ public sealed partial class RaceWorld
         if (!MistakesAllowed(me)) return;
         float e = ErrorLevel(me);
         double r = _rng.NextDouble();
-        if (r < 0.07 * e)
+        if (r < 0.07 * e * (1 + 0.5 * me.Driver.Personality.LateBraking))
         {
             // braked too late: the plan assumes more braking than the car has
             StartMistake(me, MistakeKind.LateBrake, 0, 0.4f + 0.6f * _rng.NextSingle(), 6f);
@@ -157,6 +170,7 @@ public sealed partial class RaceWorld
             if (Settings.Spins && sev > 0.6f && _rng.NextSingle() < 0.12f * e * sev * 2)
             {
                 StartMistake(me, MistakeKind.Spin, turn, sev, 60f);
+                RaiseYellow(me.Id, true, Line.WrapS((float)me.Distance), "spin");
                 me.SpinPhase = 0;
                 me.SpinAngle = turn * MathF.PI * (0.9f + 0.8f * _rng.NextSingle());
                 me.SpinCount++;
@@ -236,7 +250,7 @@ public sealed partial class RaceWorld
             if (MathF.Abs(kEff) > 1f / 2000f)
             {
                 int i = Line.IndexAt(Line.WrapS((float)me.Distance));
-                float vl = me.Car.CornerLimit(kEff, Line.VerticalCurvature[i], pace);
+                float vl = me.Car.CornerLimit(kEff, Line.VerticalCurvature[i], pace, me.MassRatio);
                 float aReq = me.Speed * me.Speed * MathF.Abs(kEff), aMax = vl * vl * MathF.Abs(kEff);
                 if (aReq > aMax * 1.03f)
                 {
@@ -366,6 +380,7 @@ public sealed partial class RaceWorld
             if (o.IsBot && o.Id == me.Id) continue;
             float ds = Line.Delta(myS, o.S);
             if (ds > 0 || ds < -250) continue;
+            if (o.Speed < 2) continue; // standing cars (a queue behind me) don't come: I go first
             if (ds > -12) return false; // somebody right here
             if (o.Speed > 5 && -ds / o.Speed < 7) return false;
         }
@@ -420,6 +435,7 @@ public sealed partial class RaceWorld
         if (sideBySide)
         {
             float impact = closing * 3.6f + 3;
+            if (impact > 30) RaiseYellow(me.Id, true, Line.WrapS((float)me.Distance), "crash");
             float bounce = 0.6f + 0.02f * impact;
             me.LateralSpeed = -MathF.Sign(dOff) * bounce;
             other.LateralSpeed = MathF.Sign(dOff) * bounce;
@@ -435,6 +451,7 @@ public sealed partial class RaceWorld
         {
             // me behind, other in front
             float impact = closing * 3.6f + 2;
+            if (impact > 30) RaiseYellow(me.Id, true, Line.WrapS((float)me.Distance), "crash");
             other.Speed = MathF.Min(other.Speed + MathF.Min(1.5f, impact / 20f), MathF.Max(other.Speed, me.Speed));
             AddDamage(me, 0, impact);
             AddDamage(other, 1, impact);

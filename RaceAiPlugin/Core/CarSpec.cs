@@ -64,9 +64,6 @@ public sealed class CarSpec
     public float FuelLiterTime { get; set; } = 0.2f;
     /// <summary>car.ini [PIT_STOP]: seconds to repair 10 % body damage / 10 % suspension damage.</summary>
     public float BodyRepairTime { get; set; } = 20f;
-    /// <summary>Name of a rain / intermediate compound in tyres.ini, null if the car only has slicks.</summary>
-    public string? WetCompound { get; set; }
-    public bool HasWetTyres => WetCompound != null;
     public float SuspRepairTime { get; set; } = 30f;
 
     /// <summary>Grip factor of the tyres after <paramref name="virtualKm"/> (1 = new).</summary>
@@ -93,13 +90,14 @@ public sealed class CarSpec
         return Acceleration * paceFactor * (1 - r * r);
     }
 
-    public float BrakeAt(float v, float pace) => (BrakeGrip * G + AeroBrake * v * v) * pace;
+    /// <summary>Deceleration (m/s²). A heavier car (fuel: <paramref name="massRatio"/> > 1) gets the same tyre grip per kg but less aero help per kg.</summary>
+    public float BrakeAt(float v, float pace, float massRatio = 1f) => (BrakeGrip * G + AeroBrake * v * v / massRatio) * pace;
 
     /// <summary>Max speed through a point with the given curvatures.</summary>
-    public float CornerLimit(float curvature, float verticalCurvature, float pace)
+    public float CornerLimit(float curvature, float verticalCurvature, float pace, float massRatio = 1f)
     {
         float grip = LateralGrip * pace;
-        float aero = Downforce * pace;
+        float aero = Downforce * pace / massRatio; // downforce per kg drops with a full tank
         float r = 1f / MathF.Max(MathF.Abs(curvature), 1e-5f);
         // a_lat = grip*(g + v²*kv) + aero*v²  (kv<0 on crests reduces normal load)
         float denom = 1f - r * (aero + grip * verticalCurvature);

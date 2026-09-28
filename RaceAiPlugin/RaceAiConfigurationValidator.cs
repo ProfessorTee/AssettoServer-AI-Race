@@ -15,6 +15,17 @@ public class RaceAiConfigurationValidator : AbstractValidator<RaceAiConfiguratio
         RuleFor(cfg => cfg.HumanErrorsFull).InclusiveBetween(0, 110);
         RuleFor(cfg => cfg.BotDamageFactor).InclusiveBetween(0, 10);
         RuleFor(cfg => cfg.HighBeamRange).InclusiveBetween(10, 1000);
+        RuleFor(cfg => cfg.GhostAfterSeconds).Must(x => x == 0 || x is >= 10 and <= 300).WithMessage("GhostAfterSeconds: 0 or 10-300");
+        RuleFor(cfg => cfg.UnstuckSeconds).InclusiveBetween(1, 60);
+        RuleFor(cfg => cfg.ChatLanguage).Must(x => x is "de" or "en").WithMessage("ChatLanguage: de or en");
+        RuleForEach(cfg => cfg.Personalities).ChildRules(p =>
+        {
+            p.RuleFor(x => x.Name).NotEmpty();
+            p.RuleFor(x => x.Share).GreaterThanOrEqualTo(0);
+            p.RuleFor(x => x.TyreWear).InclusiveBetween(0.2f, 3);
+            p.RuleFor(x => x.FuelUse).InclusiveBetween(0.5f, 2);
+            p.RuleFor(x => x.Mistakes).InclusiveBetween(0, 5);
+        });
         RuleFor(cfg => cfg.RainGripLoss).InclusiveBetween(0, 3);
         RuleFor(cfg => cfg.ImpatienceSeconds).InclusiveBetween(0, 600);
         RuleFor(cfg => cfg.RealWeatherUpdateMinutes).InclusiveBetween(1, 1440);

@@ -47,7 +47,6 @@ public static class Simulator
             Wetness = o.Float("wet", 0),
             Water = o.Float("water", 0),
             RainIntensity = o.Float("rain", 0),
-            VirtualWetTyres = o.Has("virtual-wets"),
             Spins = !o.Has("no-spins"),
             GrassMoments = !o.Has("no-grass"),
             BotContacts = !o.Has("no-contacts"),
@@ -96,6 +95,13 @@ public static class Simulator
                 Car = spec,
                 Driver = DriverProfile.FromStrength(strengths[i], 0, aggression)
             };
+            if (!o.Has("no-personalities"))
+            {
+                var defs = Personality.Defaults();
+                float r = (float)rng.NextDouble() * defs.Sum(d => d.Share);
+                foreach (var d in defs) { r -= d.Share; if (r <= 0) { bot.Driver.Personality = d.Personality; break; } }
+                bot.Driver.Aggression = Math.Clamp(bot.Driver.Aggression + bot.Driver.Personality.Aggression, 0, 1);
+            }
             bot.Driver.Errors = settings.HumanErrors ? DriverProfile.ErrorsFor(strengths[i], errorsBelow, errorsFull) : 0;
             bot.Driver.Pace = cal.PaceFor(strengths[i], null, bot.Driver.Errors);
             world.Bots.Add(bot);
@@ -301,7 +307,7 @@ public static class Simulator
             foreach (var b in _w.Bots.OrderByDescending(b => b.LapsCompleted).ThenBy(b => b.TotalTime))
             {
                 Console.WriteLine($"{pos++,-4}{b.Name,-22}{b.Driver.Level,5:F0}{b.LapsCompleted,5}{(b.BestLapSeconds < 1e6 ? Fmt(b.BestLapSeconds) : "-"),11}" +
-                                  $"{(b.LastLapSeconds > 0 ? Fmt(b.LastLapSeconds) : "-"),11}{(b.TotalTime > 0 ? Fmt((float)b.TotalTime) : "-"),11}{b.Overtakes,5}{b.PitStops,4} err={b.Driver.Errors:F2} {(b.OnWets ? "WET" : "slk")} pace={b.Driver.Pace:F3} mis={b.MistakeCount} spin={b.SpinCount} cont={b.ContactCount} dmg={RaceWorld.BodyDamagePercent(b):F0}%/{b.Suspension * 100:F0}% fuel={b.Fuel,5:F1} grip={b.CarGrip:F3} att={b.OvertakeAttempts} noroom={b.OvertakeNoRoom} giveup={b.OvertakeGiveUps} d={b.Distance,8:F0} v={b.Speed * 3.6f,4:F0} off={b.Offset,5:F1} tgtOff={b.TargetOffset,5:F1} tgtV={b.TargetSpeed * 3.6f,4:F0} {b.Phase}");
+                                  $"{(b.LastLapSeconds > 0 ? Fmt(b.LastLapSeconds) : "-"),11}{(b.TotalTime > 0 ? Fmt((float)b.TotalTime) : "-"),11}{b.Overtakes,5}{b.PitStops,4} {b.Driver.Personality.Name,-10} err={b.Driver.Errors:F2} pace={b.Driver.Pace:F3} mis={b.MistakeCount} spin={b.SpinCount} cont={b.ContactCount} dmg={RaceWorld.BodyDamagePercent(b):F0}%/{b.Suspension * 100:F0}% fuel={b.Fuel,5:F1} grip={b.CarGrip:F3} att={b.OvertakeAttempts} noroom={b.OvertakeNoRoom} giveup={b.OvertakeGiveUps} d={b.Distance,8:F0} v={b.Speed * 3.6f,4:F0} off={b.Offset,5:F1} tgtOff={b.TargetOffset,5:F1} tgtV={b.TargetSpeed * 3.6f,4:F0} {b.Phase}");
             }
             long tot = Math.Max(1, _pedals.Sum());
             Console.WriteLine($"pedals: full throttle {_pedals[0] * 100 / tot} %, part throttle {_pedals[1] * 100 / tot} %, coasting {_pedals[2] * 100 / tot} %, " +

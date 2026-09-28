@@ -59,17 +59,52 @@ BotContacts: true
 # Damage from contacts (uses DAMAGE_MULTIPLIER), repaired in the pits; 1.0 = 100 %
 BotDamage: true
 BotDamageFactor: 1.0
-# Rain: bots change to rain tyres when it gets wet and back to slicks when it dries
-WetTyres: true
-# Rain tyres for bots although the car has none in tyres.ini. CSP Rain FX generates rain tyres offline, but online
-# players usually can't select them -> false (fair: everybody on slicks). true if your players do get rain tyres.
-VirtualWetTyres: false
-# On slicks in the wet: more careful, more mistakes, aquaplaning
+# In the wet: more careful, more mistakes, a rain line away from standing water, aquaplaning
 RainCaution: true
 # High beams at night when nobody is ahead
 HighBeams: true
 # ... when nobody is within this distance ahead (m)
 HighBeamRange: 85
+# Driver personalities: every bot gets one (random by Share, or Drivers[].Personality)
+#   Aggression -100..100 (added), LateBraking/InsideLine/Smoothness/Composure/Weaving 0..1, TyreWear/FuelUse/Mistakes multipliers
+UsePersonalities: true
+Personalities:
+  - Name: Balanced
+    Share: 40
+  - Name: DiveBomber      # late on the brakes, always down the inside, hard on the tyres
+    Share: 20
+    Aggression: 25
+    LateBraking: 1
+    InsideLine: 1
+    TyreWear: 1.25
+    FuelUse: 1.05
+    Composure: 0.4
+    Weaving: 0.9
+    Mistakes: 1.2
+  - Name: Chill           # smooth, keeps the tyres in the green
+    Share: 20
+    Aggression: -20
+    TyreWear: 0.75
+    FuelUse: 0.97
+    Smoothness: 0.5
+    Composure: 0.9
+    Weaving: 0.1
+    Mistakes: 0.8
+  - Name: FuelSaver       # lift and coast
+    Share: 20
+    Aggression: -10
+    TyreWear: 0.9
+    FuelUse: 0.85
+    Smoothness: 0.7
+    Composure: 0.7
+    Weaving: 0.2
+# Chat messages (de or en), yellow flag message when a car spins, crashes or stops on the track
+ChatLanguage: en
+YellowFlagChat: true
+# Stuck cars: after UnstuckSeconds the front car of a jam goes first and the others go round;
+# emergency: after GhostAfterSeconds (20-40 recommended, 0 = off) the bot is a ghost for a few seconds (CSP 0.2.8+)
+UnstuckSeconds: 4
+GhostAfterSeconds: 25
 # Race craft
 # Seconds stuck behind a slower car until a bot is fully impatient (tries harder to overtake, follows closer, flashes its lights)
 ImpatienceSeconds: 25

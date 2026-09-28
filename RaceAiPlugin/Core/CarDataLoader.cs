@@ -134,16 +134,6 @@ public static partial class CarDataLoader
             string front = $"FRONT{sfx}", rear = $"REAR{sfx}";
             if (!tyres.HasSection(front)) { front = "FRONT"; rear = "REAR"; }
             spec.TyreCompound = tyres.Get(front, "NAME") ?? "";
-            // rain tyres: a compound called wet / rain / intermediate (mods), Kunos GT3 cars only have slicks
-            for (int n = 0; n < 10 && spec.WetCompound == null; n++)
-            {
-                string sec = n == 0 ? "FRONT" : $"FRONT_{n}";
-                if (!tyres.HasSection(sec)) continue;
-                string name = tyres.Get(sec, "NAME") ?? "", shortName = (tyres.Get(sec, "SHORT_NAME") ?? "").Trim().ToUpperInvariant();
-                if (System.Text.RegularExpressions.Regex.IsMatch(name, "wet|rain|inter|regen|monsoon", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
-                    || shortName is "W" or "WET" or "I" or "INT" or "IM")
-                    spec.WetCompound = name;
-            }
             var wf = tyres.Get(front, "WEAR_CURVE");
             var wr = tyres.Get(rear, "WEAR_CURVE");
             if (wf != null && files.TryGetValue(wf, out var fb))

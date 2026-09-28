@@ -144,5 +144,7 @@ public sealed class TrackData
         info.AddSpots(dummies);
         if (root.TryGetProperty("StartFinish", out var sf) && sf.ValueKind == JsonValueKind.Array)
             info.StartFinish = V(sf, 0);
+        if (root.TryGetProperty("Sectors", out var sectors) && sectors.ValueKind == JsonValueKind.Array)
+            foreach (var p in sectors.EnumerateArray()) info.SectorLines.Add(V(p, 0));
     }
 }

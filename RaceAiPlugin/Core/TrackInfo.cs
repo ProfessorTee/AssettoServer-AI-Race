@@ -22,6 +22,9 @@ public sealed class TrackInfo
     public List<TrackRange> Sections { get; } = [];
     public List<GridSpot> StartGrid { get; } = [];
     public List<GridSpot> PitBoxes { get; } = [];
+    /// <summary>Middles of AC_TIME_1.._L/R: the timing sector splits after the start/finish line (in order).</summary>
+    public List<Vector3> SectorLines { get; } = [];
+
     /// <summary>Middle of AC_TIME_0_L/R, the start/finish line.</summary>
     public Vector3? StartFinish { get; set; }
 
@@ -66,6 +69,8 @@ public sealed class TrackInfo
     public void AddSpots(IEnumerable<Kn5Reader.Kn5Dummy> dummies)
     {
         Vector3? timeL = null, timeR = null;
+        var sectorL = new Dictionary<int, Vector3>();
+        var sectorR = new Dictionary<int, Vector3>();
         var seen = new HashSet<string>();
         foreach (var d in dummies)
         {
@@ -76,7 +81,15 @@ public sealed class TrackInfo
                 PitBoxes.Add(new GridSpot(i, d.Position, d.Forward));
             else if (d.Name == "AC_TIME_0_L") timeL = d.Position;
             else if (d.Name == "AC_TIME_0_R") timeR = d.Position;
+            else if (d.Name.StartsWith("AC_TIME_", StringComparison.Ordinal) && d.Name.EndsWith("_L", StringComparison.Ordinal)
+                     && int.TryParse(d.Name.AsSpan(8, d.Name.Length - 10), out int n))
+                sectorL[n] = d.Position;
+            else if (d.Name.StartsWith("AC_TIME_", StringComparison.Ordinal) && d.Name.EndsWith("_R", StringComparison.Ordinal)
+                     && int.TryParse(d.Name.AsSpan(8, d.Name.Length - 10), out int m))
+                sectorR[m] = d.Position;
         }
+        foreach (var (n, l) in sectorL.OrderBy(k => k.Key))
+            if (sectorR.TryGetValue(n, out var r)) SectorLines.Add((l + r) / 2);
         StartGrid.Sort((a, b) => a.Index.CompareTo(b.Index));
         PitBoxes.Sort((a, b) => a.Index.CompareTo(b.Index));
         if (timeL.HasValue && timeR.HasValue) StartFinish = (timeL.Value + timeR.Value) / 2;

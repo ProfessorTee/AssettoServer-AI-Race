@@ -25,6 +25,8 @@ public sealed class DriverProfile
     public float Consistency { get; set; } = 0.9f;
     /// <summary>0..1: human errors (late/early braking, sliding on the exit, spins). Weaker bots get more.</summary>
     public float Errors { get; set; }
+    /// <summary>Driving style.</summary>
+    public Personality Personality { get; set; } = Personality.Balanced;
 
     /// <summary>AI strength in percent (or AI level 0-100), for display.</summary>
     public float Level { get; set; } = 100;
@@ -219,6 +221,18 @@ public sealed class RaceBot
     internal float SteerExtraDeg, RearSlip = 1f;
     internal bool FrontLock;
     internal double MarginOverrideUntil;
+    /// <summary>Stuck in a cluster of stopped cars: sorting it out.</summary>
+    public bool Unstuck { get; internal set; }
+    /// <summary>Emergency ghost (no collisions) until this time.</summary>
+    public double GhostUntil { get; internal set; } = double.NegativeInfinity;
+    public int GhostCount { get; internal set; }
+    /// <summary>Seconds a car has been sitting close behind in the slipstream (pressure on this bot) and 0..1 effect of it.</summary>
+    internal float PressureTime;
+    public float Pressure { get; internal set; }
+    /// <summary>Seconds this bot has been stuck in somebody's slipstream, and whether it's weaving right now.</summary>
+    internal float DraftTime;
+    public bool Weaving { get; internal set; }
+    internal float WeaveCenter;
     internal float MisjudgeTowards;
     internal double LastContactAt = double.NegativeInfinity;
     internal int LastContactWith = -1;
@@ -232,9 +246,6 @@ public sealed class RaceBot
     /// <summary>Changes whenever the damage changes (so the server knows when to send an update).</summary>
     public int DamageVersion { get; internal set; }
     internal bool PitRepair;
-    /// <summary>On rain tyres.</summary>
-    public bool OnWets { get; set; }
-    internal bool PitToWets;
     /// <summary>Nobody ahead within the high beam range: at night the bot may use its high beams.</summary>
     public bool ClearAhead { get; internal set; }
     internal double ClearAheadSince;
@@ -363,10 +374,6 @@ public sealed class RaceWorldSettings
     public float ServerRainReduction { get; set; }
     /// <summary>Grip lost on a wet track (1 = normal).</summary>
     public float RainGripLoss { get; set; } = 1f;
-    /// <summary>Bots change to rain tyres (if the car has a wet compound, or <see cref="VirtualWetTyres"/>) and back to slicks.</summary>
-    public bool WetTyres { get; set; } = true;
-    /// <summary>Bots may use rain tyres even if the car has none (players can't!).</summary>
-    public bool VirtualWetTyres { get; set; }
     /// <summary>On slicks in the wet the bots drive more carefully, make more mistakes and can aquaplane.</summary>
     public bool RainCaution { get; set; } = true;
 }
@@ -618,6 +625,7 @@ public sealed partial class RaceWorld
         _stepDt = dt;
         BuildNeighbors();
         FindIncidents();
+        WatchStoppedCars();
 
         foreach (var bot in Bots)
         {
@@ -628,13 +636,12 @@ public sealed partial class RaceWorld
                     if (bot.Speed < 1f)
                     {
                         if (double.IsNaN(bot.StoppedSince)) bot.StoppedSince = now;
-                        else if (now - bot.StoppedSince > 12 && now > bot.IgnorePlayersUntil + 10)
-                            bot.IgnorePlayersUntil = now + 6;
                     }
                     else if (bot.Speed > 5f)
                     {
                         bot.StoppedSince = double.NaN;
                     }
+                    UpdateStuck(bot);
                     if (bot.InPitLane)
                     {
                         PitStep(bot, dt);
@@ -726,13 +733,13 @@ public sealed partial class RaceWorld
         var car = bot.Car;
         float skill = bot.Driver.Pace - extraPaceLoss + bot.PaceNoise;
         if (_now < bot.MistakeUntil) skill -= 0.08f; // braked too early / too carefully
-        if (Settings.RainCaution) skill -= WetFactor() * (bot.OnWets ? 0.015f : 0.05f); // careful in the wet, much more on slicks
+        if (Settings.RainCaution) skill -= WetFactor() * 0.05f; // careful in the wet
         float phys = Settings.GripFactor * bot.CarGrip * (bot.Phase == BotPhase.CoolDown ? Settings.CoolDownPace : 1);
         float pace = DriverProfile.CornerSkill(skill) * phys;
         float brakePace = DriverProfile.BrakeSkill(skill) * phys;
 
         float v = MathF.Max(bot.Speed, 10);
-        float horizon = v * v / (2 * car.BrakeAt(0, brakePace)) + 40;
+        float horizon = v * v / (2 * car.BrakeAt(0, brakePace, bot.MassRatio)) + 40;
         float s0 = Line.WrapS((float)bot.Distance);
         float best = car.TopSpeed * (1 + 0.12f * bot.Draft) * (bot.Phase == BotPhase.CoolDown ? Settings.CoolDownPace : 1) / MathF.Sqrt(DamageDrag(bot));
         // braked too late: plans with more braking than the car has
@@ -750,7 +757,7 @@ public sealed partial class RaceWorld
                 k = MathF.Sign(k) / MathF.Max(r, 4f);
             }
 
-            float vLim = car.CornerLimit(k, Line.VerticalCurvature[i], pace);
+            float vLim = car.CornerLimit(k, Line.VerticalCurvature[i], pace, bot.MassRatio);
             if (Settings.UseTrackHints)
                 vLim = MathF.Min(vLim * MathF.Sqrt(Line.HintFactor[i]), Line.MaxSpeed[i]); // hint scales the usable grip
             if (Settings.SpeedHintScale > 0 && Line.SpeedHint[i] > 5)
@@ -758,9 +765,12 @@ public sealed partial class RaceWorld
 
             if (vLim >= best) continue;
             // attacking drivers brake a little later
-            float decel = car.BrakeAt((vLim + v) * 0.5f, brakePace) * (bot.OvertakeTargetId >= 0 ? 0.9f + 0.07f * bot.Driver.Aggression : 0.9f) * lateBrake;
+            float decel = car.BrakeAt((vLim + v) * 0.5f, brakePace, bot.MassRatio) * (bot.OvertakeTargetId >= 0 ? 0.9f + 0.07f * bot.Driver.Aggression : 0.9f) * lateBrake;
             // small speed drops (fast kinks) are taken with a gentle, early brush of the brakes, big ones with hard braking
             decel *= Math.Clamp(0.4f + 0.6f * (v - vLim) / 14f, 0.4f, 1f);
+            // late brakers brake later (even more when attacking), smooth drivers earlier and softer (lift and coast)
+            var pers = bot.Driver.Personality;
+            decel *= (1 + 0.05f * pers.LateBraking * (bot.OvertakeTargetId >= 0 ? 1.6f : 1f)) * (1 - 0.15f * pers.Smoothness);
             float allowed = MathF.Sqrt(vLim * vLim + 2 * decel * d);
             if (allowed < best) best = allowed;
         }
@@ -809,6 +819,7 @@ public sealed partial class RaceWorld
             if (o.IsBot && o.Id == me.Id) continue;
             if (!o.IsBot && ignorePlayers) continue;
             float ds = Line.Delta(myS, o.S);
+            if (!Considers(me, o, ds)) continue;
             float longClear = (me.Car.Length + o.Length) / 2;
             float margin = _now < me.MarginOverrideUntil ? -0.2f : Settings.SideMargin;
             float latClear = (me.Car.Width + o.Width) / 2 + margin;
@@ -869,6 +880,12 @@ public sealed partial class RaceWorld
 
         me.Draft = draft;
         UpdateClearAhead(me, myS);
+
+        // pressure: somebody (player or bot) sitting right behind in my slipstream for a long time makes me nervous
+        bool pressed = behind is { } pb && behindGap < 20 && MathF.Abs(pb.Offset - me.Offset) < 1.6f && me.Phase == BotPhase.Racing;
+        me.PressureTime = pressed ? me.PressureTime + _stepDt : MathF.Max(0, me.PressureTime - 2 * _stepDt);
+        me.Pressure = Math.Clamp((me.PressureTime - 5) / 25f, 0, 1) * (1 - Math.Clamp(me.Driver.Personality.Composure, 0, 1));
+        me.Weaving = false;
         float vLine = LineSpeedLimit(me, me.TargetOffset, 0);
         float vTarget = vLine;
 
@@ -988,7 +1005,20 @@ public sealed partial class RaceWorld
                 : 0;
             me.Impatience = imp;
 
-            float attackRange = 3 + me.Speed * (0.12f + 0.18f * me.Driver.Aggression) + imp * 8;
+            float attackRange = 3 + me.Speed * (0.12f + 0.18f * me.Driver.Aggression) + imp * 8
+                                + 4 * me.Driver.Personality.InsideLine + 3 * me.Driver.Personality.LateBraking;
+
+            // stuck in the slipstream on a straight for a while: weave a little to unsettle the car in front
+            if (me.Draft > 0.05f && !gripLimited && aheadGap > 4 && aheadGap < 30 && me.OvertakeTargetId != a.Id)
+                me.DraftTime += _stepDt;
+            else
+                me.DraftTime = MathF.Max(0, me.DraftTime - 2 * _stepDt);
+            float weaving = me.Driver.Personality.Weaving;
+            if (weaving > 0.05f && me.DraftTime > 7 - 4 * weaving && !gripLimited && !yellow && !blueFlag && me.Phase == BotPhase.Racing)
+            {
+                me.Weaving = true;
+                me.WeaveCenter = a.Offset;
+            }
             float needAdvantage = (1.2f - 0.9f * me.Driver.Aggression) * (1 - imp);
 
             // flash the lights at the car in front
@@ -1018,6 +1048,7 @@ public sealed partial class RaceWorld
             }
 
             bool blocked = MathF.Abs(a.Offset - me.Offset) < latClear - Settings.SideMargin * 0.5f;
+            if (UnstuckAround(me, a, myS, minOff, maxOff, ref vTarget)) blocked = false;
             if (blocked)
             {
                 float followGap = 1.5f + me.Speed * (cautious ? 0.45f : 0.10f + 0.20f * (1 - me.Driver.Aggression));
@@ -1041,7 +1072,7 @@ public sealed partial class RaceWorld
         // ---- defend against a faster car right behind
         if (behind is { } b && me.OvertakeTargetId < 0 && me.Phase == BotPhase.Racing && !blueFlag && !yellow
             && behindGap < 8 && b.Speed > me.Speed + 0.5f && _now > me.DefendUntil + 6
-            && me.Driver.Aggression > 0.25f && _rng.NextSingle() < me.Driver.Aggression * 0.05f)
+            && me.Driver.Aggression > 0.25f && _rng.NextSingle() < me.Driver.Aggression * 0.05f * (1 + me.Driver.Personality.InsideLine))
         {
             // one move towards the inside of the next corner
             float k = NextCornerSign(myS, 250);
@@ -1069,9 +1100,16 @@ public sealed partial class RaceWorld
             else if (_now >= me.ReturnToLineAfter)
             {
                 // go back to the racing line when that lane is free
-                if (LaneFree(me, 0, myS, -(me.Car.Length + 2), 25))
-                    me.TargetOffset = 0;
+                float lineOffset = RainLineOffset(me, myS, minOff, maxOff);
+                if (LaneFree(me, lineOffset, myS, -(me.Car.Length + 2), 25))
+                    me.TargetOffset = lineOffset;
             }
+        }
+
+        if (me.Weaving && me.OvertakeTargetId < 0 && !blueFlag)
+        {
+            float amp = 0.5f + 0.7f * me.Driver.Personality.Weaving;
+            me.TargetOffset = me.WeaveCenter + amp * MathF.Sin((float)(_now * 2 * Math.PI / 2.4) + me.Id);
         }
 
         if (_now < me.MistakeUntil)
@@ -1127,6 +1165,12 @@ public sealed partial class RaceWorld
         bool minusOk = minus >= lo && LaneFree(me, minus, myS, -(me.Car.Length + 3), span, a.Id);
 
         side = 0;
+        float cornerAhead = NextCornerSign(myS, 250);
+        if (me.Driver.Personality.InsideLine >= 0.5f && cornerAhead != 0)
+        {
+            // dive-bombers only go down the inside
+            if (cornerAhead > 0) minusOk = false; else plusOk = false;
+        }
         if (!plusOk && !minusOk) return false;
         if (plusOk && !minusOk) { side = plus; return true; }
         if (minusOk && !plusOk) { side = minus; return true; }
@@ -1200,8 +1244,8 @@ public sealed partial class RaceWorld
         // is released gradually towards the apex (trail braking), and small corrections are done by lifting only (no brake lights)
         float drag = me.Car.DragCoefficient * v * v * DamageDrag(me);
         float coast = drag + 1.0f; // lifting: drag + engine braking
-        float maxBrake = me.Car.BrakeAt(v, DriverProfile.BrakeSkill(skill) * phys);
-        float physBrake = me.Car.BrakeAt(v, phys); // what the car could do: the pedal is shown relative to this
+        float maxBrake = me.Car.BrakeAt(v, DriverProfile.BrakeSkill(skill) * phys, me.MassRatio);
+        float physBrake = me.Car.BrakeAt(v, phys, me.MassRatio); // what the car could do: the pedal is shown relative to this
         float targetFall = double.IsNaN(me.PrevTargetSpeed) ? 0 : MathF.Max(0, (me.PrevTargetSpeed - target) / dt);
         me.PrevTargetSpeed = target;
         float accel;
@@ -1269,6 +1313,7 @@ public sealed partial class RaceWorld
             {
                 if (o.IsBot && o.Id == me.Id) continue;
                 if (!o.IsBot && _now < me.IgnorePlayersUntil) continue;
+                if (me.GhostUntil > _now || (o.IsBot && o.Bot!.GhostUntil > _now)) continue;
                 if (o.IsBot && OffTrackInPits(o.Bot!)) continue;
                 float oS = o.IsBot ? Line.WrapS((float)o.Bot!.Distance) : o.S;
                 float oOff = o.IsBot ? o.Bot!.Offset : o.Offset;

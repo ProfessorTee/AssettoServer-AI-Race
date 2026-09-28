@@ -104,6 +104,7 @@ public static class SelfTest
         // pit stops: pit lane parallel to the first straight, heavy fuel use
         FlagTest(line);
         HumanTest(line);
+        StuckTest(line);
         PitTest(line);
 
         Console.WriteLine(_failed == 0 ? "SELFTEST OK" : $"SELFTEST FAILED ({_failed})");
@@ -223,6 +224,60 @@ public static class SelfTest
             hb.GetPose(lead).HighBeam && !hb.GetPose(follow).HighBeam);
     }
 
+    private static void StuckTest(RacingLine line)
+    {
+        // a jam: three bots side by side and one behind, all standing, a stopped player car right in front of them
+        var world = new RaceWorld(line, new RaceWorldSettings { Seed = 8, HumanErrors = false, RaceStartTime = -100 });
+        var start = new List<RaceBot>();
+        for (int i = 0; i < 4; i++)
+        {
+            var b = new RaceBot { Id = i, Name = $"J{i}", Car = new CarSpec(), Driver = DriverProfile.FromLevel(95, 60) };
+            world.Bots.Add(b);
+        }
+        world.PlaceAt(world.Bots[0], 300, -2.3f, BotPhase.Racing);
+        world.PlaceAt(world.Bots[1], 300, 0f, BotPhase.Racing);
+        world.PlaceAt(world.Bots[2], 300.5, 2.3f, BotPhase.Racing);
+        world.PlaceAt(world.Bots[3], 294, 0f, BotPhase.Racing);
+        foreach (var b in world.Bots) { b.Speed = 0; b.TimingValid = true; }
+        var wreck = world.GetOrAddExternal(99);
+        var wreckPos = line.PositionAt(306, 0.3f);
+        var yellows = new List<YellowFlagEvent>();
+        world.YellowFlag += e => yellows.Add(e);
+        double t = 0;
+        world.Advance(0);
+        while (t < 90)
+        {
+            t += 0.05;
+            world.UpdateExternal(wreck, wreckPos, System.Numerics.Vector3.Zero);
+            world.Advance(t);
+        }
+        float minMoved = world.Bots.Min(b => (float)b.Distance - 300);
+        Check($"stuck cluster sorted out: every bot got going (min {minMoved:F0} m, ghosts {world.Bots.Sum(b => b.GhostCount)})", minMoved > 150);
+        Check($"yellow flag for the stopped car ({yellows.Count} messages)", yellows.Any(y => y.CarId == 99));
+
+        // road completely blocked by standing player cars: after GhostAfter the bot ghosts through
+        var w2 = new RaceWorld(line, new RaceWorldSettings { Seed = 9, HumanErrors = false, RaceStartTime = -100 });
+        var g = new RaceBot { Id = 0, Name = "G", Car = new CarSpec(), Driver = DriverProfile.FromLevel(95, 60) };
+        w2.Bots.Add(g);
+        w2.PlaceAt(g, 300, 0, BotPhase.Racing);
+        g.TimingValid = true;
+        int idx = line.IndexAt(310);
+        var blockers = new List<(ExternalCar Car, System.Numerics.Vector3 Pos)>();
+        for (float off = -line.RoomMinus[idx]; off <= line.RoomPlus[idx]; off += 1.9f)
+            blockers.Add((w2.GetOrAddExternal(100 + blockers.Count), line.PositionAt(310, off)));
+        t = 0;
+        w2.Advance(0);
+        double ghostAt = -1;
+        while (t < 80)
+        {
+            t += 0.05;
+            foreach (var (car, pos) in blockers) w2.UpdateExternal(car, pos, System.Numerics.Vector3.Zero);
+            w2.Advance(t);
+            if (ghostAt < 0 && g.GhostUntil > t) ghostAt = t;
+        }
+        Check($"road blocked: ghosted after {ghostAt:F0} s and got through ({g.Distance - 300:F0} m)", ghostAt > 20 && g.Distance > 400);
+    }
+
     private static void PitTest(RacingLine line)
     {
         var lanePts = new List<FastLanePoint>();
@@ -271,34 +326,11 @@ public static class SelfTest
         Check($"pit stops made ({stops}), all finished", stops >= 4 && world.Bots.All(b => b.LapsCompleted >= 12));
         Check("nobody ran out of fuel", !dry);
 
-        // rain: grip of slicks and rain tyres, starting on wets, back to slicks when it dries
-        var rain = new RaceWorld(line, new RaceWorldSettings { Seed = 6, FuelRate = 1, TyreWearRate = 1, VirtualWetTyres = true,
-            Wetness = 0.8f, Water = 0.3f, RainIntensity = 0.5f }) { PitLane = lane };
-        for (int i = 0; i < 3; i++)
-        {
-            var bot = new RaceBot { Id = i, Name = $"R{i}", Car = new CarSpec { FuelCapacity = 60, KmPerLiter = 1.6f }, Driver = DriverProfile.FromLevel(95, 50) };
-            rain.Bots.Add(bot);
-            rain.SetPitBox(bot, new Vector3(250 + i * 10, 0, 13));
-        }
-        rain.PlaceOnGrid(rain.Bots);
-        foreach (var b in rain.Bots) rain.ResetCarCondition(b, rain.FuelForLaps(b, 20));
-        var r0 = rain.Bots[0];
-        float wetGrip = rain.RainGrip(r0);
-        r0.OnWets = false;
-        float slickGrip = rain.RainGrip(r0);
-        r0.OnWets = true;
-        Check($"rain: starts on rain tyres, grip wets {wetGrip:F2} vs slicks {slickGrip:F2}", rain.Bots.All(b => b.OnWets) && wetGrip > slickGrip + 0.1f);
-        rain.StartRace(0);
-        t = 0;
-        rain.Advance(0);
-        while (t < 700)
-        {
-            t += 0.05;
-            if (t > 60) { rain.Settings.Wetness = 0.05f; rain.Settings.Water = 0; rain.Settings.RainIntensity = 0; }
-            foreach (var b in rain.Bots) b.RemainingLaps = Math.Max(0, 20 - b.LapsCompleted);
-            rain.Advance(t);
-        }
-        Check($"rain: back on slicks when it dried ({rain.Bots.Count(b => !b.OnWets)}/3, stops {rain.Bots.Sum(b => b.PitStops)})", rain.Bots.All(b => !b.OnWets));
+        // rain: less grip, more careful
+        var rain = new RaceWorld(line, new RaceWorldSettings { Seed = 6, Wetness = 0.8f, Water = 0.3f, RainIntensity = 0.5f });
+        var rb = new RaceBot { Id = 0, Name = "R", Car = new CarSpec(), Driver = DriverProfile.FromLevel(95, 50) };
+        rain.Bots.Add(rb);
+        Check($"rain: wet grip {rain.RainGrip(rb):F2}", rain.RainGrip(rb) < 0.9f);
     }
 
     private static void Check(string name, bool ok)

@@ -30,6 +30,7 @@ public static class Program
             {
                 "sim" => Simulator.Run(opts),
                 "grid" => Grid(opts),
+                "fuel" => Fuel(opts),
                 "car" => Car(opts),
                 "selftest" => SelfTest.Run(opts),
                 "strength" => Strength(opts),
@@ -84,6 +85,30 @@ public static class Program
         return Directory.Exists(p) ? p : Path.Join(trackRoot, "data");
     }
 
+    /// <summary>Effect of the fuel load: braking distance and lap time with a light and a full tank.</summary>
+    private static int Fuel(Options o)
+    {
+        var (trackRoot, layout, carsRoot) = ResolvePaths(o);
+        var line = new RacingLine(FastLaneFile.Read(FastLanePath(trackRoot, layout)));
+        var car = CarDataLoader.Load(carsRoot, o.Get("model") ?? "ks_mercedes_amg_gt3");
+        var settings = new RaceWorldSettings();
+        foreach (float litres in new[] { 20f, car.FuelCapacity / 2, car.FuelCapacity })
+        {
+            float mass = car.ReferenceMass - 25 + litres * 0.745f;
+            float ratio = mass / car.ReferenceMass;
+            float grip = 1 - 0.3f * (ratio - 1);
+            // braking 250 -> 80 km/h
+            float d = 0;
+            for (float v = 250 / 3.6f; v > 80 / 3.6f; v -= 0.1f) d += v * 0.1f / car.BrakeAt(v, grip, ratio);
+            float t0 = 0; float v0 = 80 / 3.6f; float t = 0;
+            for (float v = 0; v < 200 / 3.6f; t += 0.01f) v += car.AccelAt(v, 1) / ratio * 0.01f;
+            _ = t0; _ = v0;
+            float lap = StrengthCalibration.FlyingLap(line, car, 1f, settings, out _, out _, 0, 1, litres);
+            Console.WriteLine($"{litres,5:F0} l  {mass,6:F0} kg  brake 250->80 {d,5:F1} m  0-200 {t,5:F2} s  lap {TimeSpan.FromSeconds(lap):m\\:ss\\.fff}");
+        }
+        return 0;
+    }
+
     private static int Grid(Options o)
     {
         var (trackRoot, layout, _) = ResolvePaths(o);
@@ -102,7 +127,8 @@ public static class Program
             var p = line.Project(g.Position);
             Console.WriteLine($"AC_START_{g.Index,-3} s={p.S,8:F1} offset={p.Offset,6:F2} height={p.Height,5:F2}  {g.Position}");
         }
-        Console.WriteLine($"{info.PitBoxes.Count} pit boxes");
+        Console.WriteLine($"{info.PitBoxes.Count} pit boxes, {info.SectorLines.Count} sector splits");
+        foreach (var sl in info.SectorLines) Console.WriteLine($"  sector split at s={line.Project(sl).S:F0}");
         var pitPath = Path.Join(Path.GetDirectoryName(FastLanePath(trackRoot, layout))!, "pit_lane.ai");
         var world = new RaceWorld(line, new RaceWorldSettings { SpotHeightOffset = RaceWorld.MeasureSpotHeight(line, info.StartGrid.Select(g => g.Position)) }) { PitLane = File.Exists(pitPath) ? new PitLane(FastLaneFile.Read(pitPath), line) : null };
         foreach (var g in info.PitBoxes.Take(o.Has("verbose") ? 999 : 5))
@@ -121,7 +147,8 @@ public static class Program
                 Layout = layout,
                 StartFinish = info.StartFinish is { } v ? [v.X, v.Y, v.Z] : null,
                 Grid = info.StartGrid.Select(g => new[] { g.Position.X, g.Position.Y, g.Position.Z, g.Forward.X, g.Forward.Y, g.Forward.Z }).ToList(),
-                Pits = info.PitBoxes.Select(g => new[] { g.Position.X, g.Position.Y, g.Position.Z, g.Forward.X, g.Forward.Y, g.Forward.Z }).ToList()
+                Pits = info.PitBoxes.Select(g => new[] { g.Position.X, g.Position.Y, g.Position.Z, g.Forward.X, g.Forward.Y, g.Forward.Z }).ToList(),
+                Sectors = info.SectorLines.Select(p => new[] { p.X, p.Y, p.Z }).ToList()
             };
             File.WriteAllText(outPath, JsonSerializer.Serialize(json, new JsonSerializerOptions { WriteIndented = true }));
             Console.WriteLine($"Written {outPath}");
@@ -188,6 +215,8 @@ public sealed class GridFile
     public float[]? StartFinish { get; set; }
     public List<float[]> Grid { get; set; } = [];
     public List<float[]> Pits { get; set; } = [];
+    /// <summary>Timing sector splits (AC_TIME_1.., middle of L/R).</summary>
+    public List<float[]> Sectors { get; set; } = [];
 }
 
 public sealed class Options

@@ -1,3 +1,4 @@
+using RaceAiPlugin.Core;
 using AssettoServer.Server.Configuration;
 using JetBrains.Annotations;
 using YamlDotNet.Serialization;
@@ -55,6 +56,48 @@ public class BotDriverConfiguration
     public float? Level { get; set; }
     [YamlMember(Description = "AI aggression 0-100 for this driver. Empty = global AiAggression")]
     public float? Aggression { get; set; }
+    [YamlMember(Description = "Personality name from Personalities (e.g. DiveBomber, Chill). Empty = random by Share")]
+    public string? Personality { get; set; }
+}
+
+/// <summary>A driving style. All values are optional; see the defaults in the reference configuration.</summary>
+[UsedImplicitly(ImplicitUseKindFlags.Assign, ImplicitUseTargetFlags.WithMembers)]
+public class PersonalityConfiguration
+{
+    public string Name { get; set; } = "Balanced";
+    [YamlMember(Description = "How often this personality is picked (relative to the others)")]
+    public float Share { get; set; } = 1;
+    [YamlMember(Description = "Added to the aggression (-100..100)")]
+    public float Aggression { get; set; }
+    [YamlMember(Description = "0..1: brakes later (more when attacking), dives from further back, sometimes too late")]
+    public float LateBraking { get; set; }
+    [YamlMember(Description = "0..1: attacks and defends on the inside; 0.5 and above never tries round the outside")]
+    public float InsideLine { get; set; }
+    [YamlMember(Description = "Tyre wear multiplier (1.0 = 100 %)")]
+    public float TyreWear { get; set; } = 1;
+    [YamlMember(Description = "Fuel use multiplier (1.0 = 100 %)")]
+    public float FuelUse { get; set; } = 1;
+    [YamlMember(Description = "0..1: gentle inputs, earlier and softer braking, lift and coast: saves tyres and fuel, costs a little time")]
+    public float Smoothness { get; set; }
+    [YamlMember(Description = "0..1: calm under pressure when somebody sits in the slipstream for long (1 = no extra mistakes)")]
+    public float Composure { get; set; } = 0.5f;
+    [YamlMember(Description = "0..1: weaves behind the car in front after a while in its slipstream")]
+    public float Weaving { get; set; } = 0.4f;
+    [YamlMember(Description = "Mistake multiplier (1.0 = 100 %)")]
+    public float Mistakes { get; set; } = 1;
+
+    public Personality ToPersonality() => new()
+    {
+        Name = Name, Aggression = Aggression / 100f, LateBraking = LateBraking, InsideLine = InsideLine, TyreWear = TyreWear, FuelUse = FuelUse,
+        Smoothness = Smoothness, Composure = Composure, Weaving = Weaving, Mistakes = Mistakes
+    };
+
+    public static List<PersonalityConfiguration> Defaults() => Personality.Defaults().Select(d => new PersonalityConfiguration
+    {
+        Name = d.Personality.Name, Share = d.Share, Aggression = d.Personality.Aggression * 100, LateBraking = d.Personality.LateBraking,
+        InsideLine = d.Personality.InsideLine, TyreWear = d.Personality.TyreWear, FuelUse = d.Personality.FuelUse,
+        Smoothness = d.Personality.Smoothness, Composure = d.Personality.Composure, Weaving = d.Personality.Weaving, Mistakes = d.Personality.Mistakes
+    }).ToList();
 }
 
 [UsedImplicitly(ImplicitUseKindFlags.Assign, ImplicitUseTargetFlags.WithMembers)]
@@ -220,14 +263,7 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     [YamlMember(Description = "Bot damage on top of DAMAGE_MULTIPLIER: 1.0 = 100 %")]
     public float BotDamageFactor { get; set; } = 1.0f;
 
-    [YamlMember(Description = "Bots change to rain tyres when the track gets wet and back to slicks when it dries (needs a car with a wet compound, or VirtualWetTyres)")]
-    public bool WetTyres { get; set; } = true;
-
-    [YamlMember(Description = "Bots may use rain tyres even if the car has none in its tyres.ini. CSP Rain FX generates rain tyres for every car offline, " +
-                              "but online players usually can't select them, so this is off by default (fair: everybody on slicks)")]
-    public bool VirtualWetTyres { get; set; } = false;
-
-    [YamlMember(Description = "On slicks in the wet the bots drive more carefully, make more mistakes and can aquaplane on standing water")]
+    [YamlMember(Description = "In the wet the bots drive more carefully, make more mistakes, take a rain line away from the water and can aquaplane")]
     public bool RainCaution { get; set; } = true;
 
     [YamlMember(Description = "At night bots use their high beams when nobody (player or bot) is within HighBeamRange ahead, and dip them as soon as somebody is")]
@@ -238,6 +274,25 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
 
     [YamlMember(Description = "Height correction for bots parked in their pit box (m, + = higher, - = lower)")]
     public float ParkHeightAdjust { get; set; } = 0;
+
+    [YamlMember(Description = "Driver personalities: every bot gets one (random by Share, or Drivers[].Personality). false = everybody Balanced")]
+    public bool UsePersonalities { get; set; } = true;
+
+    [YamlMember(Description = "The personalities. Change the values, add your own or delete some. Empty = built-in set (Balanced, DiveBomber, Chill, FuelSaver)")]
+    public List<PersonalityConfiguration> Personalities { get; set; } = [];
+
+    [YamlMember(Description = "Chat message 'Yellow flag in sector X' when a car spins, crashes or stops on the track")]
+    public bool YellowFlagChat { get; set; } = true;
+
+    [YamlMember(Description = "Language of the chat messages: de or en")]
+    public string ChatLanguage { get; set; } = "en";
+
+    [YamlMember(Description = "Stuck in a cluster of standing cars for this long (s): the front car goes first, the others go round")]
+    public float UnstuckSeconds { get; set; } = 4;
+
+    [YamlMember(Description = "Emergency: a bot standing this long (s) becomes a ghost for a few seconds (no collisions, also for players with CSP 0.2.8+) " +
+                              "and drives out of the jam. 0 = never")]
+    public float GhostAfterSeconds { get; set; } = 25;
 
     [YamlMember(Description = "Announce bot pit stops in chat")]
     public bool AnnouncePitStops { get; set; } = true;

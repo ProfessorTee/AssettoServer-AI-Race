@@ -46,26 +46,42 @@ Das Plugin besteht aus zwei Teilen:
 - Offizielle Rundenzeiten in Training, Qualifying und Rennen; das Qualifying-Ergebnis bestimmt die Startaufstellung
 - Nach der Zielflagge: Auslaufrunde, danach geht es in die Box (`AC_PIT_x`)
 - Grip der Strecke (Dynamic Track, Regen) macht die Bots langsamer, genau wie die Spieler
-- **Sprit und Gewicht:** Verbrauch aus `fuel_cons.ini` bzw. `car.ini` mal `FUEL_RATE`. Ein voller Tank macht das Auto schwerer und langsamer.
+- **Sprit und Gewicht:** Verbrauch aus `fuel_cons.ini` bzw. `car.ini` mal `FUEL_RATE`. Der Sprit zählt zum Gewicht: Ein voller Tank
+  bedeutet einen längeren Bremsweg, schlechtere Beschleunigung und etwas weniger Grip. Beim Mercedes GT3 sind das mit 120 l statt 20 l
+  etwa 3 m mehr von 250 auf 80 km/h, 0,6 s mehr von 0 auf 200 und rund 6 s pro Nordschleifen-Runde (`RaceAiTool fuel`).
 - **Reifen:** Verschleiß über die Kunos-Verschleißkurven der Standardmischung (`tyres.ini`), mal `TYRE_WEAR_RATE`.
   Neue Reifen sind in den ersten Kilometern kalt.
 - **Boxenstopps:** Die Bots fahren über `pit_lane.ai` mit Tempolimit an ihre Box (`AC_PIT_x`), tanken und wechseln die Reifen
   (Standzeit aus `car.ini`) und fahren wieder raus. Die Strategie rechnet: Reicht der Sprit bis ins Ziel? Kosten die alten Reifen
   bis zum Ende mehr Zeit als ein Stopp? Die Pflicht-Boxenstopp-Fenster `RACE_PIT_WINDOW_START/END` werden eingehalten.
+- **Fahrerpersönlichkeiten** (`Personalities`, frei konfigurierbar in der YAML):
+  - `DiveBomber`: bremst spät, greift nur innen an, verschleißt die Reifen stärker
+  - `Chill`: fährt reifenschonend und ruhig
+  - `FuelSaver`: Lift and Coast, spart Sprit
+  - `Balanced`: normal
+
+  Werte pro Persönlichkeit: Aggressivität, spätes Bremsen, Innenbahn, Reifen- und Spritverbrauch, Sanftheit, Nervenstärke,
+  Pendeln und Fehlerquote. Die Zuteilung ist zufällig nach `Share` oder fest pro Fahrer (`Drivers[].Personality`).
+- **Druck von hinten:** Sitzt ein Spieler oder Bot lange im Windschatten, wird der Vordermann nervös und macht etwas mehr Fehler,
+  abhängig von `Composure`. Der Verfolger fängt auf der Geraden nach einer Weile an zu pendeln, um ihn zu verunsichern (`Weaving`).
 - **Ungeduld:** Wer hinter einem langsameren Auto festhängt, wird mit der Zeit ungeduldig (`ImpatienceSeconds`). Er fährt dichter auf,
   greift früher an, sucht öfter eine Lücke und gibt die Lichthupe (nachts Fernlicht, tagsüber Scheinwerfer). Crashs vermeidet er trotzdem.
 - **Blaue Flagge:** Ein überrundeter Bot fährt an den Rand, setzt den Blinker zu dieser Seite und nimmt etwas Gas weg. Der Führende
   fährt auf der anderen Seite vorbei.
 - **Gelbe Flagge:** Steht ein Auto auf der Strecke, schalten die Bots in der Nähe den Warnblinker ein, fahren langsamer und überholen nicht.
+  Im Chat erscheint „Gelbe Fahne in Sektor 2 (Flugplatz): … hat sich gedreht“ (`YellowFlagChat`, Sprache mit `ChatLanguage: de`).
+- **Festgefahren:**
+  - Stehen Autos nach `UnstuckSeconds` (4 s) noch in einem Knäuel, fährt das vorderste zuerst los und die anderen fahren
+    gezielt drumherum.
+  - Notfall: Steht ein Bot `GhostAfterSeconds` lang (25 s, empfohlen 20–40), wird er für ein paar Sekunden zum Geist. Er kollidiert
+    dann mit niemandem, auch nicht mit Spielern (ab CSP 0.2.8), und fährt aus dem Stau heraus.
 - **Regen:**
-  - Nasse Strecke und stehendes Wasser kosten Grip, je nach Reifen: Slicks verlieren viel, Regenreifen wenig. Dafür sind
-    Regenreifen im Trockenen langsamer und verschleißen schnell.
-  - Auf Slicks im Nassen fahren die Bots vorsichtiger, machen mehr Fehler und schwimmen auf stehendem Wasser auch mal auf
-    (`RainCaution`).
-  - Reifenwechsel (`WetTyres`): Bei Regen wechseln die Bots in der Box auf Regenreifen und beim Abtrocknen zurück auf Slicks.
-    CSP Rain FX erzeugt offline für jedes Auto Regenreifen, auch für die Kunos-GT3, die in `tyres.ini` nur Slicks haben. Online lassen
-    sie sich meist nicht auswählen (getestet mit AssettoServer). Deshalb nutzen die Bots sie nur mit `VirtualWetTyres: true`, sonst
-    bleiben alle fair auf Slicks. Autos mit einer echten Regenmischung in `tyres.ini` (Mods) wechseln immer.
+  - Nasse Strecke und stehendes Wasser kosten Grip.
+  - Im Nassen fahren die Bots vorsichtiger, machen mehr Fehler und schwimmen auf stehendem Wasser auch mal auf (`RainCaution`).
+  - Regenlinie: Im Nassen verlassen die Bots die gummierte Ideallinie etwas zur Kurvenaußenseite und weichen Senken aus, in denen
+    sich Wasser sammelt. Auf der Ideallinie und in Senken ist Aufschwimmen wahrscheinlicher. Die echten Pfützen berechnet CSP auf den
+    Clients, der Server kennt sie nicht, deshalb ist das das typische Muster.
+  - Regenreifen gibt es nicht: CSP bietet sie online nicht an, deshalb fahren alle auf Slicks.
   - Für die Spieler: Mit CSP Rain FX rechnet das Spiel selbst mit Nässe. Für Spieler ohne Rain-FX-Physik ist Regen nur optisch.
     Für sie senkt `RainTrackGripReductionPercent` (0–0.5) in `extra_cfg.yml` bei Nässe den Grip für alle. Mit Rain FX bleibt der Wert
     auf 0, sonst wird es doppelt rutschig. Die Bots rechnen beides ein.
@@ -96,7 +112,8 @@ Renn-Verhalten: `ImpatienceSeconds`, `FlashLights`, `FlashLightsDaytime`, `BlueF
 `RealWeather`, `RealWeatherUpdateMinutes`, `RealWeatherTransitionSeconds`.
 
 Menschliches Verhalten: `HumanErrors`, `HumanErrorsBelow`, `HumanErrorsFull`, `Spins`, `GrassMoments`, `BotContacts`, `BotDamage`,
-`BotDamageFactor`, `WetTyres`, `VirtualWetTyres`, `RainCaution`, `HighBeams`. Jede dieser Funktionen lässt sich mit `false` abschalten, während der Sitzung auch per Chat (siehe unten).
+`BotDamageFactor`, `RainCaution`, `HighBeams`, `HighBeamRange`, `UsePersonalities`, `Personalities`, `YellowFlagChat`,
+`ChatLanguage`, `UnstuckSeconds`, `GhostAfterSeconds`. Jede dieser Funktionen lässt sich mit `false` abschalten, während der Sitzung auch per Chat (siehe unten).
 
 Weitere Endurance-Optionen: `Fuel`, `TyreWear`, `TyreWearFactor`, `TyreChangeGrip`, `PitStops`, `PitSpeedKmh`, `PracticeFuelLaps`,
 `QualifyingFuelLaps`, `AnnouncePitStops`.
@@ -106,7 +123,7 @@ Chat-Befehle:
 - Als Admin (`/admin <Passwort>`):
   - `/raceai_strength <%> [spread]` und `/raceai_aggression <0-100>`
   - `/raceai_set <Funktion> on|off` schaltet bis zum Neustart ein und aus: `errors`, `spins`, `grass`, `contacts`, `damage`,
-    `blueflags`, `yellowflags`, `flash`, `highbeams`, `wettyres`, `virtualwets`, `raincaution`, `realweather`
+    `blueflags`, `yellowflags`, `flash`, `highbeams`, `raincaution`, `realweather`
   - `/raceai_lighttest`: Licht-Test. Alle Bots zeigen nacheinander je etwa 6 s linken Blinker, rechten Blinker, Warnblinker,
     Lichthupe, Bremslicht und Fernlicht, mit eingeschaltetem Licht. Für Nacht vorher `/settime 22:00`.
   - Regen zum Testen (Befehle von AssettoServer): `/setcspweather HeavyRain 30`, direkt nass mit `/setrain 0.8 0.8 0.3`

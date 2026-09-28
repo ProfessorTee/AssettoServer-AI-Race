@@ -1,4 +1,4 @@
-# Race-AI für AssettoServer: Übergabe (Stand 27.09.2026, 2. Sitzung, Teil 7)
+# Race-AI für AssettoServer: Übergabe (Stand 28.09.2026, 2. Sitzung, Teil 8)
 
 ## Status
 - Der Core-Patch und das Plugin **kompilieren** gegen AssettoServer master (Basis `e92d253`, entspricht Release `v0.0.55-pre42`).
@@ -75,6 +75,23 @@
 - Geparkte Bots auf Boxengassen-Höhe (`OnGround`, `ParkHeightAdjust`). AC_PIT-Dummies liegen auf der Nordschleife 1,3 m höher.
 - `HighBeamRange` einstellbar (Standard 85 m). Online ist CSP-Regen nur optisch, deshalb gilt `RainTrackGripReductionPercent: 0.15`.
   Virtuelle Regenreifen sind standardmäßig aus, weil Spieler online keine CSP-Regenreifen wählen können.
+
+## Neu in Teil 8
+- Regenreifen komplett entfernt (CSP bietet sie online nicht an). Behalten: nasser Grip, `RainCaution`, Aufschwimmen.
+  Neu: `PuddleRisk` (Senken, Ideallinie) und `RainLineOffset`, die Regenlinie weg vom Wasser.
+- Sprit-Gewicht: `CarSpec.BrakeAt`/`CornerLimit` mit `massRatio` (Aero-Hilfe pro kg sinkt). Dazu Lastempfindlichkeit über
+  `massGrip` und Beschleunigung / `MassRatio`. `RaceAiTool fuel` zeigt Bremsweg, 0–200 km/h und Rundenzeit bei 20 l, halbem und
+  vollem Tank.
+- `Personality` (Core) und `PersonalityConfiguration` (YAML, `Personalities`, `UsePersonalities`, `Drivers[].Personality`):
+  `LateBraking` (Planung ×, Angriffe), `InsideLine` (≥ 0,5 nie außen), `TyreWear`/`FuelUse`/`Smoothness` (Verbrauch,
+  sanftere Planung), `Composure` (Druck), `Weaving`, `Mistakes`.
+- Druck: `PressureTime`/`Pressure` (Auto < 20 m hinter mir in der Spur) → `ErrorLevel` +0,15×. Pendeln: `DraftTime`, `Weaving`, `WeaveCenter`.
+- `RaceWorld.Incidents.cs`: `YellowFlag`-Event (Dreher, Unfall > 30 km/h, > 3 s Stillstand, auch Spieler), Chat mit Sektor
+  (`TrackInfo.SectorLines` aus AC_TIME_n, auch in der Grid-JSON) und Streckenabschnitt, höchstens 1× pro Sektor und 15 s.
+  `ChatLanguage` de/en für alle Chat-Meldungen.
+- Festgefahren: `UpdateStuck` → `Unstuck` (vorderes Auto zuerst, `Considers` ignoriert Autos dahinter, `UnstuckAround`
+  umfährt stehende Autos). Notfall-Ghost nach `GhostAfter`: Bot ignoriert alles, `EntryCar.SetCollisions(false)` für die Clients.
+  Der alte „Spieler ignorieren nach 12 s“ gilt nur noch während des Ghostings.
 
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:

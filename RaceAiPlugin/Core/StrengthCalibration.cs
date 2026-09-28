@@ -118,7 +118,7 @@ public sealed class StrengthCalibration
         => FlyingLap(line, car, pace, template, out _, out _);
 
     public static float FlyingLap(RacingLine line, CarSpec car, float pace, RaceWorldSettings template, out float fuelPerLap, out float tyreVkmPerLap,
-        float errors = 0, int seed = 1)
+        float errors = 0, int seed = 1, float fuelLitres = 33.6f)
     {
         var settings = new RaceWorldSettings
         {
@@ -149,7 +149,7 @@ public sealed class StrengthCalibration
         world.PlaceAt(bot, settings.StartLineS - 1500, 0, BotPhase.Racing);
         bot.Speed = 50;
         // constant light fuel load and fresh tyres, so the lap time only depends on the pace
-        world.ResetCarCondition(bot, 33.6f); // 25 kg, the fuel load of the reference mass
+        world.ResetCarCondition(bot, fuelLitres); // 33.6 l = 25 kg, the fuel load of the reference mass
 
         float lap = 0, fuelAtLine = -1, vkmAtLine = 0;
         fuelPerLap = 0;
@@ -172,7 +172,7 @@ public sealed class StrengthCalibration
                 // first crossing: from here the lap is measured
                 fuelAtLine = bot.Fuel;
                 vkmAtLine = bot.TyreVirtualKm;
-                bot.Fuel = 33.6f; // keep the weight constant-ish for the lap
+                bot.Fuel = fuelLitres; // keep the weight constant-ish for the lap
                 fuelAtLine = bot.Fuel;
                 bot.TyreVirtualKm = 0;
                 vkmAtLine = 0;
