@@ -18,6 +18,8 @@ public sealed class Personality
     public float InsideLine { get; set; }
     /// <summary>Tyre wear multiplier (1 = normal).</summary>
     public float TyreWear { get; set; } = 1f;
+    /// <summary>Wants new tyres when worn tyres would have less grip than this (percent, e.g. 93). 0 = the global TyreChangeGrip.</summary>
+    public float TyreChangeAt { get; set; }
     /// <summary>Fuel use multiplier (1 = normal).</summary>
     public float FuelUse { get; set; } = 1f;
     /// <summary>
@@ -41,12 +43,12 @@ public sealed class Personality
     /// <summary>The built-in set (used when the configuration lists none).</summary>
     public static List<(Personality Personality, float Share)> Defaults() =>
     [
-        (new Personality { Name = "Balanced" }, 40),
+        (new Personality { Name = "Balanced", TyreChangeAt = 93 }, 40),
         (new Personality { Name = "DiveBomber", Aggression = 0.25f, BrakeBehavior = 1f, InsideLine = 1f, TyreWear = 1.25f, FuelUse = 1.05f,
-            Composure = 0.4f, Weaving = 0.9f, Mistakes = 1.2f, LineErrors = 1.1f, Patience = 0.1f }, 20),
+            Composure = 0.4f, Weaving = 0.9f, Mistakes = 1.2f, LineErrors = 1.1f, Patience = 0.1f, TyreChangeAt = 95 }, 20),
         (new Personality { Name = "Chill", Aggression = -0.2f, BrakeBehavior = -0.6f, TyreWear = 0.75f, FuelUse = 0.97f, Smoothness = 0.5f,
-            Composure = 0.9f, Weaving = 0.1f, Mistakes = 0.8f, LineErrors = 0.8f, Patience = 0.9f }, 20),
+            Composure = 0.9f, Weaving = 0.1f, Mistakes = 0.8f, LineErrors = 0.8f, Patience = 0.9f, TyreChangeAt = 90 }, 20),
         (new Personality { Name = "FuelSaver", Aggression = -0.1f, BrakeBehavior = -0.4f, TyreWear = 0.9f, FuelUse = 0.85f, Smoothness = 0.7f,
-            Composure = 0.7f, Weaving = 0.2f, LineErrors = 0.9f, Patience = 0.7f }, 20)
+            Composure = 0.7f, Weaving = 0.2f, LineErrors = 0.9f, Patience = 0.7f, TyreChangeAt = 91 }, 20)
     ];
 }

@@ -94,15 +94,18 @@ HighBeamRange: 85
 #   Mistakes       x       multiplier for mistakes (braking too late, slides, spins, grass); 1 = normal
 #   LineErrors     x       multiplier for line errors (missed apex, running wide, early braking points); 1 = normal
 #   TyreWear       x       tyre wear multiplier (1.25 = 25 % more wear)
+#   TyreChangeAt   %       wants new tyres when worn tyres would have less grip than this (95 = early, 90 = runs long); 0 = TyreChangeGrip
 #   FuelUse        x       fuel use multiplier (0.85 = 15 % less fuel)
 UsePersonalities: true
 Personalities:
   - Name: Balanced        # the normal driver
     Share: 40
+    TyreChangeAt: 93
     BrakeBehavior: 0
     Patience: 0.5
   - Name: DiveBomber      # late on the brakes, always down the inside, impatient, hard on the tyres
     Share: 20
+    TyreChangeAt: 95
     Aggression: 25
     BrakeBehavior: 1
     InsideLine: 1
@@ -115,6 +118,7 @@ Personalities:
     LineErrors: 1.1
   - Name: Chill           # smooth and patient, keeps the tyres in the green
     Share: 20
+    TyreChangeAt: 90
     Aggression: -20
     BrakeBehavior: -0.6
     TyreWear: 0.75
@@ -127,6 +131,7 @@ Personalities:
     LineErrors: 0.8
   - Name: FuelSaver       # lift and coast, careful on the brakes
     Share: 20
+    TyreChangeAt: 91
     Aggression: -10
     BrakeBehavior: -0.4
     TyreWear: 0.9

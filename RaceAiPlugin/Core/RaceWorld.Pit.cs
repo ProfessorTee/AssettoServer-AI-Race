@@ -195,6 +195,9 @@ public sealed partial class RaceWorld
             if (bot.Fuel < needFinish && bot.Fuel < needNextLap) reason = "fuel";
         }
 
+        // each personality has its own idea of "worn out": the dive bomber wants fresh rubber early, the chill driver runs long
+        float changeAt = bot.Driver.Personality.TyreChangeAt > 0 ? bot.Driver.Personality.TyreChangeAt / 100f : Settings.TyreChangeGrip;
+
         // tyres: compare the time lost on worn tyres until the end with the time a stop costs
         if (reason == "" && Settings.TyreWearRate > 0 && bot.Car.TyreWear != null)
         {
@@ -207,7 +210,12 @@ public sealed partial class RaceWorld
             }
             float stopCost = 30 + bot.Car.TyreChangeTime; // pit lane + stationary time
             float gripNextLap = bot.Car.TyreGripAt(bot.TyreVirtualKm + vkmPerLap);
-            if ((stay > fresh + stopCost && gripNextLap < Settings.TyreChangeGrip) || gripNextLap < 0.85f)
+            if (openEnd)
+            {
+                // practice / qualifying: no race to optimise, drive the set until it's worn out
+                if (gripNextLap < changeAt) reason = "tyres";
+            }
+            else if ((stay > fresh + stopCost && gripNextLap < changeAt) || gripNextLap < 0.85f)
                 reason = "tyres";
         }
 
@@ -231,7 +239,10 @@ public sealed partial class RaceWorld
         if (reason == "") return;
         bot.Pit = PitPhase.Requested;
         bot.PitReason = reason;
-        PlanService(bot, changeTyres: reason != "fuel" || bot.Car.TyreGripAt(bot.TyreVirtualKm + TyreVkmPerLap(bot) * lapsAfterThis) < 0.97f);
+        // a fuel stop only takes new tyres when the old ones wouldn't last the next stint (practice: what a full tank lasts)
+        float stint = openEnd ? MathF.Min(lapsAfterThis, bot.Car.FuelCapacity / MathF.Max(0.1f, perLap)) : lapsAfterThis;
+        PlanService(bot, changeTyres: reason != "fuel"
+                                      || bot.Car.TyreGripAt(bot.TyreVirtualKm + TyreVkmPerLap(bot) * stint) < MathF.Min(0.97f, changeAt - 0.02f));
     }
 
     private void PlanService(RaceBot bot, bool changeTyres)

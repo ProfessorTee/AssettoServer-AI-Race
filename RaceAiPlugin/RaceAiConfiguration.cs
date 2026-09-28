@@ -93,6 +93,8 @@ public class PersonalityConfiguration
     public float InsideLine { get; set; }
     [YamlMember(Description = "Tyre wear multiplier (1.0 = 100 %)")]
     public float TyreWear { get; set; } = 1;
+    [YamlMember(Description = "New tyres when worn tyres would have less grip than this (percent, e.g. 93 = at 7 % grip loss). 0 = TyreChangeGrip")]
+    public float TyreChangeAt { get; set; }
     [YamlMember(Description = "Fuel use multiplier (1.0 = 100 %)")]
     public float FuelUse { get; set; } = 1;
     [YamlMember(Description = "0..1: 0 normal, 1 very smooth: gentle on brake pedal and throttle, brakes earlier and softer, lift and coast. Saves tyres (up to 30 %) and fuel (up to 8 %), costs a little time")]
@@ -110,7 +112,7 @@ public class PersonalityConfiguration
 
     public Personality ToPersonality() => new()
     {
-        Name = Name, Aggression = Aggression / 100f, BrakeBehavior = Math.Clamp(BrakeBehavior, -1, 1), InsideLine = InsideLine, TyreWear = TyreWear,
+        Name = Name, Aggression = Aggression / 100f, BrakeBehavior = Math.Clamp(BrakeBehavior, -1, 1), InsideLine = InsideLine, TyreWear = TyreWear, TyreChangeAt = TyreChangeAt,
         FuelUse = FuelUse, Smoothness = Smoothness, Composure = Composure, Weaving = Weaving, Mistakes = Mistakes, LineErrors = LineErrors,
         Patience = Math.Clamp(Patience, 0, 1)
     };
@@ -118,7 +120,7 @@ public class PersonalityConfiguration
     public static List<PersonalityConfiguration> Defaults() => Personality.Defaults().Select(d => new PersonalityConfiguration
     {
         Name = d.Personality.Name, Share = d.Share, Aggression = d.Personality.Aggression * 100, BrakeBehavior = d.Personality.BrakeBehavior,
-        InsideLine = d.Personality.InsideLine, TyreWear = d.Personality.TyreWear, FuelUse = d.Personality.FuelUse,
+        InsideLine = d.Personality.InsideLine, TyreWear = d.Personality.TyreWear, TyreChangeAt = d.Personality.TyreChangeAt, FuelUse = d.Personality.FuelUse,
         Smoothness = d.Personality.Smoothness, Composure = d.Personality.Composure, Weaving = d.Personality.Weaving, Mistakes = d.Personality.Mistakes,
         LineErrors = d.Personality.LineErrors, Patience = d.Personality.Patience
     }).ToList();
