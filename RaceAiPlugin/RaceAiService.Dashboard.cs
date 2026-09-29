@@ -106,6 +106,8 @@ public sealed partial class RaceAiService
                     d["fuelCapacity"] = b.Car.FuelCapacity;
                     d["tyres"] = MathF.Round(b.Car.TyreGripAt(b.TyreVirtualKm) * 100, 1);
                     d["tyreTemp"] = new[] { MathF.Round(b.TyreTempFront), MathF.Round(b.TyreTempRear) };
+                    d["clone"] = b.Clone?.PlayerName;
+                    d["takeover"] = slot.TakeoverGuid != null;
                     d["damage"] = MathF.Round(RaceWorld.BodyDamagePercent(b));
                     d["suspension"] = MathF.Round(b.Suspension * 100);
                     d["mistake"] = b.Mistake == MistakeKind.None ? null : b.Mistake.ToString();
@@ -177,6 +179,7 @@ public sealed partial class RaceAiService
             ["errors"] = s?.HumanErrors ?? false,
             ["spins"] = s?.Spins ?? false,
             ["grass"] = s?.GrassMoments ?? false,
+            ["takeover"] = _config.TakeOverDisconnectedPlayers,
             ["lines"] = s?.LineErrors ?? false,
             ["contacts"] = s?.BotContacts ?? false,
             ["damage"] = s?.Damage ?? false,
@@ -191,6 +194,22 @@ public sealed partial class RaceAiService
         };
     }
 
+    /// <summary>Recorded players on this track (DriverRecorder), with their profile once it has been built.</summary>
+    public object CloneList()
+    {
+        var lib = _clones;
+        if (lib == null) return Array.Empty<object>();
+        return lib.List().Select(e =>
+        {
+            var p = e.CleanLaps > 0 ? lib.Get(e.Guid, e.Car) : null;
+            return new
+            {
+                guid = e.Guid, name = e.Name, car = e.Car, clean = e.CleanLaps, all = e.AllLaps,
+                best = p?.BestLap, average = p?.AverageLap, used = p?.LapsUsed ?? 0
+            };
+        }).ToList();
+    }
+
     public bool SetDashboardFeature(string feature, bool on)
     {
         lock (_lock)
@@ -199,6 +218,7 @@ public sealed partial class RaceAiService
             {
                 case "yellowchat": _config.YellowFlagChat = on; return true;
                 case "overtakechat": _config.AnnounceOvertakes = on; return true;
+                case "takeover": _config.TakeOverDisconnectedPlayers = on; return true;
             }
         }
         return SetFeature(feature, on);

@@ -130,6 +130,14 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
         <div class="switches" id="features"></div>
       </div>
       <div class="card">
+        <h3>Fahrer-Klone</h3>
+        <div class="muted" style="margin-bottom:6px">Aufgezeichnete Spieler auf dieser Strecke (Plugin DriverRecorder, Spieler stimmen mit <code>/rec on</code> zu).
+          Verliert einer im Rennen die Verbindung, fährt sein Klon weiter, bis er zurück ist. Als fester Bot: <code>Drivers: - Slot: 5, Clone: Name</code> in der cfg.</div>
+        <table><thead><tr><th>Spieler</th><th>Auto</th><th class="num">saubere Runden</th><th class="num">Beste</th><th class="num">Schnitt</th></tr></thead>
+          <tbody id="cloneRows"><tr><td colspan="5" class="muted">–</td></tr></tbody></table>
+        <div class="row"><button class="btn" id="cloneRefresh">Aktualisieren</button></div>
+      </div>
+      <div class="card">
         <h3>Licht-Test</h3>
         <div class="row"><button class="btn" id="lightTest">Starten</button><span class="muted">Blinker, Warnblinker, Lichthupe, Bremslicht, Fernlicht – je ~6 s. Nachts: Tageszeit unter „Server“.</span></div>
       </div>
@@ -420,6 +428,8 @@ function statusTags(c) {
     if (c.mistake === "Spin") t.push(`<span class="tag bad">Dreher</span>`);
     else if (c.mistake) t.push(`<span class="tag warn">${{ LateBrake: "verbremst", Slide: "Rutscher", Grass: "Gras" }[c.mistake] || c.mistake}</span>`);
     if (c.ghost) t.push(`<span class="tag bad">Geist</span>`);
+    if (c.takeover) t.push(`<span class="tag info">Klon übernimmt</span>`);
+    else if (c.clone) t.push(`<span class="tag info">Klon</span>`);
     if (c.weaving) t.push(`<span class="tag">pendelt</span>`);
     if (c.pressure > 0.3) t.push(`<span class="tag warn">unter Druck</span>`);
     if (c.damage >= 5) t.push(`<span class="tag warn">Schaden ${c.damage} %</span>`);
@@ -500,7 +510,7 @@ function renderLegend() {
 // ---------------------------------------------------------------- AI tab
 const FEATURES = { errors: "Menschliche Fehler", lines: "Linienfehler", spins: "Dreher", grass: "Gras", contacts: "Berührungen", damage: "Schaden",
   blueflags: "Blaue Flagge", yellowflags: "Gelbe Flagge", flash: "Lichthupe", highbeams: "Fernlicht", raincaution: "Vorsicht bei Regen",
-  realweather: "Echtes Wetter", yellowchat: "Gelbe Fahne im Chat", overtakechat: "Überholungen im Chat" };
+  realweather: "Echtes Wetter", takeover: "Klon übernimmt bei Verbindungsabbruch", yellowchat: "Gelbe Fahne im Chat", overtakechat: "Überholungen im Chat" };
 let aiInit = false;
 function syncAi() {
   const a = state.ai;
@@ -517,6 +527,16 @@ function syncAi() {
 }
 $("gridOrder").onchange = () => act("/raceai/api/ai", { gridOrder: $("gridOrder").value }, "Startaufstellung: " + $("gridOrder").selectedOptions[0].textContent);
 $("aiApply").onclick = () => act("/raceai/api/ai", { strength: +$("aiStrength").value, spread: +$("aiSpread").value, aggression: +$("aiAggr").value }, "Stärke verteilt");
+async function loadClones() {
+  try {
+    const list = await api("/raceai/api/clones");
+    $("cloneRows").innerHTML = list.length ? list.map(c => `<tr><td>${esc(c.name)}</td><td>${esc(c.car)}</td><td class="num">${c.clean}/${c.all}</td>
+      <td class="num">${fmtLap(c.best)}</td><td class="num">${fmtLap(c.average)}</td></tr>`).join("")
+      : `<tr><td colspan="5" class="muted">Noch niemand aufgezeichnet.</td></tr>`;
+  } catch (e) {}
+}
+$("cloneRefresh").onclick = loadClones;
+document.querySelector('nav button[data-tab="ai"]').addEventListener("click", loadClones);
 $("lightTest").onclick = () => act("/raceai/api/ai", { lightTest: true }, "Licht-Test läuft");
 
 // ---------------------------------------------------------------- server tab

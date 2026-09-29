@@ -82,6 +82,9 @@ public class RaceAiDashboardController : ControllerBase
     [HttpGet("/raceai/api/state")]
     public IActionResult State() => Allowed() ? Ok(_service.State()) : Denied();
 
+    [HttpGet("/raceai/api/clones")]
+    public IActionResult Clones() => Allowed() ? Ok(_service.CloneList()) : Denied();
+
     [HttpGet("/raceai/api/track")]
     public IActionResult Track() => Allowed() ? Ok(_service.TrackOutline()) : Denied();
 

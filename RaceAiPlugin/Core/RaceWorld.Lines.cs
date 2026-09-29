@@ -83,6 +83,16 @@ public sealed partial class RaceWorld
         me.PlanBrake = 1;
         me.PlanLift = false;
 
+        if (me.Clone != null)
+        {
+            // a clone drives the player's recorded line and speeds: his own habits instead of generated errors;
+            // corner by corner a bit left or right of his average line, as much as his laps differ
+            me.PlanBrakeMargin = 0;
+            me.PlanExitDelay = 0;
+            me.CloneZ = Math.Clamp((float)NextGaussian() * 0.8f, -2f, 2f);
+            return;
+        }
+
         // every driver below the limit: brakes a bit too early here, waits a moment before full throttle there
         float skill = me.Driver.Pace + me.PaceNoise;
         me.PlanBrakeMargin = DriverProfile.BrakeMargin(skill) * (0.3f + 1.4f * _rng.NextSingle())

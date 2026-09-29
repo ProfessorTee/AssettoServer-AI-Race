@@ -153,6 +153,11 @@ GhostAfterSeconds: 25
 DashboardRemoteAccess: false
 # Address friends join with, shown on the join page /raceai/join (e.g. a DynDNS name). Empty = public IP looked up automatically
 PublicAddress: ""
+# Clones of recorded players (DriverRecorderPlugin, players agree with /rec on): folder of the recordings,
+# and whether a player's clone drives his car on when he loses the connection during a race (until he's back)
+RecordingsFolder: recordings
+TakeOverDisconnectedPlayers: true
+TakeoverNameSuffix: " (KI)"
 # Race craft
 # Seconds stuck behind a slower car until a bot is fully impatient (tries harder to overtake, follows closer, flashes its lights)
 ImpatienceSeconds: 25
@@ -186,3 +191,6 @@ Drivers: []
 #     Nation: AUT
 #     Strength: 97
 #     Aggression: 70
+# A clone of a recorded player (name or Steam ID) as a bot:
+#   - Slot: 5
+#     Clone: ProfessorTee

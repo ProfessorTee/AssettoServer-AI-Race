@@ -106,6 +106,7 @@ public static class SelfTest
         HumanTest(line);
         StuckTest(line);
         PitTest(line);
+        CloneTest(line);
 
         Console.WriteLine(_failed == 0 ? "SELFTEST OK" : $"SELFTEST FAILED ({_failed})");
         return _failed == 0 ? 0 : 3;
@@ -156,6 +157,61 @@ public static class SelfTest
             crash |= Vector3.Distance(pose.Position, wreck) < 1.5f;
         }
         Check($"yellow flag: hazards on near the stopped car, no crash", hazards && !crash);
+    }
+
+    /// <summary>Records a "player" (a bot with its own pace and a line 1.5 m to the side), builds a clone and races it.</summary>
+    private static void CloneTest(RacingLine line)
+    {
+        var world = new RaceWorld(line, new RaceWorldSettings { Seed = 21, HumanErrors = false, RaceStartTime = -100 });
+        var player = new RaceBot { Id = 0, Name = "Player", Car = new CarSpec(), Driver = new DriverProfile { Pace = 0.8f, Aggression = 0, Consistency = 1 } };
+        world.Bots.Add(player);
+        world.PlaceAt(player, 10, 0, BotPhase.Racing);
+        player.Speed = 30;
+        var laps = new List<RecordedLap>();
+        var cur = new List<RecordedSample>();
+        double lapStart = 0;
+        int lastLaps = 0;
+        double t = 0;
+        world.Advance(0);
+        while (laps.Count < 3 && t < 600)
+        {
+            t += 0.05;
+            world.Advance(t);
+            var pose = world.GetPose(player);
+            // the "player" drives 1.5 m right of the racing line (shifted when recording)
+            var lat = line.LateralAt(line.WrapS((float)player.Distance));
+            cur.Add(new RecordedSample(pose.Position + lat * 1.5f, player.Speed, player.Throttle, player.Brake));
+            if (player.LapsCompleted != lastLaps)
+            {
+                if (lastLaps > 0) laps.Add(new RecordedLap { LapTime = (float)(t - lapStart), Valid = true, Samples = cur });
+                cur = new List<RecordedSample>();
+                lastLaps = player.LapsCompleted;
+                lapStart = t;
+            }
+        }
+        var profile = CloneProfile.Build(line, laps, "1", "Player", "generic");
+        Check($"clone profile from {laps.Count} laps", profile != null && profile.LapsUsed == laps.Count);
+        if (profile == null) return;
+        float avgOffset = profile.Offset.Average();
+        Check($"clone profile: line 1.5 m to the side (average offset {avgOffset:F2} m)", MathF.Abs(MathF.Abs(avgOffset) - 1.5f) < 0.4f);
+
+        var w2 = new RaceWorld(line, new RaceWorldSettings { Seed = 22, HumanErrors = false, RaceStartTime = -100 });
+        var clone = new RaceBot { Id = 1, Name = "Clone", Car = new CarSpec(), Driver = new DriverProfile { Pace = 1, Aggression = 0.3f, Consistency = 1 }, Clone = profile };
+        w2.Bots.Add(clone);
+        w2.PlaceAt(clone, 10, 0, BotPhase.Racing);
+        clone.Speed = 30;
+        t = 0;
+        float offSum = 0; int offN = 0;
+        w2.Advance(0);
+        while (clone.LapsCompleted < 3 && t < 600)
+        {
+            t += 0.05;
+            w2.Advance(t);
+            if (clone.LapsCompleted >= 1) { offSum += clone.Offset; offN++; }
+        }
+        float playerLap = laps.Average(l => l.LapTime);
+        Check($"clone laps like the player ({clone.LastLapSeconds:F1} s vs {playerLap:F1} s)", MathF.Abs(clone.LastLapSeconds - playerLap) < playerLap * 0.04f);
+        Check($"clone drives the player's line (average offset {offSum / Math.Max(1, offN):F2} m)", MathF.Abs(offSum / Math.Max(1, offN) - avgOffset) < 0.6f);
     }
 
     private static void HumanTest(RacingLine line)

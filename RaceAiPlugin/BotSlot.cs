@@ -23,6 +23,10 @@ public sealed class BotSlot : IExternalAiController
     /// <summary>Last <see cref="RaceBot.DamageVersion"/> sent to the clients.</summary>
     public int SentDamageVersion { get; set; } = -1;
 
+    /// <summary>Set when this is a player's car his clone drives while he's gone (the Steam ID of the player).</summary>
+    public ulong? TakeoverGuid { get; init; }
+    public string TakeoverPlayer { get; init; } = "";
+
     /// <summary>Collisions switched off for the clients (emergency ghost).</summary>
     public bool Ghosted { get; set; }
 
@@ -34,6 +38,9 @@ public sealed class BotSlot : IExternalAiController
     }
 
     public CarStatus? GetStatusForCar(EntryCar toCar) => Active ? EntryCar.Status : null;
+
+    /// <summary>A player's clone keeps the race going while he's away, and he may come back even when the session is closed.</summary>
+    public ulong? StandsInFor => Active ? TakeoverGuid : null;
 
     public void WriteStatus(in BotPose pose, long serverTimeMs, CarStatusFlags lights, CarStatusFlags wipers, bool flashLights = true, bool flashDaytime = true,
         bool highBeams = true)

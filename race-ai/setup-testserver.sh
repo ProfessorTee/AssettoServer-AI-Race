@@ -26,6 +26,9 @@ mkdir -p "$SRV/plugins/RaceAiPlugin" "$SRV/cfg"
 # install next to the running file and rename: safe even while a server is running
 cp -f "$HERE/server-build/RaceAiPlugin.dll" "$SRV/plugins/RaceAiPlugin/RaceAiPlugin.dll.new"
 mv -f "$SRV/plugins/RaceAiPlugin/RaceAiPlugin.dll.new" "$SRV/plugins/RaceAiPlugin/RaceAiPlugin.dll"
+mkdir -p "$SRV/plugins/DriverRecorderPlugin"
+cp -f "$HERE/server-build/DriverRecorderPlugin.dll" "$SRV/plugins/DriverRecorderPlugin/DriverRecorderPlugin.dll.new"
+mv -f "$SRV/plugins/DriverRecorderPlugin/DriverRecorderPlugin.dll.new" "$SRV/plugins/DriverRecorderPlugin/DriverRecorderPlugin.dll"
 # example configuration (existing files are kept, so your own changes survive a re-run)
 for f in "$EXAMPLE"/cfg/*; do
   [ -e "$SRV/cfg/$(basename "$f")" ] || cp "$f" "$SRV/cfg/"

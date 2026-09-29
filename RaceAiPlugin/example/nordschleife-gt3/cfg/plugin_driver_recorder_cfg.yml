@@ -1,0 +1,12 @@
+# DriverRecorderPlugin: records how players drive (only after they agreed with /rec on in the chat), for AI clones of them.
+# The CSP script is sent to the players by the server, nobody has to install anything (CSP needed).
+# Samples per second the client sends while recording (5-50)
+SampleHz: 20
+# Folder of the recordings (relative to the server folder); the Race AI reads the profiles from here (RecordingsFolder there)
+RecordingsFolder: recordings
+# Tell every player after joining that the server can record them (/rec on)
+JoinHint: true
+# Laps kept per player, track and car (the oldest are deleted)
+MaxLapsPerCar: 40
+# Chat language: de or en
+Language: de

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <Import Project="..\Plugin.props" />
+
+    <ItemGroup>
+        <None Remove="lua\driverrecorder.lua" />
+        <EmbeddedResource Include="lua\driverrecorder.lua" />
+    </ItemGroup>
+
+</Project>

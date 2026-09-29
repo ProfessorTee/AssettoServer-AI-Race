@@ -96,7 +96,7 @@ public sealed class ExternalCar
 public sealed class RaceBot
 {
     public int Id { get; init; }
-    public string Name { get; init; } = "";
+    public string Name { get; set; } = "";
     public CarSpec Car { get; init; } = new();
     public DriverProfile Driver { get; init; } = new();
     public BotPhase Phase { get; set; } = BotPhase.Hidden;
@@ -243,6 +243,13 @@ public sealed class RaceBot
     internal float DraftTime;
     public bool Weaving { get; internal set; }
     internal float WeaveCenter;
+
+    // ---- clone of a real player (DriverRecorder recordings): drives his speed and line
+    public CloneProfile? Clone { get; set; }
+    /// <summary>Multiplier on the clone's speed (1 = like the player).</summary>
+    public float ClonePace { get; set; } = 1f;
+    /// <summary>This corner: how far from the player's average line (in standard deviations).</summary>
+    internal float CloneZ;
 
     // ---- how the current corner is driven (RaceWorld.Lines.cs)
     public bool PlanActive { get; internal set; }
@@ -802,7 +809,13 @@ public sealed partial class RaceWorld
             if (shifted && inPlan) k += CornerShiftCurvature(bot, s0 + d);
 
             float vLim = car.CornerLimit(k, Line.VerticalCurvature[i], inPlan ? pace * bot.PlanPace : pace, bot.MassRatio);
-            if (Settings.UseTrackHints)
+            if (bot.Clone is { } clone && bot.Phase == BotPhase.Racing)
+            {
+                // the player's own speed here (scaled with the grip we have now), never more than the car can do on this line
+                float cv = clone.SpeedAt(s0 + d, Line.Length) * bot.ClonePace * MathF.Sqrt(MathF.Max(0.3f, phys));
+                vLim = MathF.Min(cv, car.CornerLimit(k, Line.VerticalCurvature[i], 1.04f * phys, bot.MassRatio));
+            }
+            else if (Settings.UseTrackHints)
                 vLim = MathF.Min(vLim * MathF.Sqrt(Line.HintFactor[i]), Line.MaxSpeed[i]); // hint scales the usable grip
             if (Settings.SpeedHintScale > 0 && Line.SpeedHint[i] > 5)
                 vLim = MathF.Min(vLim, Line.SpeedHint[i] * Settings.SpeedHintScale);
@@ -1167,7 +1180,9 @@ public sealed partial class RaceWorld
             else if (_now >= me.ReturnToLineAfter)
             {
                 // go back to the racing line when that lane is free
-                float lineOffset = RainLineOffset(me, myS, minOff, maxOff);
+                float lineOffset = me.Clone is { } cl
+                    ? Math.Clamp(cl.OffsetAt(myS + me.Speed * 0.35f, Line.Length) + me.CloneZ * cl.OffsetSpreadAt(myS, Line.Length), minOff, maxOff)
+                    : RainLineOffset(me, myS, minOff, maxOff);
                 if (LaneFree(me, lineOffset, myS, -(me.Car.Length + 2), 25))
                     me.TargetOffset = lineOffset;
             }

@@ -3,6 +3,10 @@
 EnableAi: false
 EnablePlugins:
   - RaceAiPlugin
+  # records players who agree (/rec on) for AI clones of them
+  - DriverRecorderPlugin
+# needed for the DriverRecorder (CSP client script messages)
+EnableClientMessages: true
 # CSP weather (Sol/Pure): rain, smooth transitions. Needed for RealWeather in plugin_race_ai_cfg.yml
 EnableWeatherFx: true
 # Grip loss on a wet track for everybody (0..0.5). Online, CSP rain is usually only visual (tested: wet = dry),

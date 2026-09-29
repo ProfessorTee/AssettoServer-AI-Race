@@ -119,6 +119,7 @@ Das Plugin besteht aus zwei Teilen:
 | KI-Aggressivität | `AiAggression` (0–100), `AiAggressionVariation` |
 | Startposition | `PlayerGridPosition`: `Default`, `First`, `Last`, `Middle`, `Random` |
 | Zufällige Startaufstellung | `RandomizeBotGrid` |
+| Fahrer-Klone | `RecordingsFolder`, `TakeOverDisconnectedPlayers`, `TakeoverNameSuffix`, `Drivers[].Clone` (siehe DriverRecorderPlugin) |
 | Reihenfolge der Bots im Rennen | `BotGridOrder`: `Qualifying` (Ergebnis, wie echt), `SlowestFirst` (schwächste vorne, stärkste hinten), `Random`. Spieler behalten ihren Platz. Live: `/raceai_grid` oder Dashboard |
 | Fahrernamen / Nationen | `DRIVERNAME` in `entry_list.ini`, `Names`, `Drivers` (auch Stärke/Aggressivität pro Fahrer) |
 

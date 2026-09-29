@@ -409,7 +409,7 @@ public class ACTcpClient : IClient
                              && handshakeRequest.Password != _configuration.Server.Password
                              && !_configuration.Server.CheckAdminPassword(handshakeRequest.Password))
                         SendPacket(new WrongPasswordResponse());
-                    else if (!_sessionManager.IsOpen)
+                    else if (!_sessionManager.IsOpen && !_entryCarManager.EntryCars.Any(c => c.Client == null && c.ExternalAiController?.StandsInFor == Guid))
                         SendPacket(new SessionClosedResponse());
                     else if (Name.Length == 0)
                         SendPacket(new AuthFailedResponse("Driver name cannot be empty."));

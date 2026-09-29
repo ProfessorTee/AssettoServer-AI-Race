@@ -14,9 +14,36 @@ fi
 [ -d "$SRV/cfg" ] || { echo "No server found in $SRV"; exit 1; }
 EXAMPLE="$REPO/RaceAiPlugin/example/nordschleife-gt3/cfg"
 
+# patched AssettoServer core (only when it changed): rebuild the server binary from the official one
+if [ -f "$SRV/AssettoServer.official" ] && [ -f "$HERE/server-build/AssettoServer.dll" ]; then
+  NEW_SHA=$(sha256sum "$HERE/server-build/AssettoServer.dll" | cut -d' ' -f1)
+  if [ "$(cat "$SRV/.core-dll.sha" 2>/dev/null)" != "$NEW_SHA" ]; then
+    python3 "$HERE/tools/rebundle.py" "$SRV/AssettoServer.official" "$SRV/AssettoServer.new" "AssettoServer.dll=$HERE/server-build/AssettoServer.dll" \
+      && chmod +x "$SRV/AssettoServer.new" && mv -f "$SRV/AssettoServer.new" "$SRV/AssettoServer" && echo "$NEW_SHA" > "$SRV/.core-dll.sha" \
+      && echo "AssettoServer core updated"
+  fi
+fi
+
 mkdir -p "$SRV/plugins/RaceAiPlugin"
 cp -f "$HERE/server-build/RaceAiPlugin.dll" "$SRV/plugins/RaceAiPlugin/RaceAiPlugin.dll.new"
 mv -f "$SRV/plugins/RaceAiPlugin/RaceAiPlugin.dll.new" "$SRV/plugins/RaceAiPlugin/RaceAiPlugin.dll"
+if [ -f "$HERE/server-build/DriverRecorderPlugin.dll" ]; then
+  mkdir -p "$SRV/plugins/DriverRecorderPlugin"
+  cp -f "$HERE/server-build/DriverRecorderPlugin.dll" "$SRV/plugins/DriverRecorderPlugin/DriverRecorderPlugin.dll.new"
+  mv -f "$SRV/plugins/DriverRecorderPlugin/DriverRecorderPlugin.dll.new" "$SRV/plugins/DriverRecorderPlugin/DriverRecorderPlugin.dll"
+  [ -e "$SRV/cfg/plugin_driver_recorder_cfg.yml" ] || cp "$EXAMPLE/plugin_driver_recorder_cfg.yml" "$SRV/cfg/"
+  # switch the plugin on once (a later "remove it from EnablePlugins" is respected: marker file)
+  if [ ! -e "$SRV/cfg/.driverrecorder-enabled" ] && ! grep -q "DriverRecorderPlugin" "$SRV/cfg/extra_cfg.yml"; then
+    python3 - "$SRV/cfg/extra_cfg.yml" <<'PY'
+import re, sys
+p = sys.argv[1]; s = open(p).read()
+s = re.sub(r"(?m)^(EnablePlugins:\s*\n(?:[ \t]*-[^\n]*\n)*)", lambda m: m.group(1) + "  - DriverRecorderPlugin\n", s, count=1)
+open(p, "w").write(s)
+print("extra_cfg.yml: DriverRecorderPlugin enabled")
+PY
+    touch "$SRV/cfg/.driverrecorder-enabled"
+  fi
+fi
 [ -e "$SRV/cfg/ks_nordschleife-nordschleife-grid.json" ] && cp -f "$EXAMPLE/ks_nordschleife-nordschleife-grid.json" "$SRV/cfg/"
 
 CFG="$SRV/cfg/plugin_race_ai_cfg.yml"

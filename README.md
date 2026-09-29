@@ -29,6 +29,10 @@ Erstes Ziel: **Nordschleife** (`ks_nordschleife`, Layout `nordschleife`) mit **G
   - Leichte Berührungen in engen Zweikämpfen.
 - **Endurance:** Sprit, Reifenverschleiß, **Schaden** mit Reparatur und **Boxenstopps** über `pit_lane.ai`, mit Strategie.
 - **Wetter:** Regen macht die Strecke rutschig. Optional kommt echtes Wetter von Open-Meteo über CSP WeatherFX (Sol/Pure).
+- **Fahrer-Klone:** Das Plugin `DriverRecorderPlugin` zeichnet Spieler auf, die mit `/rec on` zustimmen (CSP-Skript, das der Server
+  mitschickt). Daraus entsteht ein Klon, der ihre Linie und ihr Tempo fährt. Verliert ein Spieler im Rennen die Verbindung, fährt
+  sein Klon sein Auto weiter, bis er zurück ist. Siehe [`DriverRecorderPlugin/README.md`](DriverRecorderPlugin/README.md).
+- **Dashboard** zum Steuern im Browser, mit Live-Karte, Beitreten-Seite für Freunde und Neustart/Update aus der Ferne.
 - Jede Funktion lässt sich in `plugin_race_ai_cfg.yml` abschalten und als Admin auch live per `/raceai_set`.
 
 Die ausführliche Doku mit allen Einstellungen und Befehlen steht in [`RaceAiPlugin/README.md`](RaceAiPlugin/README.md).
@@ -40,6 +44,7 @@ Der Stand für Entwickler steht in [`RaceAiPlugin/UEBERGABE.md`](RaceAiPlugin/UE
 |---|---|
 | `AssettoServer/…` | Kleiner **Core-Patch**: `IExternalAiController` (ein Plugin steuert einen KI-Slot), offizielle Runden für Bots, Rennen mit nur einem Spieler |
 | `RaceAiPlugin/` | Das Plugin. `Core/` ist die eigentliche KI, ohne AssettoServer-Abhängigkeit |
+| `DriverRecorderPlugin/` | Zweites Plugin: zeichnet Spieler mit Zustimmung auf (CSP-Online-Skript), Grundlage der Fahrer-Klone |
 | `RaceAiTool/` | Offline-Werkzeug: `selftest`, `sim` (Rennen simulieren), `strength`, `car`, `grid` |
 | `RaceAiPlugin/example/nordschleife-gt3/` | Beispielkonfiguration: 4 Spieler-Slots, 16 Bots |
 | `race-ai/` | Test-Build ohne .NET 11 SDK: gepatchte DLLs, `setup-testserver.sh`, `start-server.sh`, Hilfsskripte |
@@ -64,6 +69,7 @@ Mit dem .NET 11 SDK:
 ```bash
 dotnet publish AssettoServer/AssettoServer.csproj -c Release -r linux-x64      # oder win-x64
 dotnet publish RaceAiPlugin/RaceAiPlugin.csproj -c Release -r linux-x64
+dotnet publish DriverRecorderPlugin/DriverRecorderPlugin.csproj -c Release -r linux-x64
 dotnet run --project RaceAiTool -- selftest
 ```
 

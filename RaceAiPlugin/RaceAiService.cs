@@ -31,6 +31,9 @@ public sealed partial class RaceAiService : IHostedService
     private readonly List<BotSlot> _slots = [];
     private readonly Random _rng = new();
     private readonly Dictionary<CarSpec, StrengthCalibration> _calibrations = new();
+    private readonly Dictionary<(string, float, int), CarSpec> _specCache = new();
+    private List<string> _carRoots = new();
+    private CloneLibrary? _clones;
     private float? _referenceBestLap;
 
     private static string FormatLap(float seconds) => TimeSpan.FromSeconds(seconds).ToString(@"m\:ss\.fff");
@@ -173,7 +176,9 @@ public sealed partial class RaceAiService : IHostedService
             settings.FuelRate, settings.TyreWearRate, world.PitLane != null ? "on" : "off");
 
         var carRoots = TrackData.ContentRoots(_config).Select(r => Path.Join(r, "cars")).ToList();
-        var specCache = new Dictionary<(string, float, int), CarSpec>();
+        _carRoots = carRoots;
+        var specCache = _specCache;
+        _clones = new CloneLibrary(_config.RecordingsFolder, TrackKey(), _track.Line);
         var names = _config.Names.Count > 0 ? _config.Names.ToList() : BotNames.Default.ToList();
         List<string> nations = _config.Names.Count > 0 ? new List<string>() : BotNames.DefaultNations.ToList();
         int nameIndex = 0;
@@ -225,6 +230,21 @@ public sealed partial class RaceAiService : IHostedService
                 Driver = DriverProfile.FromStrength(strength, 0, aggression)
             };
             bot.Driver.Personality = personality;
+            if (!string.IsNullOrWhiteSpace(driverCfg?.Clone))
+            {
+                // a clone of a recorded player
+                var guid = _clones.FindGuid(driverCfg.Clone);
+                var profile = guid != null ? _clones.Get(guid, entryCar.Model, anyCar: true) : null;
+                if (profile != null)
+                {
+                    bot.Clone = profile;
+                    if (string.IsNullOrWhiteSpace(driverCfg.Name))
+                        bot.Name = _config.NamePrefix + T($"{profile.PlayerName} (clone)", $"{profile.PlayerName} (Klon)");
+                    if (profile.Car != entryCar.Model)
+                        Log.Warning("Race AI: clone of {Player} was recorded in {Recorded}, drives a {Car} here", profile.PlayerName, profile.Car, entryCar.Model);
+                }
+                else Log.Warning("Race AI: no clean recorded laps of {Player} on this track, slot {Slot} drives as a normal bot", driverCfg.Clone, slotIndex);
+            }
             ApplyStrength(bot, strength, calibration);
             world.Bots.Add(bot);
             if (_track.Info.PitBoxes.FirstOrDefault(p => p.Index == slotIndex) is var box && box.Index == slotIndex && _track.Info.PitBoxes.Count > 0)
@@ -308,10 +328,23 @@ public sealed partial class RaceAiService : IHostedService
     private void OnClientConnected(ACTcpClient client, EventArgs args)
     {
         client.Collision += OnCollision;
+        // build the player's clone profile now (if he was recorded), so a takeover is instant when he disconnects
+        if (_clones is { } clones && _config.TakeOverDisconnectedPlayers)
+        {
+            string guid = client.Guid.ToString(), model = client.EntryCar.Model;
+            _ = Task.Run(() => { try { clones.Get(guid, model, anyCar: true); } catch (Exception ex) { Log.Debug(ex, "Race AI: clone preload failed"); } });
+        }
         if (_slotsBySessionId.TryGetValue(client.SessionId, out var slot))
         {
             lock (_lock)
             {
+                if (slot.TakeoverGuid != null)
+                {
+                    EndTakeover(slot, client.Guid == slot.TakeoverGuid
+                        ? T($"{client.Name} is back and takes over from his clone", $"{client.Name} ist zurück und übernimmt wieder von seinem Klon")
+                        : null);
+                    return;
+                }
                 if (slot.Active)
                 {
                     Log.Information("Race AI: {Player} took over bot slot {Slot} ({Model}), bot {Bot} left", client.Name, client.SessionId, slot.EntryCar.Model, slot.Bot.Name);
@@ -327,6 +360,7 @@ public sealed partial class RaceAiService : IHostedService
         client.Collision -= OnCollision;
         lock (_lock)
         {
+            TryTakeOver(client);
             _world?.RemoveExternal(client.SessionId);
             if (_slotsBySessionId.TryGetValue(client.SessionId, out var slot) && !slot.Active)
             {
@@ -356,6 +390,8 @@ public sealed partial class RaceAiService : IHostedService
     private void SetupSession(SessionState session, SessionState? previous)
     {
         if (_world == null) return;
+        foreach (var t in _slots.Where(s => s.TakeoverGuid != null).ToList())
+            EndTakeover(t, null);
         _sessionType = session.Configuration.Type;
         _raceStarted = false;
         _lastRelative.Clear();
@@ -1015,12 +1051,143 @@ public sealed partial class RaceAiService : IHostedService
     /// <summary>Strength in % -> consistency, human error level and the pace that gives the target lap time including the mistakes.</summary>
     private void ApplyStrength(RaceBot bot, float strength, StrengthCalibration cal)
     {
+        if (bot.Clone is { } clone)
+        {
+            ApplyClone(bot, clone);
+            return;
+        }
         var d = DriverProfile.FromStrength(strength, 0, 0);
         bot.Driver.Level = strength;
         bot.Driver.Consistency = d.Consistency;
         bot.Driver.Errors = _config.HumanErrors ? DriverProfile.ErrorsFor(strength, _config.HumanErrorsBelow, _config.HumanErrorsFull) : 0;
         bot.Driver.Pace = cal.PaceFor(strength, _referenceBestLap, bot.Driver.Errors);
     }
+
+    // ------------------------------------------------------------------ takeover by the player's clone
+
+    /// <summary>Is <paramref name="entryCar"/> a player's car his clone drives right now; and whose.</summary>
+    public ulong? TakeoverOwner(EntryCar entryCar)
+    {
+        lock (_lock) return _slotsBySessionId.TryGetValue(entryCar.SessionId, out var s) && s.TakeoverGuid != null ? s.TakeoverGuid : null;
+    }
+
+    /// <summary>The car of a player his clone drives right now (to send him back into it).</summary>
+    public EntryCar? TakeoverCarOf(ulong guid)
+    {
+        lock (_lock) return _slots.FirstOrDefault(s => s.TakeoverGuid == guid)?.EntryCar;
+    }
+
+    /// <summary>A recorded player left during the race: his clone drives on from where he was.</summary>
+    private void TryTakeOver(ACTcpClient client)
+    {
+        var world = _world;
+        if (world == null || _clones == null || !_config.TakeOverDisconnectedPlayers || _track == null) return;
+        if (_sessionType != SessionType.Race || !_raceStarted) return;
+        var car = client.EntryCar;
+        if (_slotsBySessionId.ContainsKey(car.SessionId)) return; // a bot slot: the bot comes back anyway
+        var session = _sessionManager.CurrentSession;
+        if (session.Results == null || !session.Results.TryGetValue(car.SessionId, out var result) || result.HasCompletedLastLap) return;
+        var ext = world.Externals.FirstOrDefault(e => e.Id == car.SessionId);
+        if (ext is not { Valid: true } || MathF.Abs(ext.Offset) > 15) return; // not on the track (pits, off somewhere)
+
+        var profile = _clones.Get(client.Guid.ToString(), car.Model, anyCar: true);
+        if (profile == null) return;
+
+        var key = (car.Model, car.Ballast, car.Restrictor);
+        if (!_specCache.TryGetValue(key, out var spec))
+        {
+            var root = _carRoots.FirstOrDefault(r => Directory.Exists(Path.Join(r, car.Model))) ?? _carRoots.FirstOrDefault() ?? "content/cars";
+            spec = CarDataLoader.Load(root, car.Model, car.Ballast, car.Restrictor, msg => Log.Warning("Race AI: {Message}", msg));
+            _specCache[key] = spec;
+        }
+
+        string playerName = client.Name ?? profile.PlayerName;
+        var bot = new RaceBot
+        {
+            Id = car.SessionId,
+            Name = playerName + _config.TakeoverNameSuffix,
+            Car = spec,
+            Driver = new DriverProfile { Pace = 1, Aggression = Math.Clamp(_config.AiAggression / 100f, 0, 1), Consistency = 0.97f },
+            Clone = profile
+        };
+        ApplyClone(bot, profile);
+        world.Bots.Add(bot);
+        if (_track.Info.PitBoxes.FirstOrDefault(p => p.Index == car.SessionId) is var box && box.Index == car.SessionId && _track.Info.PitBoxes.Count > 0)
+            world.SetPitBox(bot, box.Position);
+
+        // where he was: same lap, same place, same speed
+        var line = _track.Line;
+        int laps = (int)result.NumLaps;
+        float fromStart = line.WrapS(ext.S - _track.StartLineS);
+        world.ResetCarCondition(bot, world.FuelForLaps(bot, RemainingLapsFor(bot, session) + 0.5f));
+        world.PlaceAt(bot, _track.StartLineS + (double)laps * line.Length + fromStart, ext.Offset, BotPhase.Racing);
+        bot.Speed = ext.Speed;
+        bot.LapsCompleted = laps;
+        bot.LapIndex = laps;
+        bot.StartCrossed = true;
+        bot.TimingValid = true;
+        bot.RaceStartTime = world.Settings.RaceStartTime;
+        bot.LapStartTime = Now - fromStart / line.Length * profile.AverageLap;
+        bot.CautiousUntil = Now + 1;
+
+        var slot = new BotSlot(car, bot, "") { TakeoverGuid = client.Guid, TakeoverPlayer = playerName };
+        _slots.Add(slot);
+        _slotsBySessionId[car.SessionId] = slot;
+        car.AiName = playerName; // the results keep his name
+        car.ExternalAiController = slot;
+        car.AiControlled = true;
+        slot.Active = true;
+        _entryCarManager.BroadcastPacket(new CarConnected { SessionId = car.SessionId, Name = bot.Name, Nation = client.NationCode ?? "" });
+        _entryCarManager.BroadcastChat(T($"{playerName} lost the connection, his clone drives on (lap {laps + 1})",
+            $"{playerName} hat die Verbindung verloren, sein Klon fährt weiter (Runde {laps + 1})"));
+        Log.Information("Race AI: {Player} disconnected in lap {Lap}, his clone ({Laps} recorded laps, average {Avg}) drives his {Car} on",
+            playerName, laps + 1, profile.LapsUsed, FormatLap(profile.AverageLap), car.Model);
+    }
+
+    private int RemainingLapsFor(RaceBot bot, SessionState session)
+    {
+        var cfg = session.Configuration;
+        if (!cfg.IsTimedRace) return Math.Max(1, cfg.Laps - bot.LapsCompleted);
+        double timeLeft = session.TimeLeftMilliseconds / 1000.0;
+        return Math.Max(1, (int)Math.Ceiling(timeLeft / Math.Max(60, bot.Clone?.AverageLap ?? 480)) + 1);
+    }
+
+    /// <summary>The player is back (or the session is over): his clone leaves the car.</summary>
+    private void EndTakeover(BotSlot slot, string? chat)
+    {
+        slot.Active = false;
+        slot.EntryCar.ExternalAiController = null;
+        slot.EntryCar.AiControlled = false;
+        slot.EntryCar.AiName = null;
+        _world?.Bots.Remove(slot.Bot);
+        _slots.Remove(slot);
+        _slotsBySessionId.Remove(slot.EntryCar.SessionId);
+        if (slot.EntryCar.Client == null)
+            _entryCarManager.BroadcastPacket(new CarDisconnected { SessionId = slot.EntryCar.SessionId });
+        if (chat != null) _entryCarManager.BroadcastChat(chat);
+        Log.Information("Race AI: clone of {Player} left car {Slot}", slot.TakeoverPlayer, slot.EntryCar.SessionId);
+    }
+
+    /// <summary>A clone drives the player's speeds (Pace 1 = no extra slowing) and makes mistakes as often as his lap times vary.</summary>
+    private void ApplyClone(RaceBot bot, CloneProfile clone)
+    {
+        bot.Driver.Pace = 1;
+        bot.Driver.Consistency = 0.97f;
+        float spread = clone.AverageLap > 0 ? clone.LapSpread / clone.AverageLap : 0;
+        bot.Driver.Errors = _config.HumanErrors ? Math.Clamp(spread * 25, 0.05f, 0.6f) : 0;
+        float reference = _referenceBestLap ?? (_calibrations.TryGetValue(bot.Car, out var cal) ? cal.BestLap : clone.AverageLap);
+        bot.Driver.Level = MathF.Round(reference / MathF.Max(1, clone.AverageLap / bot.ClonePace) * 1000) / 10;
+    }
+
+    private string TrackKey()
+    {
+        string track = _serverConfig.Server.Track;
+        int slash = track.LastIndexOf('/');
+        if (slash >= 0) track = track[(slash + 1)..];
+        return string.IsNullOrEmpty(_serverConfig.Server.TrackConfig) ? track : $"{track}-{_serverConfig.Server.TrackConfig}";
+    }
+
+    public CloneLibrary? Clones => _clones;
 
     public string? BestLapFor(CarSpec car) => _calibrations.TryGetValue(car, out var cal) ? FormatLap(cal.BestLap) : null;
 

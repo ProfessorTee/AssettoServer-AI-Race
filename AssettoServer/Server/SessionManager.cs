@@ -28,6 +28,7 @@ public class SessionManager : BackgroundService, IHostedLifecycleService
     public int CurrentSessionIndex { get; private set; } = -1;
     public bool IsLastRaceInverted { get; private set; } = false;
     public bool MustInvertGrid { get; private set; } = false;
+    private long _lastPlayerSeenMilliseconds = long.MinValue / 2;
     public SessionState CurrentSession { get; private set; } = null!;
 
     public long ServerTimeMilliseconds => _timeSource.ElapsedMilliseconds;
@@ -330,7 +331,13 @@ public class SessionManager : BackgroundService, IHostedLifecycleService
 
         var connectedCount = _entryCarManager.ConnectedCars.Count;
         // Server-driven AI slots (e.g. racing AI plugins) count as participants as soon as one player is connected,
-        // so a single player can race against them. Without any player the race is skipped as before.
+        // so a single player can race against them. Without any player the race is skipped as before,
+        // unless an AI stands in for a player who left (his clone keeps his car racing until he's back).
+        var standIn = _entryCarManager.EntryCars.Any(c => c.Client == null && c.ExternalAiController is { KeepsSessionAlive: true });
+        if (standIn && connectedCount == 0) connectedCount = 1;
+        // the last player just left: give plugins a moment to put a stand-in into his car before the race is skipped
+        if (connectedCount > 0) _lastPlayerSeenMilliseconds = ServerTimeMilliseconds;
+        else if (ServerTimeMilliseconds - _lastPlayerSeenMilliseconds < 3000) return false;
         var participantCount = connectedCount == 0 ? 0 : connectedCount + _entryCarManager.EntryCars.Count(c => c.Client == null && c.ExternalAiController != null);
         
         switch (CurrentSession.Configuration.IsOpen)

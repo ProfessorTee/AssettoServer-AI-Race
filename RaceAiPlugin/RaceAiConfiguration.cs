@@ -74,6 +74,8 @@ public class BotDriverConfiguration
     public float? Aggression { get; set; }
     [YamlMember(Description = "Personality name from Personalities (e.g. DiveBomber, Chill). Empty = random by Share")]
     public string? Personality { get; set; }
+    [YamlMember(Description = "Clone of a recorded player (Steam ID or name, DriverRecorder plugin): the bot drives his line and speeds")]
+    public string? Clone { get; set; }
 }
 
 /// <summary>A driving style. All values are optional; see the defaults in the reference configuration.</summary>
@@ -221,6 +223,15 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
 
     [YamlMember(Description = "Bots flash their headlights in the pit lane while the pit limiter is on, like real GT3 cars (and the players' cars with CSP)")]
     public bool PitLimiterFlash { get; set; } = true;
+
+    [YamlMember(Description = "Folder of the DriverRecorder plugin with the recorded laps of the players (for clones)")]
+    public string RecordingsFolder { get; set; } = "recordings";
+
+    [YamlMember(Description = "When a recorded player disconnects during a race, his clone drives his car on until he comes back (needs clean recorded laps on this track)")]
+    public bool TakeOverDisconnectedPlayers { get; set; } = true;
+
+    [YamlMember(Description = "Added to the player's name while his clone drives")]
+    public string TakeoverNameSuffix { get; set; } = " (KI)";
 
     [YamlMember(Description = "Address your friends join with (e.g. a DynDNS name like myserver.ddns.net). Empty = the public IP is looked up automatically")]
     public string PublicAddress { get; set; } = "";

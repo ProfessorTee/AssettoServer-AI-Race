@@ -104,6 +104,26 @@
 - `race-ai/raceai-desktop.sh` (Start, Warten auf `/api/ping`, Absturzmeldung per zenity/kdialog, Chromium `--app`,
   Frage beim Schließen), `install-desktop-entry.sh`, `raceai-icon.svg`. Build: `csc -resource:` bzw. `EmbeddedResource` im csproj.
 
+## Neu in Teil 10: Reifen, Persönlichkeiten, Join-Seite, Neustart, Fahrer-Klone
+- `Core/RaceWorld.Tyres.cs`: Kerntemperatur vorne/hinten (Heizen aus Last × Tempo, Rutschen, Blockieren; Kühlen zur Straße, Regen),
+  Grip `TyreTempGrip` (Fenster um 85 °C), Verschleiß-Faktor, Aufwärm-Pendeln auf der Out-Lap.
+- `Personality`: `BrakeBehavior` (-1..1, ersetzt `LateBraking`), `Patience`, `LineErrors`, `TyreChangeAt`; `Smoothness` wirkt auf die Pedale.
+- Lichthupe nur bei deutlichem Vorteil (`PressureEma > 1.6`), nicht in den ersten `FlashStartDelaySeconds`, abhängig von `Patience`.
+- Startaufstellung: Autos ohne Quali-Zeit hinten (`ArrangePlayers`), `BotGridOrder`.
+- `JoinInfo`/`JoinPageHtml`: `GET /raceai/join` (öffentlich) und `/raceai/api/join`: CM-Link `acstuff.club/s/q:race/online/join`, IPs.
+- `race-ai/server-supervisor.sh`: startet den Server nach `restart.request` neu (Aktion `restartserver`, `text: update` = git pull + update-server.sh);
+  Umgebungsvariable `RACEAI_SUPERVISED=1`.
+- **DriverRecorderPlugin** (eigenes Projekt): CSP-Online-Skript `lua/driverrecorder.lua` (per `CSPServerScriptProvider`), OnlineEvents
+  `DR_samples` (5 Messungen je Paket, 20 Hz), `DR_status` (1 Hz), `DR_control` (Server → Client). Opt-in `/rec on|off|delete|info`,
+  `recordings/optin.json`, Runden als gzip-CSV je SteamID/Strecke/Auto; Schnitt an der Ziellinie (Spline-Sprung), Abgleich mit dem
+  offiziellen `LapCompleted` (Zeit ± 1,5 s), sonst ungültig.
+- `Core/CloneProfile.cs`: Profil alle 4 m (Tempo, Linienversatz + Streuung, Gas, Bremse) aus sauberen Runden ≤ 104 % der besten.
+  `RaceBot.Clone`: `LineSpeedLimit` nimmt das Tempo des Spielers (skaliert mit √Grip, begrenzt durch die Autophysik), `Think` seine Linie
+  (+ `CloneZ` × Streuung je Kurve), keine generierten Linienfehler.
+- `CloneLibrary` (Plugin): liest die Aufzeichnungen, baut Profile bei Bedarf, Cache nach Dateiliste. `Drivers[].Clone`.
+- Übernahme (`TryTakeOver`/`EndTakeover` in `RaceAiService`): beim Verbindungsabbruch im Rennen neuer `BotSlot` mit `TakeoverGuid`
+  an der letzten Position, gleiche Runde; `RaceAiSlotFilter` hält das Auto für den Spieler frei und schickt ihn wieder hinein.
+
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:
 1. Offizielles Release `assetto-server-linux-x64.tar.gz` (v0.0.55-pre42) laden. Es ist ein Single-File-Bundle mit .NET 11 RC,
