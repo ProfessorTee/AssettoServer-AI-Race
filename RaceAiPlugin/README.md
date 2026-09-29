@@ -143,6 +143,10 @@ Chat-Befehle:
 - Als Admin (`/admin <Passwort>`):
   - `/raceai_strength <%> [spread]` und `/raceai_aggression <0-100>`
   - `/raceai_grid Qualifying|SlowestFirst|Random`: Startaufstellung der Bots ab dem nächsten Rennen
+- Für alle Spieler (mit aufgezeichnetem Klon, siehe DriverRecorderPlugin):
+  - `/bot` oder `!bot`: Fahrerwechsel an den eigenen Klon beim nächsten Halt in der eigenen Box (Pause), man schaut aus einem Ersatzauto zu;
+    während der Klon zur Box fährt: er fährt weiter
+  - `/play` oder `!play`: der Klon kommt an die Box, dann übernimmt man wieder
   - `/raceai_set <Funktion> on|off` schaltet bis zum Neustart ein und aus: `errors`, `lines`, `spins`, `grass`, `contacts`, `damage`,
     `blueflags`, `yellowflags`, `flash`, `highbeams`, `raincaution`, `realweather`
   - `/raceai_lighttest`: Licht-Test. Alle Bots zeigen nacheinander je etwa 6 s linken Blinker, rechten Blinker, Warnblinker,

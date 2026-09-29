@@ -52,6 +52,14 @@ Language: de            # de oder en
   Tempo, seitlicher Abstand zur Ideallinie (seine Linie) und wie stark der von Runde zu Runde schwankt, Gas und Bremse.
 - **Klon als Bot:** In `plugin_race_ai_cfg.yml` unter `Drivers`: `- Slot: 5` und `Clone: <Name oder SteamID>`.
 - **Übernahme:** Verliert ein Spieler mit sauberen Runden im Rennen die Verbindung, übernimmt sein Klon das Auto an derselben
-  Stelle, in derselben Runde. Die Runden zählen für den Spieler. Kommt er zurück, bekommt er genau dieses Auto wieder (andere
-  Spieler können es solange nicht nehmen). AC startet ihn dabei in der Box.
+  Stelle, in derselben Runde. Die Runden zählen für den Spieler. Andere Spieler können das Auto solange nicht nehmen.
+- **Fahrerwechsel wie im Langstreckenrennen** (Race AI, CSP-Skript `driverswap.lua` vom Server):
+  - **Rückkehr:** Tritt der Spieler wieder bei, fährt sein Klon weiter. Der Spieler wird in ein freies Ersatzauto in der Box gesetzt
+    (irgendein freier Spieler-Platz) und kann zuschauen; ein Banner zeigt Position und wann der Klon an die Box kommt. Der Klon fährt
+    bei der nächsten Boxeneinfahrt rein, hält in seiner Box, und der Spieler wird automatisch in sein Auto gesetzt und fährt weiter.
+  - **`/bot` oder `!bot`** (Pause, lange Rennen): in die eigene Box fahren und anhalten, der Klon übernimmt dort, der Spieler schaut
+    aus einem Ersatzauto zu. Während der Klon zur Box fährt, lässt `/bot` ihn weiterfahren.
+  - **`/play` oder `!play`**: der Klon kommt bei der nächsten Boxeneinfahrt rein, dann übernimmt der Spieler wieder.
+  - Gibt es kein freies Ersatzauto oder kein CSP, übernimmt der Spieler beim Beitreten sofort (ohne CSP: nach dem Fahrerwechsel-Hinweis
+    den Server verlassen und neu beitreten). Kommt er zum Wechsel nicht innerhalb von 90 s, fährt der Klon weiter.
 - Im Dashboard (Reiter KI → „Fahrer-Klone“) steht, wer wie viele Runden aufgezeichnet hat.

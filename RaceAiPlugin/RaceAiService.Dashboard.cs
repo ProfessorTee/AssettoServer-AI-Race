@@ -76,7 +76,8 @@ public sealed partial class RaceAiService
                 if (!bot && client == null) continue;
 
                 var result = session.Results != null && session.Results.TryGetValue(car.SessionId, out var r) ? r : null;
-                var pos = car.Status.Position;
+                var carStatus = slot is { Active: true } ? slot.Status : car.Status;
+                var pos = carStatus.Position;
                 float s = line != null ? line.WrapS(line.Project(pos).S - _track!.StartLineS) : 0;
                 var d = new Dictionary<string, object?>
                 {
@@ -85,7 +86,7 @@ public sealed partial class RaceAiService
                     ["model"] = car.Model,
                     ["bot"] = bot,
                     ["x"] = R(pos.X), ["z"] = R(pos.Z),
-                    ["speed"] = MathF.Round(car.Status.Velocity.Length() * 3.6f),
+                    ["speed"] = MathF.Round(carStatus.Velocity.Length() * 3.6f),
                     ["laps"] = result?.NumLaps ?? 0,
                     ["best"] = Lap(result?.BestLap ?? 0),
                     ["last"] = Lap(result?.LastLap ?? 0),

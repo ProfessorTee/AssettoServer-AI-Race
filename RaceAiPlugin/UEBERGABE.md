@@ -122,7 +122,11 @@
   (+ `CloneZ` × Streuung je Kurve), keine generierten Linienfehler.
 - `CloneLibrary` (Plugin): liest die Aufzeichnungen, baut Profile bei Bedarf, Cache nach Dateiliste. `Drivers[].Clone`.
 - Übernahme (`TryTakeOver`/`EndTakeover` in `RaceAiService`): beim Verbindungsabbruch im Rennen neuer `BotSlot` mit `TakeoverGuid`
-  an der letzten Position, gleiche Runde; `RaceAiSlotFilter` hält das Auto für den Spieler frei und schickt ihn wieder hinein.
+  an der letzten Position, gleiche Runde; `RaceAiSlotFilter` hält das Auto für den Spieler frei.
+- Fahrerwechsel (`RaceAiService.DriverSwap.cs`, `Dashboard/driverswap.lua`, `RaiSwapPacket`): Phasen `SwapPhase` Away/Watching/
+  PitRequested/Handover; Zuschauen aus einem freien Spieler-Platz (beliebiges Modell, Umsetzen per `ac.reconnectTo`), Klon mit eigenem
+  `CarStatus` (der Spieler kann kurz in seinem Auto „durchreisen“), `/bot`, `/play` (auch `!bot`/`!play`), Wechsel in der Box
+  (`PitServiceUntil` gehalten, 90 s Zeit). Core: `IExternalAiController.StandsInFor`.
 
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:

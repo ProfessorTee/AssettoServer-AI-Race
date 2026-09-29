@@ -64,6 +64,22 @@ public class RaceAiCommandModule : ACModuleBase
             : "Unknown feature. Use: errors, lines, spins, grass, contacts, damage, blueflags, yellowflags, flash, highbeams, raincaution, realweather");
     }
 
+    /// <summary>Driver change: the clone takes over at the next stop in the box (or drives on instead of coming in).</summary>
+    [Command("bot")]
+    public void Bot()
+    {
+        if (Client == null) { Reply("Only for players."); return; }
+        Reply(_service.CommandBot(Client));
+    }
+
+    /// <summary>Driver change: the clone comes into the pits so the player takes over again.</summary>
+    [Command("play")]
+    public void Play()
+    {
+        if (Client == null) { Reply("Only for players."); return; }
+        Reply(_service.CommandPlay(Client));
+    }
+
     [Command("raceai_grid"), RequireAdmin]
     public void SetGrid(string order)
     {

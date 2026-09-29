@@ -18,11 +18,10 @@ public class RaceAiSlotFilter : OpenSlotFilterBase
 
     public override async ValueTask<bool> IsSlotOpen(EntryCar entryCar, ulong guid)
     {
-        // a player's car his clone drives while he's away: only he can have it back, and he gets his own car back, not another one
-        if (_service.TakeoverOwner(entryCar) is { } owner)
-            return owner == guid && await base.IsSlotOpen(entryCar, guid);
-        if (_service.TakeoverCarOf(guid) is { } own && own.Model == entryCar.Model)
-            return false;
+        // a player's car his clone drives: nobody else gets it; the player himself watches from a spare car until the
+        // driver change in the pits (or gets his car back at once when there's no spare car)
+        if (_service.SwapSlotOpen(entryCar, guid) is { } open)
+            return open && await base.IsSlotOpen(entryCar, guid);
 
         if (_service.IsBotSlot(entryCar) && !_service.PlayersCanTakeBotSlots)
             return false;
