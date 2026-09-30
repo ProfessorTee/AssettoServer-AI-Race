@@ -292,17 +292,21 @@ $("btnFollow").onclick = () => { follow = !follow && selected !== null; $("btnFo
 $("btnNames").onclick = () => { nameMode = (nameMode + 1) % 3; $("btnNames").textContent = "Namen: " + ["aus", "Auswahl", "alle"][nameMode]; };
 $("btnSections").onclick = () => { showSections = !showSections; $("btnSections").textContent = "Abschnitte: " + (showSections ? "an" : "aus"); };
 
+let loadedTrack = "";
 async function loadTrack() {
+  loadTrack.busy = true;
   try {
     track = await api("/raceai/api/track");
-    if (!track.available) return;
+    if (!track.available) { loadedTrack = ""; return; }
+    trackKey = "";
     bounds = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
     for (const p of track.line) for (let i = 0; i < 6; i += 2) {
       bounds.minX = Math.min(bounds.minX, p[i]); bounds.maxX = Math.max(bounds.maxX, p[i]);
       bounds.minZ = Math.min(bounds.minZ, p[i + 1]); bounds.maxZ = Math.max(bounds.maxZ, p[i + 1]);
     }
     resize(); fit();
-  } catch (e) {}
+  } catch (e) { loadedTrack = ""; }
+  finally { loadTrack.busy = false; }
 }
 
 // the track is drawn into its own canvas and only redrawn when the view changes
@@ -397,6 +401,8 @@ async function poll() {
   try {
     const s = await api("/raceai/api/state");
     state = s;
+    // track rotation (or the track data became ready): load the new map
+    if (s.track && s.track !== loadedTrack && !loadTrack.busy) { loadedTrack = s.track; loadTrack(); }
     $("conn").classList.add("on"); $("connText").textContent = "verbunden";
     $("title").textContent = s.server;
     const se = s.session;

@@ -137,6 +137,7 @@ public sealed partial class RaceAiService
             return new
             {
                 server = _serverConfig.Server.Name,
+                track = _track == null ? "" : TrackKey(),
                 session = new
                 {
                     name = session.Configuration.Name,
