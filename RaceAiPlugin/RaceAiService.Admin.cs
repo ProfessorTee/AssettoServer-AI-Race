@@ -20,6 +20,7 @@ public sealed partial class RaceAiService
         {
             if (_world == null) return T("Race AI is not active.", "Race AI ist nicht aktiv.");
             _botLimit = limit is < 0 ? null : limit;
+            _configWriter.Set("MaxBots", _botLimit ?? -1);
             var (on, off) = ApplyBotLimit();
             Log.Information("Race AI: bot limit {Limit}: {On} bots on track, {Off} switched off", _botLimit?.ToString() ?? "all", on, off);
             return _botLimit == null

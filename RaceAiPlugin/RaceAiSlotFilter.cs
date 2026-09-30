@@ -23,6 +23,10 @@ public class RaceAiSlotFilter : OpenSlotFilterBase
         if (_service.SwapSlotOpen(entryCar, guid) is { } open)
             return open && await base.IsSlotOpen(entryCar, guid);
 
+        // a player who lost the connection in the race gets his car back (and only his car)
+        if (_service.RejoinSlotOpen(entryCar, guid) is { } rejoin)
+            return rejoin && await base.IsSlotOpen(entryCar, guid);
+
         if (_service.IsBotSlot(entryCar) && !_service.PlayersCanTakeBotSlots)
             return false;
 

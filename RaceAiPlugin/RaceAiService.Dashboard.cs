@@ -218,9 +218,9 @@ public sealed partial class RaceAiService
         {
             switch (feature)
             {
-                case "yellowchat": _config.YellowFlagChat = on; return true;
-                case "overtakechat": _config.AnnounceOvertakes = on; return true;
-                case "takeover": _config.TakeOverDisconnectedPlayers = on; return true;
+                case "yellowchat": _config.YellowFlagChat = on; _configWriter.Set("YellowFlagChat", on); return true;
+                case "overtakechat": _config.AnnounceOvertakes = on; _configWriter.Set("AnnounceOvertakes", on); return true;
+                case "takeover": _config.TakeOverDisconnectedPlayers = on; _configWriter.Set("TakeOverDisconnectedPlayers", on); return true;
             }
         }
         return SetFeature(feature, on);
@@ -249,17 +249,22 @@ public sealed partial class RaceAiService
         }
     }
 
+    public float CurrentSpread => _config.AiStrengthSpread;
+
     public void SetGlobalStrength(float strength, float spread)
     {
         _config.AiStrength = Math.Clamp(strength, 50, 110);
         _config.AiStrengthSpread = Math.Clamp(spread, 0, 30);
         SetStrength(_config.AiStrength, _config.AiStrengthSpread);
+        _configWriter.Set("AiStrength", _config.AiStrength);
+        _configWriter.Set("AiStrengthSpread", _config.AiStrengthSpread);
     }
 
     public bool SetGridOrder(string order)
     {
         if (!Enum.TryParse<BotGridOrder>(order, true, out var o)) return false;
         _config.BotGridOrder = o;
+        _configWriter.Set("BotGridOrder", o);
         Serilog.Log.Information("Race AI: grid order for the next race: {Order}", o);
         return true;
     }
@@ -268,6 +273,7 @@ public sealed partial class RaceAiService
     {
         _config.AiAggression = Math.Clamp(aggression, 0, 100);
         SetAggression(_config.AiAggression);
+        _configWriter.Set("AiAggression", _config.AiAggression);
     }
 
     public void Chat(string message) => _entryCarManager.BroadcastChat(message);

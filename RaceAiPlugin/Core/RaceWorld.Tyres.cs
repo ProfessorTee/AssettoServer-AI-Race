@@ -15,9 +15,10 @@ public sealed partial class RaceWorld
     public static float TyreTempGrip(float t)
     {
         float d = t - TyreOptimum;
-        // a wide window: at 40 °C ~7 % less grip, at 120 °C ~4 % less
-        float k = d < 0 ? 3.5e-5f : 3.5e-5f;
-        return Math.Clamp(1 - k * d * d, 0.85f, 1f);
+        // GT3 slicks: cold is slippery (65 °C ~4 %, 55 °C ~10 %, 45 °C ~18 % less grip), overheated they go off too
+        // (100 °C ~2 %, 110 °C ~5 %, 120 °C ~10 % less)
+        float k = d < 0 ? 1.1e-4f : 8e-5f;
+        return Math.Clamp(1 - k * d * d, 0.75f, 1f);
     }
 
     public void SetTyreTemperature(RaceBot bot, float temperature)

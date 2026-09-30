@@ -16,6 +16,8 @@ public sealed partial class RaceWorld
         e *= me.Driver.Personality.Mistakes;
         // a wet track makes everybody less precise
         if (Settings.RainCaution) e += WetFactor() * 0.4f;
+        // little grip (green or dirty track, cold or overheated tyres): the car moves around, more mistakes
+        e += 0.6f * MathF.Max(0, 0.97f - Settings.GripFactor * me.CarGrip);
         return Math.Clamp(e, 0, 1);
     }
 

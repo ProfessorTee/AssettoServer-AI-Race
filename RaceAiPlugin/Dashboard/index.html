@@ -172,7 +172,8 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
       <div class="card">
         <h3>Beitreten</h3>
         <div class="row"><a class="btn primary" id="joinCm" href="#" target="_blank" rel="noopener">In Content Manager beitreten</a>
-          <a class="btn" id="joinPage" href="/raceai/join" target="_blank" rel="noopener">Seite für Freunde</a></div>
+          <a class="btn" id="joinPage" href="/raceai/join" target="_blank" rel="noopener">Seite für Freunde</a>
+          <a class="btn" href="/raceai/stats" target="_blank" rel="noopener">Bestzeiten &amp; Fahrer</a></div>
         <div class="row"><label>Adresse</label><code id="joinAddr">–</code><button class="btn" data-copy="joinAddr">Kopieren</button></div>
         <div class="row"><label>CM-Link</label><code id="joinLink" style="overflow-wrap:anywhere;flex:1">–</code><button class="btn" data-copy="joinLink">Kopieren</button></div>
         <div class="row"><label>Im WLAN</label><code id="joinLan">–</code></div>
@@ -184,13 +185,12 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
         <div class="row"><span id="rotInfo" class="muted">–</span></div>
         <div class="row"><select id="rotTarget"></select><button class="btn" id="rotNow">Jetzt wechseln</button></div>
         <div class="row"><span class="muted">Eingestellt in <code>rotation.yml</code> im Server-Ordner. Gewechselt wird nur zwischen Sessions, nie mitten im Rennen.
-          Spieler mit CSP werden automatisch neu verbunden.</span></div>
+          Die Spieler bekommen einen Countdown und treten danach über Content Manager neu bei.</span></div>
       </div>
       <div class="card">
         <h3>Server</h3>
         <div class="row"><button class="btn" id="restartServer">Server neu starten</button><button class="btn" id="updateServer">Update holen &amp; neu starten</button></div>
         <div class="row"><span class="muted" id="restartInfo">Neustart dauert etwa eine Minute (Bots werden neu kalibriert). Alle Spieler werden getrennt und können danach wieder beitreten.</span></div>
-        <div class="row"><button class="btn danger" id="stopServer">Server beenden</button><span class="muted">beendet das Rennen für alle</span></div>
       </div>
     </div>
     <div class="tab" id="tab-log">
@@ -635,9 +635,10 @@ async function serverRestart(mode) {
 }
 $("restartServer").onclick = () => serverRestart("restart");
 $("updateServer").onclick = () => serverRestart("update");
-(async () => { try { const p = await api("/raceai/api/ping"); if (!p.supervised) { $("updateServer").disabled = true;
-  $("restartInfo").textContent = "Neustart startet den Server im selben Prozess neu. Update aus dem Dashboard nur mit race-ai/start-server.sh (Desktop-Symbol); beim Hoster neue Dateien hochladen."; } } catch (e) {} })();
-$("stopServer").onclick = () => { if (confirm("Server wirklich beenden? Alle Spieler fliegen raus.")) act("/raceai/api/server", { action: "stop" }, "Server wird beendet"); };
+// at a game server host the panel starts and stops the server: no server buttons there (only with race-ai/start-server.sh)
+(async () => { try { const p = await api("/raceai/api/ping"); if (!p.supervised) {
+  const card = $("restartServer").closest(".card"); if (card) card.style.display = "none";
+} } catch (e) {} })();
 (async () => { try { const types = await api("/raceai/api/server", { action: "weathertypes" }); $("wType").innerHTML = types.map(t => `<option value="${t}"${t === "Clear" ? " selected" : ""}>${esc(WX[t] ? `${WX[t]} (${t})` : t)}</option>`).join(""); } catch (e) {} })();
 
 // ---------------------------------------------------------------- log

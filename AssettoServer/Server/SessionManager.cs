@@ -337,7 +337,7 @@ public class SessionManager : BackgroundService, IHostedLifecycleService
         if (standIn && connectedCount == 0) connectedCount = 1;
         // the last player just left: give plugins a moment to put a stand-in into his car before the race is skipped
         if (connectedCount > 0) _lastPlayerSeenMilliseconds = ServerTimeMilliseconds;
-        else if (ServerTimeMilliseconds - _lastPlayerSeenMilliseconds < 3000) return false;
+        else if (ServerTimeMilliseconds - _lastPlayerSeenMilliseconds < _configuration.EmptyRaceGraceMilliseconds) return false;
         var participantCount = connectedCount == 0 ? 0 : connectedCount + _entryCarManager.EntryCars.Count(c => c.Client == null && c.ExternalAiController != null);
         
         switch (CurrentSession.Configuration.IsOpen)

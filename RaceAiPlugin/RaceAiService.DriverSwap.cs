@@ -210,7 +210,7 @@ public sealed partial class RaceAiService
             }
         }
         _pendingBot.Remove(client.Guid);
-        TryTakeOver(client);
+        if (TryTakeOver(client) == null) ReserveForRejoin(client);
     }
 
     private void OnChatForSwap(ACTcpClient sender, ChatMessageEventArgs args)

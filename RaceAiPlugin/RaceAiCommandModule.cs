@@ -11,9 +11,11 @@ public class RaceAiCommandModule : ACModuleBase
 {
     private readonly RaceAiService _service;
     private readonly TrackRotation _rotation;
+    private readonly PlayerStats _stats;
 
-    public RaceAiCommandModule(RaceAiService service, TrackRotation rotation)
+    public RaceAiCommandModule(RaceAiService service, TrackRotation rotation, PlayerStats stats)
     {
+        _stats = stats;
         _service = service;
         _rotation = rotation;
     }
@@ -43,7 +45,7 @@ public class RaceAiCommandModule : ACModuleBase
     public void SetStrength(float strength, float spread = -1)
     {
         strength = Math.Clamp(strength, 50, 110);
-        _service.SetStrength(strength, spread >= 0 ? spread : null);
+        _service.SetGlobalStrength(strength, spread >= 0 ? spread : _service.CurrentSpread);
         Reply($"Race AI strength set to {strength:F0} %" + (spread >= 0 ? $" +/- {spread:F0} %" : ""));
     }
 
@@ -123,11 +125,53 @@ public class RaceAiCommandModule : ACModuleBase
         Reply(_service.SetDebug(on, bot));
     }
 
+    /// <summary>Best laps on the current track: /top (this week), /top all.</summary>
+    [Command("top")]
+    public void Top(string which = "week")
+    {
+        bool week = !(which.ToLowerInvariant() is "all" or "alltime" or "allzeit" or "ever");
+        var list = _stats.Top(_service.TrackKeyName, week, 10);
+        if (list.Count == 0)
+        {
+            Reply(week ? "No lap times this week yet. /top all for all time." : "No lap times yet.");
+            return;
+        }
+        var sb = new StringBuilder(week ? $"Best laps this week ({PlayerStats.Week(DateTime.UtcNow)}):" : "Best laps of all time:");
+        for (int i = 0; i < list.Count; i++)
+            sb.Append($"\n{i + 1}. {PlayerStats.Fmt(list[i].Ms)} {list[i].Name} ({list[i].Car})");
+        Reply(sb.ToString());
+    }
+
+    /// <summary>Profile with safety rating: /profile, /profile name, /sr.</summary>
+    [Command("profile", "sr", "stats")]
+    public void Profile([Remainder] string? name = null)
+    {
+        Reply(_stats.ProfileText(Client?.Guid ?? 0, name));
+    }
+
+    /// <summary>Duel against a recorded player's line: /raceai_duel name [bot name or car number] [pace %], /raceai_duel off.</summary>
+    [Command("raceai_duel", "duel"), RequireAdmin]
+    public void Duel([Remainder] string args)
+    {
+        var parts = args.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        if (parts.Count == 0) { Reply("/raceai_duel <player> [bot|car#] [pace %] or /raceai_duel off"); return; }
+        if (parts[0].ToLowerInvariant() is "off" or "aus" or "stop") { if (_service.StopDuel() is { } err) Reply(err); return; }
+        float pace = 100;
+        if (parts.Count > 1 && parts[^1].EndsWith('%') && float.TryParse(parts[^1].TrimEnd('%'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var p))
+        {
+            pace = p;
+            parts.RemoveAt(parts.Count - 1);
+        }
+        string player = parts[0];
+        string? bot = parts.Count > 1 ? string.Join(' ', parts.Skip(1)) : null;
+        if (_service.StartDuel(player, bot, pace) is { } error) Reply(error);
+    }
+
     [Command("raceai_aggression"), RequireAdmin]
     public void SetAggression(float aggression)
     {
         aggression = Math.Clamp(aggression, 0, 100);
-        _service.SetAggression(aggression);
+        _service.SetGlobalAggression(aggression);
         Reply($"Race AI aggression set to {aggression:F0}");
     }
 }

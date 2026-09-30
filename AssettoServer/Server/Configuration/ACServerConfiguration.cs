@@ -30,6 +30,10 @@ public partial class ACServerConfiguration
     /// e.g. "Bots:16,Player:2 - Name". Gets the name from server_cfg.ini. The in-game name stays unchanged.
     /// </summary>
     [YamlIgnore] public Func<string, string>? ListedNameProvider { get; set; }
+    /// <summary>Race AI patch: how long a race keeps running after the last player left (ms), so he can rejoin.</summary>
+    [YamlIgnore] public long EmptyRaceGraceMilliseconds { get; set; } = 3000;
+    /// <summary>Race AI patch: a player may join a closed (running) race session, e.g. to rejoin after a disconnect.</summary>
+    [YamlIgnore] public Func<ulong, bool>? MayJoinClosedSession { get; set; }
     /// <summary>Name for the server lists (see <see cref="ListedNameProvider"/>).</summary>
     [YamlIgnore] public string ListedName
     {

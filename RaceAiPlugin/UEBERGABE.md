@@ -145,6 +145,15 @@
 - DriverRecorder: Pakete ohne Skalar neben Arrays (`count` entfernt, `fuel` als float[4]), damit die Feldreihenfolge in CSP und
   AssettoServer eindeutig gleich ist; `/rec info` zeigt empfangene Messungen und Ziellinien-Überquerungen.
 
+## Neu in Teil 13: Statistik, Duell, Wiedereinstieg, Einstellungen speichern
+- `PlayerStats`: Bestzeiten (Woche/Allzeit), Safety Rating, Profile; `/top`, `/profile`, Seite `/raceai/stats`, API `/raceai/api/stats`.
+- `/raceai_duel`: ein Bot wird zum Klon eines aufgezeichneten Spielers, Rundenvergleich im Chat.
+- Core: `EmptyRaceGraceMilliseconds` (Rennen endet nicht sofort ohne Spieler) und `MayJoinClosedSession` (Beitritt ins laufende
+  Rennen für Wiedereinsteiger); Plugin: `RejoinSeconds`.
+- `ConfigWriter`: Dashboard-Einstellungen und Admin-Befehle werden in `plugin_race_ai_cfg.yml` geschrieben.
+- Reifen: neue Temperaturkurve (kalt/heiß kostet mehr Grip), wenig Grip macht mehr Fehler.
+- Dashboard: kein „Server beenden“ mehr; Neustart-Knöpfe nur mit `start-server.sh`.
+
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:
 1. Offizielles Release `assetto-server-linux-x64.tar.gz` (v0.0.55-pre42) laden. Es ist ein Single-File-Bundle mit .NET 11 RC,

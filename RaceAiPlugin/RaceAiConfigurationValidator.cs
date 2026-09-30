@@ -48,6 +48,7 @@ public class RaceAiConfigurationValidator : AbstractValidator<RaceAiConfiguratio
         RuleFor(cfg => cfg.SideMargin).InclusiveBetween(0, 3);
         RuleFor(cfg => cfg.PlayerSideMargin).InclusiveBetween(0, 3);
         RuleFor(cfg => cfg.PlayerOverlap).InclusiveBetween(0, 10);
+        RuleFor(cfg => cfg.RejoinSeconds).InclusiveBetween(0, 600);
         RuleForEach(cfg => cfg.BotSlots).GreaterThanOrEqualTo(0);
         RuleForEach(cfg => cfg.Drivers).ChildRules(d =>
         {

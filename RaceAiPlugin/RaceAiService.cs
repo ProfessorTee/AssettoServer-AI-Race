@@ -26,6 +26,7 @@ public sealed partial class RaceAiService : IHostedService
     private readonly WeatherManager _weatherManager;
 
     private readonly object _lock = new();
+    private ConfigWriter _configWriter = null!;
     private readonly ConcurrentQueue<(byte BotSessionId, Vector3 OtherPosition, float Speed)> _contacts = new();
     private readonly Dictionary<byte, BotSlot> _slotsBySessionId = new();
     private readonly List<BotSlot> _slots = [];
@@ -65,7 +66,9 @@ public sealed partial class RaceAiService : IHostedService
         _sessionManager = sessionManager;
         _server = server;
         _weatherManager = weatherManager;
+        _configWriter = new ConfigWriter(serverConfig);
         SetupListedName();
+        SetupRejoin();
     }
 
     /// <summary>"Bots:16,Player:2 - Name" in the server lists (only when bots are configured).</summary>
@@ -365,7 +368,7 @@ public sealed partial class RaceAiService : IHostedService
             string guid = client.Guid.ToString(), model = client.EntryCar.Model;
             _ = Task.Run(() => { try { clones.Get(guid, model, anyCar: true); } catch (Exception ex) { Log.Debug(ex, "Race AI: clone preload failed"); } });
         }
-        lock (_lock) OnSwapWatcherConnected(client);
+        lock (_lock) { OnSwapWatcherConnected(client); OnRejoined(client); }
         if (_slotsBySessionId.TryGetValue(client.SessionId, out var slot))
         {
             lock (_lock)
@@ -404,7 +407,7 @@ public sealed partial class RaceAiService : IHostedService
         {
             OnSwapClientDisconnected(client);
             _world?.RemoveExternal(client.SessionId);
-            if (_slotsBySessionId.TryGetValue(client.SessionId, out var slot) && !slot.Active && !slot.Benched)
+            if (_slotsBySessionId.TryGetValue(client.SessionId, out var slot) && !slot.Active && !slot.Benched && !_rejoins.ContainsKey(client.Guid))
             {
                 TakeSlot(slot, broadcast: true);
                 PlaceForCurrentSession(slot, late: true);
@@ -436,6 +439,7 @@ public sealed partial class RaceAiService : IHostedService
             EndTakeover(t, null);
         _sessionType = session.Configuration.Type;
         _raceStarted = false;
+        ClearRejoins();
         _lastRelative.Clear();
         double now = Now;
 
@@ -846,6 +850,7 @@ public sealed partial class RaceAiService : IHostedService
         ReleaseFromPits(world, now);
         UpdateDriverSwaps(world, now);
         DebugTick(world, now);
+        ExpireRejoins();
         FinishSessionEarly(session);
         world.Advance(now);
 
@@ -1277,6 +1282,10 @@ public sealed partial class RaceAiService : IHostedService
         return cal;
     }
 
+    public string TrackKeyName => TrackKey();
+    public float TrackLengthMeters => _track?.Line.Length ?? 0;
+    public bool IsBotCar(byte sessionId) { lock (_lock) return _slotsBySessionId.TryGetValue(sessionId, out var s) && s.Active; }
+
     private string TrackKey()
     {
         string track = _serverConfig.Server.Track;
@@ -1299,21 +1308,22 @@ public sealed partial class RaceAiService : IHostedService
             {
                 case "errors" or "humanerrors":
                     _config.HumanErrors = on;
+                    _configWriter.Set(nameof(RaceAiConfiguration.HumanErrors), on);
                     s.HumanErrors = on;
                     foreach (var slot in _slots)
                         if (_calibrations.TryGetValue(slot.Bot.Car, out var cal)) ApplyStrength(slot.Bot, slot.Bot.Driver.Level, cal);
                     break;
-                case "spins": s.Spins = on; break;
-                case "grass": s.GrassMoments = on; break;
-                case "lines": s.LineErrors = on; break;
-                case "contacts": s.BotContacts = on; break;
+                case "spins": s.Spins = on; _config.Spins = on; _configWriter.Set("Spins", on); break;
+                case "grass": s.GrassMoments = on; _config.GrassMoments = on; _configWriter.Set("GrassMoments", on); break;
+                case "lines": s.LineErrors = on; _config.LineErrors = on; _configWriter.Set("LineErrors", on); break;
+                case "contacts": s.BotContacts = on; _config.BotContacts = on; _configWriter.Set("BotContacts", on); break;
                 case "damage": s.Damage = on && s.DamageRate > 0; break;
-                case "blueflags": _config.BlueFlags = on; s.BlueFlags = on && _sessionType == SessionType.Race; break;
-                case "yellowflags": s.YellowFlags = on; break;
-                case "flash": _config.FlashLights = on; break;
-                case "raincaution": _config.RainCaution = on; s.RainCaution = on; break;
-                case "realweather": _config.RealWeather = on; break;
-                case "highbeams": _config.HighBeams = on; break;
+                case "blueflags": _config.BlueFlags = on; s.BlueFlags = on && _sessionType == SessionType.Race; _configWriter.Set("BlueFlags", on); break;
+                case "yellowflags": s.YellowFlags = on; _config.YellowFlags = on; _configWriter.Set("YellowFlags", on); break;
+                case "flash": _config.FlashLights = on; _configWriter.Set("FlashLights", on); break;
+                case "raincaution": _config.RainCaution = on; s.RainCaution = on; _configWriter.Set("RainCaution", on); break;
+                case "realweather": _config.RealWeather = on; _configWriter.Set("RealWeather", on); break;
+                case "highbeams": _config.HighBeams = on; _configWriter.Set("HighBeams", on); break;
                 default: return false;
             }
             return true;

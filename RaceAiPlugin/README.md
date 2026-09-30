@@ -170,13 +170,17 @@ Das Dashboard läuft im Server selbst unter `http://127.0.0.1:<HTTP_PORT>/raceai
 - **KI:** Stärke, Streuung und Aggressivität für das ganze Feld. Alle Funktionen als Schalter (Fehler, Dreher, Gras, Berührungen,
   Schaden, Flaggen, Licht, Regen, echtes Wetter, Chat-Meldungen). Dazu der Licht-Test.
 - **Server:** nächste Session oder Neustart, Tageszeit, CSP-Wetter, Regen/Nässe/Wasser, Luft- und Streckentemperatur, Grip,
-  Chat an alle, Server beenden.
+  Chat an alle. Server beenden/neu starten macht beim Hoster das Panel; nur mit `race-ai/start-server.sh` (eigener PC)
+  gibt es „Server neu starten“ und „Update holen & neu starten“.
 - **Admin-Befehle:** alle Server-Befehle mit Vorlagen (kick, ban, ballast, restrict, forcelights, pit, whois, set, whitelist …),
   mit Antwort. Bei Spielern gibt es Knöpfe für Ballast, Restriktor, Box, Licht erzwingen, Kicken und Bannen.
 - **Log:** live, mit Filter. Wer nach unten scrollt, bleibt dort stehen, auch wenn oben neue Zeilen dazukommen.
 - **Beitreten:** Content-Manager-Link (öffnet CM und verbindet), Adresse zum Kopieren und die öffentliche Seite
   `http://<IP>:<HTTP_PORT>/raceai/join` für Freunde (ohne Passwort; mit Anleitung für den Original-Launcher, der keine
   Beitritts-Links kennt). Die öffentliche IP wird automatisch ermittelt oder mit `PublicAddress` (z. B. DynDNS) festgelegt.
+- **Einstellungen bleiben:** was im Dashboard oder per Admin-Befehl verstellt wird (Stärke, Streuung, Aggressivität, Startaufstellung,
+  Schalter, Bot-Anzahl), schreibt das Plugin in `plugin_race_ai_cfg.yml` (die Zeile wird ersetzt, Kommentare bleiben). Steht der
+  Schlüssel im Preset der aktuellen Strecke, landet er dort, sonst in `cfg/` (gilt dann für alle Strecken).
 - **Neustart aus der Ferne:** „Server neu starten“ und „Update holen & neu starten“ (git pull + `update-server.sh`). Das geht,
   wenn der Server über `race-ai/start-server.sh` bzw. das Desktop-Symbol läuft: `race-ai/server-supervisor.sh` startet ihn neu.
 - Oben rechts lassen sich die Datenrate (1–10 pro Sekunde) und die Bildrate der Karte (10–60 fps) einstellen. Weniger heißt
@@ -189,8 +193,27 @@ Das Dashboard läuft im Server selbst unter `http://127.0.0.1:<HTTP_PORT>/raceai
 | `/raceai_bots 8` · `/raceai_bots off` · `/raceai_bots on` | nur 8 Bots / keine / alle; ausgeschaltete Bots verlassen die Strecke, ihre Autos sind frei für Spieler (Start-Wert: `MaxBots`) |
 | `/raceai_sc on [km/h]` · `/raceai_sc off` | Safety Car: Bots fahren langsam (Standard 100 km/h), überholen nicht und wedeln auf den Geraden, damit die Reifen warm bleiben |
 | `/raceai_debug on [Bot oder Autonummer]` · `/raceai_debug off` | alle 10 s eine Zeile pro Bot im Log; mit Bot zusätzlich dessen Entscheidungen zweimal pro Sekunde (Start-Wert: `Debug`) |
+| `/raceai_duel <Spieler> [Bot oder Autonummer] [Tempo %]` · `/raceai_duel off` | Duell: ein Bot fährt die aufgezeichnete Linie und das Tempo des Spielers (z. B. `/raceai_duel Tee 95%`); jede Runde der Spieler wird im Chat mit dessen Bestzeit verglichen |
 | `/rec_debug on\|off` | Driver Recorder: jede Runde mit Messungen, Dauer und Abgleich im Log |
 | `/raceai_strength`, `/raceai_aggression`, `/raceai_grid`, `/raceai_set`, `/raceai_nexttrack`, `/raceai_lighttest` | wie bisher |
+
+Für alle Spieler:
+
+| Befehl | Wirkung |
+|---|---|
+| `/top` · `/top all` | die 10 besten Runden auf dieser Strecke, diese Woche bzw. aller Zeiten |
+| `/profile [Name]` (auch `/sr`, `/stats`) | Profil: Safety Rating, km, Runden, Kontakte, Cuts, Rennen, Siege, Podien, Bestzeit hier |
+
+## Statistik, Safety Rating, Wiedereinstieg
+
+- Jede saubere Runde (ohne Cut) zählt für die Bestzeiten: pro Strecke und Auto die Allzeit-Bestzeit und die der Woche
+  (ISO-Woche, die letzten 8 bleiben). Gespeichert in `stats/players.json` im Server-Ordner (alle 30 s).
+- **Safety Rating 0–5:** Vorfälle je 10 km (Kontakt mit einem Auto 2–6 Punkte je nach Tempo, Streckenrand 1–2, Cut 1),
+  neuere Kilometer zählen mehr (Halbwertszeit 300 km). A ab 4,0 · B ab 3,0 · C ab 2,0 · D ab 1,0 · R darunter; bewertet ab 20 km.
+- Öffentliche Seite ohne Passwort: `http://<IP>:<HTTP_PORT>/raceai/stats` (Link auch im Dashboard unter „Beitreten“).
+- **Wiedereinstieg:** Verliert ein Spieler im Rennen die Verbindung, bleibt sein Auto `RejoinSeconds` (60 s) für ihn frei und
+  das Rennen läuft weiter, auch wenn er der einzige Spieler war. Er kann in dieser Zeit über Content Manager wieder beitreten,
+  obwohl das Rennen schon läuft. Hat er Aufzeichnungen, fährt stattdessen sein Klon weiter (wie bisher). `RejoinSeconds: 0` schaltet das ab.
 
 ## Name in der Server-Liste
 

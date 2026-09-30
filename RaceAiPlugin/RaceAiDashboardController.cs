@@ -27,10 +27,12 @@ public class RaceAiDashboardController : ControllerBase
     private readonly ChatService _chatService;
     private readonly JoinInfo _joinInfo;
     private readonly TrackRotation _rotation;
+    private readonly PlayerStats _stats;
 
     public RaceAiDashboardController(RaceAiService service, SessionManager sessionManager, WeatherManager weatherManager,
-        EntryCarManager entryCarManager, ACServerConfiguration serverConfig, IHostApplicationLifetime lifetime, ChatService chatService, JoinInfo joinInfo, TrackRotation rotation)
+        EntryCarManager entryCarManager, ACServerConfiguration serverConfig, IHostApplicationLifetime lifetime, ChatService chatService, JoinInfo joinInfo, TrackRotation rotation, PlayerStats stats)
     {
+        _stats = stats;
         _rotation = rotation;
         _joinInfo = joinInfo;
         _chatService = chatService;
@@ -80,6 +82,13 @@ public class RaceAiDashboardController : ControllerBase
     /// <summary>Join links (public, no password: the same data a server list shows).</summary>
     [HttpGet("/raceai/api/join")]
     public async Task<IActionResult> Join() => Ok(await _joinInfo.GetAsync());
+
+    /// <summary>Public statistics: best laps of the week / all time, safety ratings (no password, like a leaderboard).</summary>
+    [HttpGet("/raceai/stats")]
+    public IActionResult StatsPage() => Content(StatsPageHtml.Html, "text/html; charset=utf-8");
+
+    [HttpGet("/raceai/api/stats")]
+    public IActionResult Stats() => Ok(_stats.Overview());
 
     /// <summary>Public page for friends: Content Manager link, IP and ports.</summary>
     [HttpGet("/raceai/join")]

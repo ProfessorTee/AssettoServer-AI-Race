@@ -51,6 +51,9 @@ public static class Simulator
             GrassMoments = !o.Has("no-grass"),
             BotContacts = !o.Has("no-contacts"),
             Damage = !o.Has("no-damage"),
+            GripFactor = o.Float("grip", 1),
+            AmbientTemp = o.Float("ambient", 22),
+            RoadTemp = o.Float("road", 30),
         };
         float errorsBelow = o.Float("errors-below", 87), errorsFull = o.Float("errors-full", 75);
         if (info.StartFinish is { } sf) settings.StartLineS = line.Project(sf).S;

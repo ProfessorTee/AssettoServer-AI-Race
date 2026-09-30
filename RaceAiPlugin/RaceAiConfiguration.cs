@@ -240,6 +240,10 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     [YamlMember(Description = "Folder of the DriverRecorder plugin with the recorded laps of the players (for clones)")]
     public string RecordingsFolder { get; set; } = "recordings";
 
+    [YamlMember(Description = "A player who loses the connection during a race may rejoin into his car for this many seconds (his laps count on). " +
+                              "The race doesn't end in that time even if he was the only player. 0 = off")]
+    public int RejoinSeconds { get; set; } = 60;
+
     [YamlMember(Description = "When a recorded player disconnects during a race, his clone drives his car on until he comes back (needs clean recorded laps on this track)")]
     public bool TakeOverDisconnectedPlayers { get; set; } = true;
 
