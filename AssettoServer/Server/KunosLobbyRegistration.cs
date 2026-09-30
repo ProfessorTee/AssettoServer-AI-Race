@@ -33,30 +33,49 @@ public class KunosLobbyRegistration : BackgroundService
         if (!_configuration.Server.RegisterToLobby)
             return;
 
-        try
+        // Race AI patch: wait a moment before registering. A server that switches to another track right after the start
+        // (track rotation) restarts within seconds; registering twice in a row gets it rate-limited by the lobby.
+        try { await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken); }
+        catch (TaskCanceledException) { return; }
+
+        // Race AI patch: don't give up when the lobby says "too many registration attempts" (or is unreachable): try again later
+        var retry = TimeSpan.FromMinutes(2);
+        while (!stoppingToken.IsCancellationRequested)
         {
-            await RegisterToLobbyWithRetryAsync(stoppingToken);
-        }
-        catch (TaskCanceledException) { }
-        catch (KunosLobbyException ex) when (ex.Message == "ERROR,INVALID SERVER,CHECK YOUR PORT FORWARDING SETTINGS")
-        {
-            PrintPortForwardingHelp();
-            return;
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "Error during Kunos lobby registration");
-            return;
+            try
+            {
+                await RegisterToLobbyWithRetryAsync(stoppingToken);
+                break;
+            }
+            catch (TaskCanceledException) { return; }
+            catch (KunosLobbyException ex) when (ex.Message == "ERROR,INVALID SERVER,CHECK YOUR PORT FORWARDING SETTINGS")
+            {
+                PrintPortForwardingHelp();
+                return;
+            }
+            catch (Exception ex)
+            {
+                Log.Warning("Kunos lobby registration failed ({Message}), trying again in {Minutes} min", ex.Message, retry.TotalMinutes);
+                try { await Task.Delay(retry, stoppingToken); }
+                catch (TaskCanceledException) { return; }
+                retry = TimeSpan.FromMinutes(Math.Min(retry.TotalMinutes * 2, 15));
+            }
         }
 
+        var lastRegistration = DateTime.UtcNow;
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
-                // Race AI patch: the listed name changed (e.g. player count in the name): register again, the lobby only takes the name there
-                if (_registeredName != null && _configuration.ListedName != _registeredName)
+                // Race AI patch: the listed name changed (e.g. player count in the name): register again, the lobby only takes
+                // the name there. At most every 5 minutes, the lobby limits registrations.
+                if (_registeredName != null && _configuration.ListedName != _registeredName
+                    && DateTime.UtcNow - lastRegistration > TimeSpan.FromMinutes(5))
+                {
+                    lastRegistration = DateTime.UtcNow;
                     await RegisterToLobbyWithRetryAsync(stoppingToken);
+                }
                 await Policy
                     .Handle<KunosLobbyException>()
                     .Or<HttpRequestException>()
