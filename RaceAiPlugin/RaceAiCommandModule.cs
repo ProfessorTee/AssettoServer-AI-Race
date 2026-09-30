@@ -98,6 +98,31 @@ public class RaceAiCommandModule : ACModuleBase
             : "Use: /raceai_grid Qualifying | SlowestFirst | Random");
     }
 
+    /// <summary>Number of bots: /raceai_bots 8, /raceai_bots off, /raceai_bots on (all).</summary>
+    [Command("raceai_bots"), RequireAdmin]
+    public void SetBots(string count)
+    {
+        string c = count.Trim().ToLowerInvariant();
+        int? limit = c is "on" or "all" or "an" or "alle" ? null : c is "off" or "aus" or "0" ? 0 : int.TryParse(c, out var n) ? Math.Max(0, n) : -2;
+        Reply(limit == -2 ? "Use: /raceai_bots <number> | on | off" : _service.SetBotLimit(limit));
+    }
+
+    /// <summary>Safety car: /raceai_sc on [km/h], /raceai_sc off.</summary>
+    [Command("raceai_sc", "raceai_safetycar"), RequireAdmin]
+    public void SafetyCar(string state, float kmh = 0)
+    {
+        bool on = state.ToLowerInvariant() is "on" or "1" or "an" or "ein" or "true";
+        Reply(_service.SetSafetyCar(on, kmh > 0 ? kmh : null));
+    }
+
+    /// <summary>Debug logging: /raceai_debug on [bot name or car number], /raceai_debug off.</summary>
+    [Command("raceai_debug"), RequireAdmin]
+    public void Debug(string state, [Remainder] string? bot = null)
+    {
+        bool on = state.ToLowerInvariant() is "on" or "1" or "an" or "ein" or "true";
+        Reply(_service.SetDebug(on, bot));
+    }
+
     [Command("raceai_aggression"), RequireAdmin]
     public void SetAggression(float aggression)
     {

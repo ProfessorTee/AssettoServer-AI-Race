@@ -336,6 +336,10 @@ public sealed class RaceWorldSettings
     public float PlayerSideMargin { get; set; } = 1.0f;
     /// <summary>A player counts as alongside while he overlaps within this many metres (m), bots then leave him room.</summary>
     public float PlayerOverlap { get; set; } = 3.0f;
+    /// <summary>Safety car: all bots drive slowly (<see cref="SafetyCarSpeed"/>), don't overtake and weave on the straights to keep their tyres warm.</summary>
+    public bool SafetyCar { get; set; }
+    /// <summary>Top speed under the safety car (m/s).</summary>
+    public float SafetyCarSpeed { get; set; } = 100 / 3.6f;
     /// <summary>Use the speed recorded in fast_lane.ai as an upper limit, scaled by this factor. 0 = off.</summary>
     public float SpeedHintScale { get; set; } = 0f;
     /// <summary>Height of the track's AC_START_x / AC_PIT_x dummies above the ground (m), subtracted when parking in the pit box.</summary>
@@ -1126,7 +1130,7 @@ public sealed partial class RaceWorld
                 me.NextFlashAt = _now + 3; // decided not to flash this time
             }
 
-            if (me.OvertakeTargetId != a.Id && !cautious && !yellow && !blueFlag && me.Phase == BotPhase.Racing && _now >= me.OvertakeCooldownUntil
+            if (me.OvertakeTargetId != a.Id && !cautious && !yellow && !blueFlag && !Settings.SafetyCar && me.Phase == BotPhase.Racing && _now >= me.OvertakeCooldownUntil
                 && aheadGap < attackRange && (me.PressureEma > needAdvantage || closing > 1.0f))
             {
                 if (!TryChooseOvertakeSide(me, a, aheadGap, latClear, minOff, maxOff, out var side))
@@ -1207,7 +1211,10 @@ public sealed partial class RaceWorld
         }
 
         // out-lap with cold tyres and nobody around: weave on the straights to get heat into them
-        float warmWeave = !me.Weaving && me.OvertakeTargetId < 0 && !blueFlag && aheadGap > 80 && behindGap > 60 && WantsTyreWarmWeave(me, myS)
+        bool sc = Settings.SafetyCar && me.Phase == BotPhase.Racing && !me.InPitLane;
+        if (sc && me.OvertakeTargetId >= 0) { me.OvertakeTargetId = -1; me.ReturnToLineAfter = _now; }
+        float warmWeave = !me.Weaving && me.OvertakeTargetId < 0 && !blueFlag
+                          && (sc ? aheadGap > 12 && !alongside : aheadGap > 80 && behindGap > 60) && WantsTyreWarmWeave(me, myS)
             ? 0.8f * MathF.Sin((float)(_now * 2 * Math.PI / 1.7) + me.Id) : 0;
 
         if (me.Weaving && me.OvertakeTargetId < 0 && !blueFlag)
@@ -1255,6 +1262,7 @@ public sealed partial class RaceWorld
         if (!float.IsNaN(shiftBase)) me.LineShiftNow = me.TargetOffset - shiftBase; // after clamping to the room there is
                 CornerExecution(me, myS, ref vTarget);
         MistakeThink(me, ref vTarget);
+        if (sc) vTarget = MathF.Min(vTarget, Settings.SafetyCarSpeed);
         me.TargetSpeed = MathF.Max(0, vTarget);
         if (me.Id == TraceBotId && Trace != null && _now - _lastTrace >= 0.5)
         {

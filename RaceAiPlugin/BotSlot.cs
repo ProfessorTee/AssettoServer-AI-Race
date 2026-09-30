@@ -28,6 +28,8 @@ public sealed class BotSlot : IExternalAiController
 
     /// <summary>False while a real player occupies the slot (e.g. an admin joined it).</summary>
     public bool Active { get; set; } = true;
+    /// <summary>Switched off by an admin (/raceai_bots): the car stays empty until the bots are switched on again.</summary>
+    public bool Benched { get; set; }
 
     /// <summary>Grid position index (AC_START_x) for the current race.</summary>
     public int GridIndex { get; set; }

@@ -22,6 +22,9 @@ public class DriverRecorderConfiguration : IValidateConfiguration<DriverRecorder
 
     [YamlMember(Description = "Chat language: de or en")]
     public string Language { get; set; } = "de";
+
+    [YamlMember(Description = "Detailed logging for troubleshooting (first data per player, every lap cut and how it was matched). Admin: /rec_debug on|off")]
+    public bool Debug { get; set; }
 }
 
 public class DriverRecorderConfigurationValidator : AbstractValidator<DriverRecorderConfiguration>

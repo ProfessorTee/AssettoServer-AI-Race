@@ -299,6 +299,10 @@ public sealed partial class RaceAiService : IHostedService
         world.YellowFlag += OnYellowFlag;
         world.PitStopCompleted += OnBotPitStop;
         _world = world;
+        world.Trace = msg => Log.Information("Race AI trace: {Line}", msg);
+        world.TraceBotId = -1;
+        if (_config.Debug) Log.Information("Race AI: debug logging on (Debug in plugin_race_ai_cfg.yml)");
+        if (_config.MaxBots >= 0) _botLimit = _config.MaxBots;
 
         _sessionManager.SessionChanged += OnSessionChanged;
         _entryCarManager.ClientConnected += OnClientConnected;
@@ -315,6 +319,12 @@ public sealed partial class RaceAiService : IHostedService
 
         _server.Update += OnUpdate;
         Log.Information("Race AI: {Count} bots ready on {Track} ({Length:F1} km)", _slots.Count, trackName, _track.Line.Length / 1000);
+        if (_botLimit != null)
+            lock (_lock)
+            {
+                var (on, off) = ApplyBotLimit();
+                Log.Information("Race AI: MaxBots {Limit}: {On} bots on track, {Off} switched off", _botLimit, on, off);
+            }
         return Task.CompletedTask;
     }
 
@@ -394,7 +404,7 @@ public sealed partial class RaceAiService : IHostedService
         {
             OnSwapClientDisconnected(client);
             _world?.RemoveExternal(client.SessionId);
-            if (_slotsBySessionId.TryGetValue(client.SessionId, out var slot) && !slot.Active)
+            if (_slotsBySessionId.TryGetValue(client.SessionId, out var slot) && !slot.Active && !slot.Benched)
             {
                 TakeSlot(slot, broadcast: true);
                 PlaceForCurrentSession(slot, late: true);
@@ -835,6 +845,7 @@ public sealed partial class RaceAiService : IHostedService
 
         ReleaseFromPits(world, now);
         UpdateDriverSwaps(world, now);
+        DebugTick(world, now);
         FinishSessionEarly(session);
         world.Advance(now);
 

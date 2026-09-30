@@ -70,7 +70,14 @@ public sealed partial class RaceWorld
     /// <summary>Out-lap in practice / qualifying with cold tyres: weave a little on the straights to warm them up.</summary>
     private bool WantsTyreWarmWeave(RaceBot me, float myS)
     {
-        if (me.Phase != BotPhase.Racing || me.InPitLane || Settings.IsRace || me.TimingValid) return false;
+        if (me.Phase != BotPhase.Racing || me.InPitLane) return false;
+        if (Settings.SafetyCar)
+        {
+            // behind the safety car: keep the tyres warm on every straight
+            if (me.Speed < 12) return false;
+            return MathF.Abs(Line.CurvatureAt(myS)) < 1 / 300f && MathF.Abs(Line.CurvatureAt(myS + 40)) < 1 / 300f;
+        }
+        if (Settings.IsRace || me.TimingValid) return false;
         if (MathF.Min(me.TyreTempFront, me.TyreTempRear) > 65 || me.Speed < 20) return false;
         if (MathF.Abs(Line.CurvatureAt(myS)) > 1 / 400f || MathF.Abs(Line.CurvatureAt(myS + 60)) > 1 / 400f) return false;
         return true;

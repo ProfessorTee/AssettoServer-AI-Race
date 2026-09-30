@@ -327,6 +327,7 @@ public sealed partial class RaceWorld
 
         // speed limit
         float limit = Settings.PitSpeedLimit;
+        if (Settings.SafetyCar) target = MathF.Min(target, Settings.SafetyCarSpeed); // pit exit under the safety car
         if (bot.PitS >= lane.LimiterStart && bot.PitS <= lane.LimiterEnd) target = MathF.Min(target, limit);
         else if (bot.PitS < lane.LimiterStart) target = MathF.Min(target, MathF.Sqrt(limit * limit + 2 * decel * (lane.LimiterStart - bot.PitS)));
 

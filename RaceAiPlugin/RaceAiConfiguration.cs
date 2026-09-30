@@ -200,6 +200,12 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     [YamlMember(Description = "Distance bots keep to the track edges (m)")]
     public float EdgeMargin { get; set; } = 0.4f;
 
+    [YamlMember(Description = "Most bots on track at once (-1 = all bot slots). Admin: /raceai_bots <number|on|off>")]
+    public int MaxBots { get; set; } = -1;
+
+    [YamlMember(Description = "Detailed logging for troubleshooting: every 10 s a line per bot (phase, speed, pit, tyres, offset). Admin: /raceai_debug on|off [bot]")]
+    public bool Debug { get; set; }
+
     [YamlMember(Description = "Extra lateral space bots keep to other cars (m)")]
     public float SideMargin { get; set; } = 0.5f;
 

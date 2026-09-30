@@ -272,6 +272,9 @@ public sealed class DriverRecorderService : IHostedService
                 {
                     rec.Cuts++;
                     var lap = rec.Buffer.GetRange(0, rec.Buffer.Count - 1);
+                    if (DebugOn)
+                        Log.Information("DriverRecorder debug: {Player} crossed the line, {Count} samples, {Duration:F1} s, first spline {First:F3}",
+                            client.Name, lap.Count, lap.Count > 1 ? lap[^1].Time - lap[0].Time : 0, lap.Count > 0 ? lap[0].Spline : -1);
                     rec.Buffer.RemoveRange(0, rec.Buffer.Count - 1);
                     rec.Waiting.Add(new LapCandidate { Samples = lap, At = DateTime.UtcNow, Complete = lap.Count > 0 && lap[0].Spline < 0.05f });
                 }
@@ -301,6 +304,9 @@ public sealed class DriverRecorderService : IHostedService
             var cand = rec.Waiting[i];
             float duration = cand.Samples.Count > 1 ? cand.Samples[^1].Time - cand.Samples[0].Time : 0;
             int match = rec.LapInfos.FindIndex(l => Math.Abs(l.LapTime / 1000f - duration) < 1.5f);
+            if (DebugOn)
+                Log.Information("DriverRecorder debug: {Player} lap candidate {Duration:F1} s, official times [{Times}] -> {Result}", client.Name, duration,
+                    string.Join(", ", rec.LapInfos.Select(l => (l.LapTime / 1000f).ToString("F1"))), match >= 0 ? "matched" : force || now - cand.At > TimeSpan.FromSeconds(15) ? "saved without time" : "waiting");
             if (match >= 0)
             {
                 var info = rec.LapInfos[match];
@@ -452,4 +458,12 @@ public sealed class DriverRecorderService : IHostedService
     }
 
     public string Language => _config.Language;
+
+    private bool _debug;
+    public bool DebugOn => _debug || _config.Debug;
+    public void SetDebug(bool on)
+    {
+        _debug = on;
+        Log.Information("DriverRecorder: debug {State}", on ? "on" : "off");
+    }
 }

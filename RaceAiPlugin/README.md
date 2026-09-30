@@ -182,6 +182,16 @@ Das Dashboard läuft im Server selbst unter `http://127.0.0.1:<HTTP_PORT>/raceai
 - Oben rechts lassen sich die Datenrate (1–10 pro Sekunde) und die Bildrate der Karte (10–60 fps) einstellen. Weniger heißt
   weniger Last, wenn Spiel und Dashboard auf demselben PC laufen. Die Strecke wird nur neu gezeichnet, wenn sich die Ansicht ändert.
 
+## Admin-Befehle (Chat oder Dashboard-Befehlszeile)
+
+| Befehl | Wirkung |
+|---|---|
+| `/raceai_bots 8` · `/raceai_bots off` · `/raceai_bots on` | nur 8 Bots / keine / alle; ausgeschaltete Bots verlassen die Strecke, ihre Autos sind frei für Spieler (Start-Wert: `MaxBots`) |
+| `/raceai_sc on [km/h]` · `/raceai_sc off` | Safety Car: Bots fahren langsam (Standard 100 km/h), überholen nicht und wedeln auf den Geraden, damit die Reifen warm bleiben |
+| `/raceai_debug on [Bot oder Autonummer]` · `/raceai_debug off` | alle 10 s eine Zeile pro Bot im Log; mit Bot zusätzlich dessen Entscheidungen zweimal pro Sekunde (Start-Wert: `Debug`) |
+| `/rec_debug on\|off` | Driver Recorder: jede Runde mit Messungen, Dauer und Abgleich im Log |
+| `/raceai_strength`, `/raceai_aggression`, `/raceai_grid`, `/raceai_set`, `/raceai_nexttrack`, `/raceai_lighttest` | wie bisher |
+
 ## Name in der Server-Liste
 
 Mit Bots zeigt die Server-Liste (Content Manager, CSP, Kunos-Lobby) automatisch `Bots:16,Player:2 - <Name aus server_cfg.ini>`.

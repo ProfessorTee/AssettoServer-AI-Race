@@ -16,6 +16,14 @@ public class DriverRecorderCommandModule : ACModuleBase
 
     private string T(string en, string de) => _service.Language == "de" ? de : en;
 
+    [Command("rec_debug"), AssettoServer.Commands.Attributes.RequireAdmin]
+    public void RecDebug(string state)
+    {
+        bool on = state.ToLowerInvariant() is "on" or "1" or "an" or "ein" or "true";
+        _service.SetDebug(on);
+        Reply($"Driver Recorder debug {(on ? "on" : "off")}");
+    }
+
     [Command("rec")]
     public void Rec(string what = "info")
     {
