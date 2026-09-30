@@ -31,6 +31,13 @@ public class NativeSteam : BackgroundService, ISteam
             Secure = true,
         }.WithQueryShareGamePort();
 
+        // Race AI patch: after an in-process restart (track rotation) the previous instance may still be initialized
+        if (SteamServer.IsValid)
+        {
+            try { SteamServer.LogOff(); } catch { /* ignored */ }
+            try { SteamServer.Shutdown(); } catch { /* ignored */ }
+        }
+
         try
         {
             SteamServer.Init(ISteam.AppId, serverInit);
@@ -189,6 +196,10 @@ public class NativeSteam : BackgroundService, ISteam
         SteamServer.OnSteamServersConnected -= SteamServer_OnSteamServersConnected;
         SteamServer.OnSteamServersDisconnected -= SteamServer_OnSteamServersDisconnected;
         SteamServer.OnSteamServerConnectFailure -= SteamServer_OnSteamServerConnectFailure;
+
+        // Race AI patch: shut Steam down when the server stops, so an in-process restart can initialize it again
+        try { SteamServer.LogOff(); } catch { /* ignored */ }
+        try { SteamServer.Shutdown(); } catch { /* ignored */ }
     }
 }
 
