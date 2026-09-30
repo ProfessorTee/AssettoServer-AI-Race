@@ -195,7 +195,26 @@ Der Server kann nach einer Anzahl Rennen (oder Minuten) die Strecke wechseln. Er
 „default“ ist der Ordner `cfg/`). Spieler mit **CSP** bekommen ein Banner und werden danach automatisch wieder in ihr Auto verbunden.
 Gewechselt wird nur zwischen zwei Sessions, nie mitten im Rennen.
 
-Neue Strecke hinzufügen (kopiert `cfg/` als Preset, die nötigen Streckendateien und trägt sie in `rotation.yml` ein):
+**Presets enthalten nur, was anders ist.** Der Server lädt zuerst `cfg/` und legt das Preset darüber: in `server_cfg.ini` Wert für
+Wert (die `[WEATHER_x]`-Blöcke des Presets ersetzen die aus `cfg/` ganz), `.yml`-Dateien ebenfalls Wert für Wert. Fehlt eine Datei
+im Preset, gilt die aus `cfg/`. Passwörter, Sessions, Plugins, Willkommenstext usw. stehen also nur einmal in `cfg/`. Beispiel:
+
+```ini
+; presets/trialmountain/server_cfg.ini
+[SERVER]
+TRACK=trialmountain
+CONFIG_TRACK=forward
+
+[WEATHER_0]
+GRAPHICS=3_clear
+BASE_TEMPERATURE_AMBIENT=22
+BASE_TEMPERATURE_ROAD=20
+```
+
+Dazu `entry_list.ini` (nicht mehr Autos als die Strecke Boxen hat; `MAX_CLIENTS` wird automatisch darauf begrenzt) und
+`plugin_race_ai_cfg.yml` mit nur `GridFile: …`.
+
+Neue Strecke hinzufügen (legt so ein Preset an, kopiert die nötigen Streckendateien und trägt sie in `rotation.yml` ein):
 
 ```
 race-ai/add-track-preset.sh <AC-Ordner> trialmountain forward
