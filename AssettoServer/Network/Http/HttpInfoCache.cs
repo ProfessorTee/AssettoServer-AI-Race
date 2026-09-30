@@ -30,7 +30,7 @@ public class HttpInfoCache : IHostedService
         _entryCarManager = entryCarManager;
         _geoParamsManager = geoParamsManager;
         
-        Durations = configuration.Sessions.Select(c => c.IsTimedRace ? c.Time * 60 : c.Laps).ToList();
+        Durations = configuration.Sessions.Select(c => c.ListDuration).ToList();
         SessionTypes = configuration.Sessions.Select(s => (int)s.Type).ToList();
         ServerName = configuration.Server.Name + (configuration.Extra.EnableServerDetails ? " ℹ" + configuration.Server.HttpPort : "");
         Track = configuration.Server.Track + (string.IsNullOrEmpty(configuration.Server.TrackConfig) ? null : "-" + configuration.Server.TrackConfig);

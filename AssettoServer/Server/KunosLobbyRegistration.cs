@@ -123,7 +123,7 @@ public class KunosLobbyRegistration : BackgroundService
         queryParams["cars"] = cars;
         queryParams["timeofday"] = ((int)cfg.SunAngle).ToString();
         queryParams["sessions"] = string.Join(',', _configuration.Sessions.Select(s => (int)s.Type));
-        queryParams["durations"] = string.Join(',', _configuration.Sessions.Select(s => s.IsTimedRace ? s.Time * 60 : s.Laps));
+        queryParams["durations"] = string.Join(',', _configuration.Sessions.Select(s => s.ListDuration));
         queryParams["password"] = string.IsNullOrEmpty(cfg.Password) ? "0" : "1";
         queryParams["version"] = "202";
         queryParams["pickup"] = "1";
@@ -133,7 +133,7 @@ public class KunosLobbyRegistration : BackgroundService
         queryParams["stability"] = cfg.StabilityAllowed ? "1" : "0";
         queryParams["legal_tyres"] = cfg.LegalTyres;
         queryParams["fixed_setup"] = _configuration.EntryList.Cars.Any(c => c.FixedSetup != null) ? "1" : "0";
-        queryParams["timed"] = _configuration.Sessions.All(s => s.IsTimedRace) ? "1" : "0";
+        queryParams["timed"] = _configuration.Sessions.Where(s => s.Type == AssettoServer.Shared.Model.SessionType.Race).All(s => s.IsTimedRace) ? "1" : "0";
         queryParams["extra"] = cfg.HasExtraLap ? "1" : "0";
         queryParams["pit"] = cfg.PitWindowEnd > 0 ? "1" : "0";
         queryParams["inverted"] = cfg.InvertedGridPositions.ToString();
