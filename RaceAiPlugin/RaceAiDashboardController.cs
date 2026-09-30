@@ -214,8 +214,18 @@ public class RaceAiDashboardController : ControllerBase
             {
                 // the start script (race-ai/server-supervisor.sh) starts the server again after it stopped; "update" pulls
                 // the newest version from GitHub and installs it first
-                if (!Supervised) return BadRequest(new { error = "Der Server wurde nicht über race-ai/start-server.sh gestartet, ein Neustart ist so nicht möglich." });
                 string mode = req.Text == "update" ? "update" : "restart";
+                if (!Supervised)
+                {
+                    // e.g. at a game server host: restart inside the process (same track, same ports); updates are uploaded there
+                    if (mode == "update")
+                        return BadRequest(new { error = "Update aus dem Dashboard geht nur, wenn der Server über race-ai/start-server.sh läuft. Beim Hoster: neue Dateien hochladen und neu starten." });
+                    Serilog.Log.Information("Race AI: server restart requested from the dashboard (in-process)");
+                    _entryCarManager.BroadcastChat("Server-Neustart … / server restart …");
+                    var preset = _serverConfig.Preset;
+                    _ = Task.Run(async () => { await Task.Delay(1500); _rotation.RestartInto(string.IsNullOrEmpty(preset) ? null : preset); });
+                    return Ok(new { ok = true, mode });
+                }
                 System.IO.File.WriteAllText("restart.request", mode);
                 Serilog.Log.Information("Race AI: server {Mode} requested from the dashboard", mode);
                 _entryCarManager.BroadcastChat(mode == "update" ? "Server-Update und Neustart … / server update and restart …" : "Server-Neustart … / server restart …");

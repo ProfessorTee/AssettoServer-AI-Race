@@ -223,6 +223,8 @@ Titles: { default: Nordschleife, trialmountain: Trial Mountain }
 - Strecken, die kein Kunos-Inhalt sind (Mods), müssen die Spieler installiert haben, oder man trägt Download-Links ein
   (`[DATA]` in `cfg/cm_content/content.json` bzw. über die Content-Manager-Server-Einstellungen).
 - Die Zahl der gefahrenen Rennen bleibt bei einem normalen Neustart erhalten (`rotation.state`).
+- Ohne `server-supervisor.sh` (z. B. beim Hoster, dessen Panel immer mit `cfg/` startet) wechselt der Server beim Start selbst
+  auf die zuletzt gefahrene Strecke; „Server neu starten“ im Dashboard startet dann im selben Prozess neu.
 - `current-preset` merkt sich die laufende Strecke; `race-ai/server-supervisor.sh` startet nach einem Neustart dort weiter.
 
 ## Einrichtung

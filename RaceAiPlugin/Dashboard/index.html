@@ -626,8 +626,8 @@ async function serverRestart(mode) {
 }
 $("restartServer").onclick = () => serverRestart("restart");
 $("updateServer").onclick = () => serverRestart("update");
-(async () => { try { const p = await api("/raceai/api/ping"); if (!p.supervised) { $("restartServer").disabled = $("updateServer").disabled = true;
-  $("restartInfo").textContent = "Neustart nur möglich, wenn der Server über race-ai/start-server.sh (Desktop-Symbol) gestartet wurde."; } } catch (e) {} })();
+(async () => { try { const p = await api("/raceai/api/ping"); if (!p.supervised) { $("updateServer").disabled = true;
+  $("restartInfo").textContent = "Neustart startet den Server im selben Prozess neu. Update aus dem Dashboard nur mit race-ai/start-server.sh (Desktop-Symbol); beim Hoster neue Dateien hochladen."; } } catch (e) {} })();
 $("stopServer").onclick = () => { if (confirm("Server wirklich beenden? Alle Spieler fliegen raus.")) act("/raceai/api/server", { action: "stop" }, "Server wird beendet"); };
 (async () => { try { const types = await api("/raceai/api/server", { action: "weathertypes" }); $("wType").innerHTML = types.map(t => `<option value="${t}"${t === "Clear" ? " selected" : ""}>${esc(WX[t] ? `${WX[t]} (${t})` : t)}</option>`).join(""); } catch (e) {} })();
 

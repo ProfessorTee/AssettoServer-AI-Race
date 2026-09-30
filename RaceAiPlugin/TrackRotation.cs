@@ -115,6 +115,18 @@ public sealed class TrackRotation : BackgroundService
             Log.Error(ex, "Race AI: rotation.yml not readable, no track rotation");
             return;
         }
+        // Without race-ai/server-supervisor.sh (e.g. at a game server host whose panel always starts the cfg/ track):
+        // continue with the track that ran last
+        string? last = null;
+        try { if (File.Exists("current-preset")) last = File.ReadAllText("current-preset").Trim(); } catch { }
+        last = string.IsNullOrEmpty(last) ? "default" : last;
+        if (Active && Environment.GetEnvironmentVariable("RACEAI_SUPERVISED") != "1" && last != _current && _cfg.Tracks.Contains(last)
+            && (last == "default" || Directory.Exists(Path.Join("presets", last))))
+        {
+            Log.Information("Race AI: the server was started with {Current}, continuing with {Last} (the track that ran last)", _current, last);
+            RestartInto(last == "default" ? null : last);
+            return;
+        }
         File.WriteAllText("current-preset", _current == "default" ? "" : _current);
         if (!Active) return;
         foreach (var t in _cfg.Tracks.Where(t => t != "default" && !Directory.Exists(Path.Join("presets", t))))
@@ -200,6 +212,15 @@ public sealed class TrackRotation : BackgroundService
         changing = _changing
     };
 
+    /// <summary>Restart the server in this process with a preset (null = cfg/), same ports.</summary>
+    public void RestartInto(string? preset)
+        => AssettoServer.Program.RestartServer(preset, portOverrides: new PortOverrides
+        {
+            TcpPort = _serverConfig.Server.TcpPort,
+            UdpPort = _serverConfig.Server.UdpPort,
+            HttpPort = _serverConfig.Server.HttpPort
+        });
+
     /// <summary>Announce, reconnect the players (CSP) and restart the server with the next preset.</summary>
     public bool StartChange(string reason, string? to = null)
     {
@@ -235,12 +256,7 @@ public sealed class TrackRotation : BackgroundService
                 state.RacesDone = 0;
                 SaveState(state);
                 File.WriteAllText("current-preset", preset);
-                AssettoServer.Program.RestartServer(string.IsNullOrEmpty(preset) ? null : preset, portOverrides: new PortOverrides
-                {
-                    TcpPort = _serverConfig.Server.TcpPort,
-                    UdpPort = _serverConfig.Server.UdpPort,
-                    HttpPort = _serverConfig.Server.HttpPort
-                });
+                RestartInto(string.IsNullOrEmpty(preset) ? null : preset);
             }
             catch (Exception ex)
             {
