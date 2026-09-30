@@ -11,6 +11,12 @@ public class DrControlPacket : OnlineEvent<DrControlPacket>
     public bool Recording;
     [OnlineEventField(Name = "sampleHz")]
     public byte SampleHz;
+    /// <summary>Clean laps of this player with the current car on this track.</summary>
+    [OnlineEventField(Name = "laps")]
+    public ushort Laps;
+    /// <summary>Best clean lap (ms), 0 = none yet.</summary>
+    [OnlineEventField(Name = "bestMs")]
+    public int BestMs;
 }
 
 /// <summary>Client to server: <see cref="DriverRecorderService.BatchSize"/> samples of the driver's inputs.</summary>

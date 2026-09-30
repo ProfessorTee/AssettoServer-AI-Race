@@ -200,7 +200,8 @@ race-ai/add-track-preset.sh <AC-Ordner> trialmountain forward
 ```yaml
 Enabled: true
 Tracks: [default, trialmountain]   # Reihenfolge; default = cfg/
-RacesPerTrack: 1                   # wechseln nach so vielen Rennen (0 = nur nach Zeit)
+RacesPerTrack: 3                   # wechseln nach so vielen Rennen (0 = nur nach Zeit)
+Races: { trialmountain: 5 }        # einzelne Strecken mit eigener Anzahl (optional)
 MinutesPerTrack: 0                 # oder nach so vielen Minuten (0 = aus)
 Random: false                      # zufällige Reihenfolge
 ChangeWhenEmpty: true              # niemand online und fällig: sofort wechseln
@@ -215,6 +216,7 @@ Titles: { default: Nordschleife, trialmountain: Trial Mountain }
   Preset-Ordner, z. B. `welcome.txt`). Die Kurzbeschreibung in Content Manager kommt aus `ServerDescription` in `extra_cfg.yml`.
 - Strecken, die kein Kunos-Inhalt sind (Mods), müssen die Spieler installiert haben, oder man trägt Download-Links ein
   (`[DATA]` in `cfg/cm_content/content.json` bzw. über die Content-Manager-Server-Einstellungen).
+- Die Zahl der gefahrenen Rennen bleibt bei einem normalen Neustart erhalten (`rotation.state`).
 - `current-preset` merkt sich die laufende Strecke; `race-ai/server-supervisor.sh` startet nach einem Neustart dort weiter.
 
 ## Einrichtung

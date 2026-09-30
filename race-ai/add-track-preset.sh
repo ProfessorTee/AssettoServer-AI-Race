@@ -65,6 +65,8 @@ Tracks:
   - default
 # Change the track after this many finished races (0 = only by time)
 RacesPerTrack: 1
+# Different number for single tracks (the others use RacesPerTrack), e.g. Races: { trialmountain: 3, default: 2 }
+Races: {}
 # ... or after this many minutes (0 = off); only between sessions, never during a race
 MinutesPerTrack: 0
 # Random order instead of the list (never the same track twice in a row)

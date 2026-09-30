@@ -14,6 +14,8 @@ local sampleInterval = 1 / sampleHz
 local sinceSample = 0
 local sinceStatus = 0
 local clock = 0
+local cleanLaps = 0 -- clean laps saved with this car on this track (from the server)
+local bestMs = 0
 
 -- CSP versions differ in which car fields exist: read optional ones safely
 local function opt(fn, default)
@@ -48,11 +50,15 @@ local statusEvent = ac.OnlineEvent({
 local controlEvent = ac.OnlineEvent({
   ac.StructItem.key('DR_control'),
   recording = ac.StructItem.boolean(),
-  sampleHz = ac.StructItem.byte()
+  sampleHz = ac.StructItem.byte(),
+  laps = ac.StructItem.uint16(),
+  bestMs = ac.StructItem.int32()
 }, function(sender, data)
   if sender ~= nil then return end -- only the server may switch it
   local was = recording
   recording = data.recording
+  cleanLaps = data.laps or 0
+  bestMs = data.bestMs or 0
   if data.sampleHz and data.sampleHz > 0 then
     sampleHz = math.max(5, math.min(50, data.sampleHz))
     sampleInterval = 1 / sampleHz
@@ -132,10 +138,24 @@ function script.update(dt)
   end
 end
 
--- small "REC" mark in the top left corner while recording
+local function lapTime(ms)
+  local m = math.floor(ms / 60000)
+  local s = (ms % 60000) / 1000
+  return string.format('%d:%06.3f', m, s)
+end
+
+-- small "REC" mark in the top left corner while recording, with the saved clean laps and the best one
 function script.drawUI()
   if not recording then return end
   local blink = (clock % 1.5) < 1.1
+  local text
+  if cleanLaps > 0 then
+    text = string.format('REC  %d %s  ·  Beste %s', cleanLaps, cleanLaps == 1 and 'saubere Runde' or 'saubere Runden', lapTime(bestMs))
+  else
+    text = 'REC  noch keine saubere Runde'
+  end
+  local width = opt(function() return ui.measureText(text).x end, #text * 7)
+  ui.drawRectFilled(vec2(10, 8), vec2(44 + width, 36), rgbm(0, 0, 0, 0.45), 6)
   ui.drawCircleFilled(vec2(22, 22), 6, blink and rgbm(0.95, 0.2, 0.2, 0.9) or rgbm(0.5, 0.1, 0.1, 0.6))
-  ui.drawText('REC', vec2(34, 14), rgbm(1, 1, 1, 0.8))
+  ui.drawText(text, vec2(34, 14), rgbm(1, 1, 1, 0.85))
 end

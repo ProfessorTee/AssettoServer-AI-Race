@@ -11,7 +11,8 @@ sein Auto weiter, bis er zurück ist (Einstellung `TakeOverDisconnectedPlayers` 
 - **Client:** Der Server schickt jedem Spieler mit **CSP** ein kleines Lua-Skript (`lua/driverrecorder.lua`, Online-Skript).
   Niemand muss etwas installieren. Ohne CSP wird nichts aufgezeichnet.
 - **Nur mit Zustimmung:** Das Skript sendet erst, nachdem der Spieler im Chat `/rec on` geschrieben hat. Beim Beitreten gibt es
-  einen Hinweis. Oben links steht dann ein rotes **REC**.
+  einen Hinweis. Oben links steht dann ein rotes **REC** mit der Zahl der sauberen Runden (mit diesem Auto auf dieser Strecke)
+  und der besten davon.
   - `/rec on` – zustimmen, Aufzeichnung an (gilt auch für spätere Besuche)
   - `/rec off` – aus, gespeicherte Runden bleiben
   - `/rec delete` – alle eigenen Aufzeichnungen löschen, Aufzeichnung aus

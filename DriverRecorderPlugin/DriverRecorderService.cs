@@ -132,7 +132,8 @@ public sealed class DriverRecorderService : IHostedService
     {
         try
         {
-            client.SendPacket(new DrControlPacket { Recording = on, SampleHz = (byte)_config.SampleHz });
+            var (laps, best) = CleanLaps(client);
+            client.SendPacket(new DrControlPacket { Recording = on, SampleHz = (byte)_config.SampleHz, Laps = (ushort)Math.Min(laps, ushort.MaxValue), BestMs = (int)best });
         }
         catch (Exception ex)
         {
@@ -319,6 +320,7 @@ public sealed class DriverRecorderService : IHostedService
             Prune(dir);
             Log.Information("DriverRecorder: {Player} lap {Time} on {Car} saved ({Valid}, {Count} samples)", client.Name,
                 TimeSpan.FromMilliseconds(lapTime).ToString(@"m\:ss\.fff"), car, valid ? "valid" : "not valid", cand.Samples.Count);
+            if (valid && IsOptedIn(client.Guid)) SendControl(client, true);
             if (valid)
                 client.SendChatMessage(T($"Driver Recorder: lap {TimeSpan.FromMilliseconds(lapTime):m\\:ss\\.fff} saved for your clone.",
                     $"Driver Recorder: Runde {TimeSpan.FromMilliseconds(lapTime):m\\:ss\\.fff} für deinen Klon gespeichert."));
@@ -340,6 +342,30 @@ public sealed class DriverRecorderService : IHostedService
     }
 
     // ------------------------------------------------------------------ info
+
+    /// <summary>Clean laps and the best clean lap time (ms) of this player with his current car on this track.</summary>
+    public (int Laps, uint BestMs) CleanLaps(ACTcpClient client)
+    {
+        int laps = 0;
+        uint best = 0;
+        try
+        {
+            var dir = Path.Join(_root, client.Guid.ToString(), _trackKey, client.EntryCar.Model);
+            if (!Directory.Exists(dir)) return (0, 0);
+            foreach (var f in Directory.EnumerateFiles(dir, "*_valid.csv.gz"))
+            {
+                laps++;
+                // <date>_<lap time ms>_valid.csv.gz
+                var parts = Path.GetFileName(f).Split('_');
+                if (parts.Length >= 3 && uint.TryParse(parts[^2], out var ms) && (best == 0 || ms < best)) best = ms;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Debug(ex, "DriverRecorder: could not count laps");
+        }
+        return (laps, best);
+    }
 
     public string Info(ACTcpClient client)
     {

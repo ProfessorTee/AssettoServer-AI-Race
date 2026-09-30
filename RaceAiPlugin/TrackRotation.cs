@@ -16,6 +16,8 @@ public sealed class TrackRotationConfiguration
     public List<string> Tracks { get; set; } = [];
     /// <summary>Change the track after this many finished races (0 = only by time).</summary>
     public int RacesPerTrack { get; set; } = 1;
+    /// <summary>Races per track for single tracks, e.g. trialmountain: 3 (the others use RacesPerTrack).</summary>
+    public Dictionary<string, int> Races { get; set; } = new();
     /// <summary>Or after this many minutes (0 = off). Only changed between sessions, never during a race.</summary>
     public int MinutesPerTrack { get; set; }
     /// <summary>Random order instead of the list order (never the same track twice in a row).</summary>
@@ -58,6 +60,9 @@ public sealed class TrackRotation : BackgroundService
         public Dictionary<string, double> StartSeconds { get; set; } = new();
         public string? SwitchTo { get; set; }
         public DateTime SwitchAt { get; set; }
+        /// <summary>Races already finished on <see cref="RacesTrack"/> (kept over a normal server restart).</summary>
+        public string? RacesTrack { get; set; }
+        public int RacesDone { get; set; }
     }
 
     public TrackRotation(ACServerConfiguration serverConfig, SessionManager sessionManager, EntryCarManager entryCarManager,
@@ -67,7 +72,7 @@ public sealed class TrackRotation : BackgroundService
         extraOptions.WelcomeMessageSending += (_, args) =>
         {
             if (!Active) return;
-            var left = _cfg.RacesPerTrack > 0 ? Math.Max(0, _cfg.RacesPerTrack - _racesDone) : 0;
+            var left = RacesHere > 0 ? Math.Max(0, RacesHere - _racesDone) : 0;
             args.Builder.Append(T($"\n\nTrack rotation: now {Title(_current)}, next {Title(NextTrack())}" + (left > 0 ? $" after {left} race(s)." : "."),
                 $"\n\nStrecken-Rotation: jetzt {Title(_current)}, danach {Title(NextTrack())}" + (left > 0 ? $" nach {left} Rennen." : ".")));
         };
@@ -80,6 +85,10 @@ public sealed class TrackRotation : BackgroundService
     }
 
     public bool Active => _cfg.Enabled && _cfg.Tracks.Count >= 2;
+
+    /// <summary>Races on the current track before the change.</summary>
+    private int RacesHere => RacesFor(_current);
+    public int RacesFor(string track) => _cfg.Races.TryGetValue(track, out var n) ? n : _cfg.RacesPerTrack;
     public string Current => _current;
 
     private string T(string en, string de) => _raceConfig.ChatLanguage == "de" ? de : en;
@@ -110,13 +119,16 @@ public sealed class TrackRotation : BackgroundService
         if (!Active) return;
         foreach (var t in _cfg.Tracks.Where(t => t != "default" && !Directory.Exists(Path.Join("presets", t))))
             Log.Warning("Race AI: rotation track {Track} has no folder presets/{Track}", t, t);
-        Log.Information("Race AI: track rotation {Tracks}, now {Current}; change after {Races} race(s){Minutes}",
-            string.Join(" → ", _cfg.Tracks), _current, _cfg.RacesPerTrack, _cfg.MinutesPerTrack > 0 ? $" or {_cfg.MinutesPerTrack} min" : "");
+        var state = LoadState();
+        // a normal restart (not a track change) continues the race count of this track
+        if (state.SwitchTo != _current && state.RacesTrack == _current) _racesDone = state.RacesDone;
+        Log.Information("Race AI: track rotation {Tracks}, now {Current}; change after {Races} race(s){Minutes}{Done}",
+            string.Join(" → ", _cfg.Tracks), _current, RacesHere, _cfg.MinutesPerTrack > 0 ? $" or {_cfg.MinutesPerTrack} min" : "",
+            _racesDone > 0 ? $", {_racesDone} done" : "");
 
         _sessionManager.SessionChanged += OnSessionChanged;
 
         // how long this track took to start after a change (for the reconnect of the players next time)
-        var state = LoadState();
         if (state.SwitchTo == _current && state.SwitchAt > DateTime.MinValue)
         {
             while (!_service.Enabled && !token.IsCancellationRequested) await Task.Delay(500, token);
@@ -136,12 +148,26 @@ public sealed class TrackRotation : BackgroundService
     }
 
     private bool Due()
-        => (_cfg.RacesPerTrack > 0 && _racesDone >= _cfg.RacesPerTrack)
+        => (RacesHere > 0 && _racesDone >= RacesHere)
            || (_cfg.MinutesPerTrack > 0 && (DateTime.UtcNow - _since).TotalMinutes >= _cfg.MinutesPerTrack);
 
     private void OnSessionChanged(SessionManager sender, SessionChangedEventArgs args)
     {
-        if (args.PreviousSession?.Configuration.Type == SessionType.Race) _racesDone++;
+        if (args.PreviousSession?.Configuration.Type == SessionType.Race)
+        {
+            _racesDone++;
+            try
+            {
+                var st = LoadState();
+                st.RacesTrack = _current;
+                st.RacesDone = _racesDone;
+                SaveState(st);
+            }
+            catch (Exception ex)
+            {
+                Log.Debug(ex, "Race AI: rotation state not saved");
+            }
+        }
         // between sessions: the next one hasn't really started yet
         if (Due()) StartChange(T("race over", "Rennen vorbei"));
     }
@@ -169,7 +195,7 @@ public sealed class TrackRotation : BackgroundService
         titles = _cfg.Titles,
         tracks = _cfg.Tracks,
         racesDone = _racesDone,
-        racesPerTrack = _cfg.RacesPerTrack,
+        racesPerTrack = RacesHere,
         minutesLeft = _cfg.MinutesPerTrack > 0 ? Math.Max(0, _cfg.MinutesPerTrack - (DateTime.UtcNow - _since).TotalMinutes) : (double?)null,
         changing = _changing
     };
@@ -205,6 +231,8 @@ public sealed class TrackRotation : BackgroundService
                 await Task.Delay(1500);
                 state.SwitchTo = next;
                 state.SwitchAt = DateTime.UtcNow;
+                state.RacesTrack = next;
+                state.RacesDone = 0;
                 SaveState(state);
                 File.WriteAllText("current-preset", preset);
                 AssettoServer.Program.RestartServer(string.IsNullOrEmpty(preset) ? null : preset, portOverrides: new PortOverrides
