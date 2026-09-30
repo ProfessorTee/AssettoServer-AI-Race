@@ -134,6 +134,18 @@ public class ACExtraConfiguration
     public static ACExtraConfiguration FromFile(string path)
     {
         using var stream = File.OpenText(path);
+        return FromReader(stream);
+    }
+
+    /// <summary>Race AI patch: from merged text (preset on top of cfg/).</summary>
+    public static ACExtraConfiguration FromText(string text)
+    {
+        using var stream = new StringReader(text);
+        return FromReader(stream);
+    }
+
+    private static ACExtraConfiguration FromReader(TextReader stream)
+    {
 
         var deserializer = new DeserializerBuilder().Build();
         

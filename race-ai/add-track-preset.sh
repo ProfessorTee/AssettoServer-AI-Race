@@ -28,31 +28,29 @@ mkdir -p "$DST${LAYOUT:+/$LAYOUT}"
 cp -ru "$AI" "$T${LAYOUT:+/$LAYOUT}/data" "$DST${LAYOUT:+/$LAYOUT}/"
 if [ -n "$LAYOUT" ]; then [ -f "$T/models_$LAYOUT.ini" ] && cp -u "$T/models_$LAYOUT.ini" "$DST/"; else [ -f "$T/models.ini" ] && cp -u "$T/models.ini" "$DST/"; fi
 
-# the preset: a copy of cfg/ with the other track
+# the preset: only what differs from cfg/ (the server loads cfg/ first and the preset on top)
 P="$SRV/presets/$NAME"
 mkdir -p "$P"
-for f in "$SRV"/cfg/*.ini "$SRV"/cfg/*.yml "$SRV"/cfg/*.txt; do
-  [ -e "$f" ] || continue
-  case "$(basename "$f")" in *.bak*|*grid.json) continue;; esac
-  [ -e "$P/$(basename "$f")" ] || cp "$f" "$P/"
-done
+# the entry list stays per track (number of pit boxes), everything else comes from cfg/
+[ -e "$P/entry_list.ini" ] || cp "$SRV/cfg/entry_list.ini" "$P/"
 UI="$T/ui${LAYOUT:+/$LAYOUT}/ui_track.json"
 TITLE="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1],encoding='utf-8-sig')).get('name','$TRACK'))" "$UI" 2>/dev/null || echo "$TRACK")"
-python3 - "$P" "$TRACK" "$LAYOUT" "$TITLE" <<'PY'
-import re, sys
-p, track, layout, title = sys.argv[1:]
-s = open(f"{p}/server_cfg.ini", encoding="utf-8").read()
-s = re.sub(r"(?m)^TRACK=.*$", f"TRACK={track}", s)
-s = re.sub(r"(?m)^CONFIG_TRACK=.*$", f"CONFIG_TRACK={layout}", s)
-# the welcome message of a preset is read relative to the preset folder
-s = re.sub(r"(?m)^WELCOME_MESSAGE=cfg/", "WELCOME_MESSAGE=", s)
-open(f"{p}/server_cfg.ini", "w", encoding="utf-8").write(s)
-c = open(f"{p}/plugin_race_ai_cfg.yml", encoding="utf-8").read()
-# start positions and pit boxes are read from the track's kn5 files (AssettoCorsaPath) unless a grid file for this track exists
-c = re.sub(r"(?m)^GridFile:.*$", "GridFile: ''", c)
-open(f"{p}/plugin_race_ai_cfg.yml", "w", encoding="utf-8").write(c)
+python3 - "$P" "$TRACK" "$LAYOUT" "$TITLE" "$SRV/cfg/server_cfg.ini" <<'PY2'
+import os, re, sys
+p, track, layout, title, main = sys.argv[1:]
+if not os.path.exists(f"{p}/server_cfg.ini"):
+    m = open(main, encoding="utf-8").read()
+    weather = "\n".join(x.strip() + "\n" for x in re.findall(r"(?ms)^\[WEATHER_\d+\].*?(?=^\[|\Z)", m))
+    open(f"{p}/server_cfg.ini", "w", encoding="utf-8").write(
+        f"; {title}: only what differs from cfg/server_cfg.ini, everything else comes from there\n"
+        f"[SERVER]\nNAME={title} GT3 vs Race AI\nTRACK={track}\nCONFIG_TRACK={layout}\n\n{weather}")
+if not os.path.exists(f"{p}/plugin_race_ai_cfg.yml"):
+    # start positions and pit boxes are read from the track's kn5 files (AssettoCorsaPath) unless a grid file for this track exists
+    open(f"{p}/plugin_race_ai_cfg.yml", "w", encoding="utf-8").write(
+        f"# {title}: only what differs from cfg/plugin_race_ai_cfg.yml\nGridFile: ''\n")
 print(f"preset {p}: {title}")
-PY
+PY2
+echo "Check presets/$NAME/entry_list.ini: not more cars than the track has pit boxes."
 
 # rotation.yml
 R="$SRV/rotation.yml"

@@ -136,7 +136,11 @@ public partial class ACServerConfiguration
                 serverCfg.CopyTo(outFile);
             }
 
-            var config = ServerConfiguration.FromFile(path);
+            // Race AI patch: a preset's server_cfg.ini only needs what differs from cfg/server_cfg.ini
+            var presetFolder = Path.GetDirectoryName(path) ?? "";
+            var config = PresetOverlay.Applies(presetFolder) && File.Exists(PresetOverlay.MainPath("server_cfg.ini"))
+                ? PresetOverlay.MergeServerCfg(presetFolder, path).DeserializeObject<ServerConfiguration>()
+                : ServerConfiguration.FromFile(path);
 
             // Race AI patch: a preset (track rotation) without its own ADMIN_PASSWORD uses the one from cfg/server_cfg.ini,
             // so the admin password is only set in one place
@@ -296,6 +300,10 @@ public partial class ACServerConfiguration
 
     private void ApplyConfigurationFixes()
     {
+        // Race AI patch: never more clients than cars in the entry list (a preset with fewer pit boxes inherits MAX_CLIENTS from cfg/)
+        if (Server.MaxClients > EntryList.Cars.Count)
+            Server.MaxClients = EntryList.Cars.Count;
+
         if (Server.MaxClients == 0)
         {
             Server.MaxClients = EntryList.Cars.Count;
@@ -348,10 +356,12 @@ public partial class ACServerConfiguration
                 ReferenceConfigurationHelper.WriteReferenceConfiguration(plugin.ReferenceConfigurationFileName,
                     schemaPath, plugin.ReferenceConfiguration, plugin.Name);
                 
-                if (File.Exists(configPath) && builder != null)
+                // Race AI patch: in a preset, cfg/<plugin cfg> with the preset's file on top (or cfg/'s alone)
+                var configText = PresetOverlay.ReadYaml(BaseFolder, plugin.ConfigurationFileName);
+                if (configText != null && builder != null)
                 {
                     var deserializer = new DeserializerBuilder().Build();
-                    using var file = File.OpenText(configPath);
+                    using var file = new StringReader(configText);
                     var configObj = deserializer.Deserialize(file, plugin.ConfigurationType)!;
 
                     ValidatePluginConfiguration(plugin, configObj);
@@ -418,7 +428,9 @@ public partial class ACServerConfiguration
                 new ACExtraConfiguration().ToStream(file);
             }
 
-            Extra = ACExtraConfiguration.FromFile(path);
+            // Race AI patch: in a preset, cfg/extra_cfg.yml with the preset's file on top
+            var extraText = PresetOverlay.Applies(BaseFolder) ? PresetOverlay.ReadYaml(BaseFolder, Path.GetFileName(path)) : null;
+            Extra = extraText != null ? ACExtraConfiguration.FromText(extraText) : ACExtraConfiguration.FromFile(path);
         }
         catch (Exception ex)
         {

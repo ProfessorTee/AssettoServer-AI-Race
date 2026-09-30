@@ -30,15 +30,22 @@ public class ConfigurationLocations
             baseFolder = Path.GetDirectoryName(serverCfgPath)!;
         }
 
+        // Race AI patch: files a preset doesn't have come from cfg/ (extra_cfg.yml is merged, see PresetOverlay)
+        if (!File.Exists(entryListPath) && PresetOverlay.Applies(baseFolder) && File.Exists(PresetOverlay.MainPath("entry_list.ini")))
+            entryListPath = PresetOverlay.MainPath("entry_list.ini");
+        var extraCfgPath = Path.Join(baseFolder, "extra_cfg.yml");
+        if (!File.Exists(extraCfgPath) && PresetOverlay.Applies(baseFolder) && File.Exists(PresetOverlay.MainPath("extra_cfg.yml")))
+            extraCfgPath = PresetOverlay.MainPath("extra_cfg.yml");
+
         return new ConfigurationLocations
         {
             BaseFolder = baseFolder,
             ServerCfgPath = serverCfgPath,
             EntryListPath = entryListPath,
-            ExtraCfgPath = Path.Join(baseFolder, "extra_cfg.yml"),
-            CSPExtraOptionsPath = Path.Join(baseFolder, "csp_extra_options.ini"),
-            CMContentJsonPath = Path.Join(baseFolder, "cm_content", "content.json"),
-            CMWrapperParamsPath = Path.Join(baseFolder, "cm_wrapper_params.json")
+            ExtraCfgPath = extraCfgPath,
+            CSPExtraOptionsPath = PresetOverlay.Resolve(baseFolder, "csp_extra_options.ini"),
+            CMContentJsonPath = PresetOverlay.Resolve(baseFolder, Path.Join("cm_content", "content.json")),
+            CMWrapperParamsPath = PresetOverlay.Resolve(baseFolder, "cm_wrapper_params.json")
         };
     }
 
