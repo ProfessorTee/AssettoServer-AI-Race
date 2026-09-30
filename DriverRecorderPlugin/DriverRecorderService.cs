@@ -210,6 +210,7 @@ public sealed class DriverRecorderService : IHostedService
     private void OnStatus(ACTcpClient client, DrStatusPacket packet)
     {
         if (!_recorders.TryGetValue(client, out var rec) || !rec.Recording) return;
+        if (packet.TyreTemp is not { Length: >= 4 } || packet.Fuel is not { Length: >= 1 }) return;
         lock (rec)
         {
             rec.TyreFront = (packet.TyreTemp[0] + packet.TyreTemp[1]) / 2;
@@ -220,12 +221,38 @@ public sealed class DriverRecorderService : IHostedService
 
     private void OnSamples(ACTcpClient client, DrSamplesPacket packet)
     {
+        // never let a broken packet disconnect the player: an exception here ends his connection
+        try { HandleSamples(client, packet); }
+        catch (Exception ex) { LogBadPacket(client, ex); }
+    }
+
+    private readonly HashSet<ulong> _badPacketLogged = new();
+
+    private void LogBadPacket(ACTcpClient client, Exception ex)
+    {
+        lock (_badPacketLogged)
+            if (!_badPacketLogged.Add(client.Guid)) return;
+        Log.Warning(ex, "DriverRecorder: unreadable data from {Player}, ignored", client.Name);
+    }
+
+    private static int ArrayCount(DrSamplesPacket p)
+    {
+        int n = DrSamplesPacket.Size;
+        foreach (var len in new[] { p.Time?.Length ?? 0, p.Spline?.Length ?? 0, p.Position?.Length ?? 0, p.Speed?.Length ?? 0, p.Gas?.Length ?? 0,
+                     p.Brake?.Length ?? 0, p.Clutch?.Length ?? 0, p.Steer?.Length ?? 0, p.Gear?.Length ?? 0, p.Flags?.Length ?? 0 })
+            n = Math.Min(n, len);
+        return n;
+    }
+
+    private void HandleSamples(ACTcpClient client, DrSamplesPacket packet)
+    {
         if (!_recorders.TryGetValue(client, out var rec) || !rec.Recording) return; // no consent: ignore
         lock (rec)
         {
             if (rec.Received == 0)
                 Log.Information("DriverRecorder: receiving data from {Player}", client.Name);
-            int n = DrSamplesPacket.Size;
+            int n = ArrayCount(packet);
+            if (n == 0) return;
             rec.Received += n;
             rec.LastSample = DateTime.UtcNow;
             if (n > 0) rec.LastSpline = packet.Spline[n - 1];
