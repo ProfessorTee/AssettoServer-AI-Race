@@ -17,7 +17,8 @@ end
 
 -- phase: 0 = nothing, 1 = your clone drives (/play brings it to the pits), 2 = clone comes to the pits,
 --        3 = reconnecting you now (driver change), 4 = go to your pit box, the clone takes over there,
---        5 = you're back while your clone drives: moving you to a spare car to watch
+--        5 = you're back while your clone drives: moving you to a spare car to watch,
+--        6 = track change: the server restarts with the next track, you're reconnected after eta seconds
 ac.OnlineEvent({
   ac.StructItem.key('RAI_swap'),
   phase = ac.StructItem.byte(),
@@ -25,7 +26,8 @@ ac.OnlineEvent({
   position = ac.StructItem.byte(),
   eta = ac.StructItem.uint16(),
   reconnect = ac.StructItem.byte(),
-  model = ac.StructItem.string(64)
+  model = ac.StructItem.string(64),
+  info = ac.StructItem.string(48)
 }, function(sender, data)
   if sender ~= nil then return end
   local was = state.phase
@@ -34,6 +36,7 @@ ac.OnlineEvent({
   state.position = data.position
   state.eta = data.eta
   state.at = clock
+  state.info = data.info
   if data.reconnect > 0 and reconnectAt < 0 then
     reconnectAt = clock + data.reconnect
     reconnectModel = data.model
@@ -73,7 +76,11 @@ local texts = {
   end,
   [3] = function() return 'Fahrerwechsel!', 'Du wirst jetzt umgesetzt – einen Moment.' end,
   [4] = function() return 'Fahr in deine Box und halte dort an.', 'Dort übernimmt dein Klon, du kannst ihm danach zuschauen. /play = abbrechen.' end,
-  [5] = function() return 'Dein Klon fährt gerade dein Auto.', 'Du wirst gleich in ein Ersatzauto in der Box gesetzt und kannst ihm zuschauen.' end
+  [5] = function() return 'Dein Klon fährt gerade dein Auto.', 'Du wirst gleich in ein Ersatzauto in der Box gesetzt und kannst ihm zuschauen.' end,
+  [6] = function()
+    local left = math.max(0, state.eta - math.floor(clock - state.at))
+    return 'Streckenwechsel: ' .. (state.info or ''), 'Der Server startet neu – du wirst in ' .. left .. ' s automatisch wieder verbunden.'
+  end
 }
 
 function script.drawUI()

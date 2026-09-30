@@ -202,7 +202,7 @@ public sealed partial class RaceAiService : IHostedService
                 var root = carRoots.FirstOrDefault(r => Directory.Exists(Path.Join(r, entryCar.Model))) ?? carRoots.FirstOrDefault() ?? "content/cars";
                 spec = CarDataLoader.Load(root, entryCar.Model, entryCar.Ballast, entryCar.Restrictor, msg => Log.Warning("Race AI: {Message}", msg));
                 specCache[key] = spec;
-                var cal = StrengthCalibration.Measure(_track.Line, spec, settings);
+                var cal = CachedCalibration(spec, settings, $"{entryCar.Ballast}/{entryCar.Restrictor}");
                 _calibrations[spec] = cal;
                 Log.Information("Race AI: car {Model} ({Source}): top {Top:F0} km/h, grip {Grip:F2} g, 100 % = {Best}, {Fuel:F1} l/lap, tyres {Compound}, mistakes {Loss:F0} s/lap at most",
                     spec.Model, spec.Source, spec.TopSpeed * 3.6f, spec.LateralGrip, FormatLap(cal.BestLap), spec.CalibratedFuelPerLap, spec.TyreCompound, cal.ErrorLossFull);
@@ -1203,6 +1203,43 @@ public sealed partial class RaceAiService : IHostedService
         bot.Driver.Errors = _config.HumanErrors ? Math.Clamp(spread * 25, 0.05f, 0.6f) : 0;
         float reference = _referenceBestLap ?? (_calibrations.TryGetValue(bot.Car, out var cal) ? cal.BestLap : clone.AverageLap);
         bot.Driver.Level = MathF.Round(reference / MathF.Max(1, clone.AverageLap / bot.ClonePace) * 1000) / 10;
+    }
+
+    /// <summary>
+    /// The calibration of a car takes a few seconds per car; it's stored in cache/raceai/ and reused as long as the track, the car,
+    /// the settings that change the driving and the plugin build are the same (fast restarts, e.g. for the track rotation).
+    /// </summary>
+    private StrengthCalibration CachedCalibration(CarSpec spec, RaceWorldSettings settings, string variant)
+    {
+        string key = string.Join("|", TrackKey(), _track!.Line.Length.ToString("F1", System.Globalization.CultureInfo.InvariantCulture),
+            spec.Model, variant, spec.TopSpeed, spec.DragCoefficient, spec.LateralGrip, spec.BrakeGrip, spec.ReferenceMass, spec.FuelCapacity,
+            settings.HumanErrors, settings.LineErrors, settings.Spins, settings.GrassMoments, settings.UseTrackHints, settings.EdgeMargin,
+            settings.TyreWearScale, typeof(RaceAiService).Assembly.ManifestModule.ModuleVersionId);
+        string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)))[..16];
+        string path = Path.Join("cache", "raceai", TrackKey(), $"{spec.Model}-{hash}.json");
+        try
+        {
+            if (File.Exists(path))
+            {
+                var saved = System.Text.Json.JsonSerializer.Deserialize<StrengthCalibration.Saved>(File.ReadAllText(path));
+                if (saved != null && StrengthCalibration.Load(saved, spec) is { } cached) return cached;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Debug(ex, "Race AI: calibration cache not readable");
+        }
+        var cal = StrengthCalibration.Measure(_track.Line, spec, settings);
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, System.Text.Json.JsonSerializer.Serialize(cal.Save(spec)));
+        }
+        catch (Exception ex)
+        {
+            Log.Debug(ex, "Race AI: calibration cache not writable");
+        }
+        return cal;
     }
 
     private string TrackKey()

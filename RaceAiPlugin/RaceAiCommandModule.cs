@@ -10,10 +10,12 @@ namespace RaceAiPlugin;
 public class RaceAiCommandModule : ACModuleBase
 {
     private readonly RaceAiService _service;
+    private readonly TrackRotation _rotation;
 
-    public RaceAiCommandModule(RaceAiService service)
+    public RaceAiCommandModule(RaceAiService service, TrackRotation rotation)
     {
         _service = service;
+        _rotation = rotation;
     }
 
     [Command("raceai", "bots")]
@@ -78,6 +80,14 @@ public class RaceAiCommandModule : ACModuleBase
     {
         if (Client == null) { Reply("Only for players."); return; }
         Reply(_service.CommandPlay(Client));
+    }
+
+    [Command("raceai_nexttrack"), RequireAdmin]
+    public void NextTrack(string? track = null)
+    {
+        Reply(_rotation.Active
+            ? _rotation.StartChange("admin", track) ? $"Track change to {track ?? _rotation.NextTrack()} started" : "A track change is already running"
+            : "No track rotation (rotation.yml)");
     }
 
     [Command("raceai_grid"), RequireAdmin]

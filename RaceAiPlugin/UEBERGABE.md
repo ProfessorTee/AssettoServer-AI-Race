@@ -128,6 +128,15 @@
   `CarStatus` (der Spieler kann kurz in seinem Auto „durchreisen“), `/bot`, `/play` (auch `!bot`/`!play`), Wechsel in der Box
   (`PitServiceUntil` gehalten, 90 s Zeit). Core: `IExternalAiController.StandsInFor`.
 
+## Neu in Teil 11: Strecken-Rotation
+- `TrackRotation.cs` (`BackgroundService`): liest `rotation.yml`, zählt beendete Rennen (`SessionChanged`), wechselt an Session-Grenzen
+  per `AssettoServer.Program.RestartServer(preset, portOverrides)` (gleiche Ports). Vorher Chat-Hinweis und `SendTrackChange`
+  (`RaiSwapPacket` Phase 6: Banner, danach `ac.reconnectTo` in das eigene Auto, Wartezeit = gemessene Startzeit + 8 s).
+  `rotation.state` (Startzeiten je Preset), `current-preset` (für `server-supervisor.sh --preset`).
+- Willkommensnachricht: `CSPServerExtraOptions.WelcomeMessageSending` hängt die Rotations-Zeile an.
+- Dashboard `GET /raceai/api/rotation`, Aktion `rotate` (Ziel in `text`), Log liest alle `*.txt` (Presets haben eigene Log-Präfixe).
+- `race-ai/add-track-preset.sh`: Preset aus `cfg/`, Streckendaten (ai, data, models_<layout>.ini), Eintrag in `rotation.yml`.
+
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:
 1. Offizielles Release `assetto-server-linux-x64.tar.gz` (v0.0.55-pre42) laden. Es ist ein Single-File-Bundle mit .NET 11 RC,

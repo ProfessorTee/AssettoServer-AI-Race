@@ -63,6 +63,30 @@ public sealed class StrengthCalibration
         return cal;
     }
 
+    /// <summary>Saved form (cache between server starts).</summary>
+    public sealed class Saved
+    {
+        public float[] LapTimes { get; set; } = [];
+        public float ErrorLossHalf { get; set; }
+        public float ErrorLossFull { get; set; }
+        public float FuelPerLap { get; set; }
+        public float TyreVkmPerLap { get; set; }
+    }
+
+    public Saved Save(CarSpec car) => new()
+    {
+        LapTimes = _lapTimes.ToArray(), ErrorLossHalf = ErrorLossHalf, ErrorLossFull = ErrorLossFull,
+        FuelPerLap = car.CalibratedFuelPerLap, TyreVkmPerLap = car.CalibratedTyreVkmPerLap
+    };
+
+    public static StrengthCalibration? Load(Saved saved, CarSpec car)
+    {
+        if (saved.LapTimes.Length != Paces.Length) return null;
+        car.CalibratedFuelPerLap = saved.FuelPerLap;
+        car.CalibratedTyreVkmPerLap = saved.TyreVkmPerLap;
+        return new StrengthCalibration(saved.LapTimes) { ErrorLossHalf = saved.ErrorLossHalf, ErrorLossFull = saved.ErrorLossFull };
+    }
+
     /// <summary>Target lap time for a strength in percent.</summary>
     public float LapTimeFor(float strengthPercent, float? referenceBestLap = null)
         => (referenceBestLap ?? BestLap) / Math.Clamp(strengthPercent / 100f, 0.3f, 1.2f);

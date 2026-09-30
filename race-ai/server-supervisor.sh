@@ -16,7 +16,10 @@ trap '[ "$child" != 0 ] && kill -TERM "$child" 2>/dev/null; wait "$child" 2>/dev
 
 while true; do
   rm -f restart.request
-  ./AssettoServer "$@" &
+  # track rotation: continue with the track that ran last (presets/<name>, empty = cfg/)
+  PRESET_ARGS=()
+  if [ -s current-preset ] && [ -d "presets/$(cat current-preset)" ]; then PRESET_ARGS=(--preset "$(cat current-preset)"); fi
+  ./AssettoServer "${PRESET_ARGS[@]}" "$@" &
   child=$!
   wait "$child"
   code=$?

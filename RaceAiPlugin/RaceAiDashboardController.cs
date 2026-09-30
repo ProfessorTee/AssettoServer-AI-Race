@@ -26,10 +26,12 @@ public class RaceAiDashboardController : ControllerBase
     private readonly IHostApplicationLifetime _lifetime;
     private readonly ChatService _chatService;
     private readonly JoinInfo _joinInfo;
+    private readonly TrackRotation _rotation;
 
     public RaceAiDashboardController(RaceAiService service, SessionManager sessionManager, WeatherManager weatherManager,
-        EntryCarManager entryCarManager, ACServerConfiguration serverConfig, IHostApplicationLifetime lifetime, ChatService chatService, JoinInfo joinInfo)
+        EntryCarManager entryCarManager, ACServerConfiguration serverConfig, IHostApplicationLifetime lifetime, ChatService chatService, JoinInfo joinInfo, TrackRotation rotation)
     {
+        _rotation = rotation;
         _joinInfo = joinInfo;
         _chatService = chatService;
         _service = service;
@@ -82,6 +84,9 @@ public class RaceAiDashboardController : ControllerBase
     [HttpGet("/raceai/api/state")]
     public IActionResult State() => Allowed() ? Ok(_service.State()) : Denied();
 
+    [HttpGet("/raceai/api/rotation")]
+    public IActionResult Rotation() => Allowed() ? Ok(_rotation.Info()) : Denied();
+
     [HttpGet("/raceai/api/clones")]
     public IActionResult Clones() => Allowed() ? Ok(_service.CloneList()) : Denied();
 
@@ -94,7 +99,7 @@ public class RaceAiDashboardController : ControllerBase
         if (!Allowed()) return Denied();
         try
         {
-            var file = Directory.Exists("logs") ? new DirectoryInfo("logs").GetFiles("log-*.txt").OrderByDescending(f => f.LastWriteTimeUtc).FirstOrDefault() : null;
+            var file = Directory.Exists("logs") ? new DirectoryInfo("logs").GetFiles("*.txt").OrderByDescending(f => f.LastWriteTimeUtc).FirstOrDefault() : null;
             if (file == null) return Ok(new { lines = Array.Empty<string>() });
             using var fs = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             long size = fs.Length;
@@ -202,6 +207,9 @@ public class RaceAiDashboardController : ControllerBase
             case "stop":
                 _ = Task.Run(async () => { await Task.Delay(500); _lifetime.StopApplication(); });
                 return Ok(new { ok = true });
+            case "rotate":
+                if (!_rotation.Active) return BadRequest(new { error = "Keine Strecken-Rotation eingerichtet (rotation.yml)" });
+                return Ok(new { ok = _rotation.StartChange("dashboard", string.IsNullOrEmpty(req.Text) ? null : req.Text) });
             case "restartserver":
             {
                 // the start script (race-ai/server-supervisor.sh) starts the server again after it stopped; "update" pulls

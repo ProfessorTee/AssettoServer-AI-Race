@@ -23,4 +23,7 @@ public class RaiSwapPacket : OnlineEvent<RaiSwapPacket>
     /// <summary>Car model to reconnect into (empty = the current one).</summary>
     [OnlineEventField(Name = "model", Size = 64)]
     public string Model = "";
+    /// <summary>Text for the banner (e.g. the next track).</summary>
+    [OnlineEventField(Name = "info", Size = 48)]
+    public string Info = "";
 }

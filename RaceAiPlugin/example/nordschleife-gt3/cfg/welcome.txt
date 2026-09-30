@@ -1,0 +1,13 @@
+Willkommen auf dem Race AI Server!
+
+GT3 gegen 16 KI-Fahrer mit eigenem Charakter, vom geduldigen Reifenschoner bis zum Divebomber. Sie machen Fahrfehler, wählen mal die falsche Linie, bauen Reifen ab und fahren an die Box.
+Ablauf: Training, Qualifying, Rennen. Ohne Quali-Zeit startest du hinten.
+
+Befehle im Chat:
+/rec on - deine Fahrweise aufzeichnen (freiwillig). Daraus entsteht dein Klon, der dein Auto weiterfährt, wenn deine Verbindung abbricht.
+/bot - in die Box, dein Klon fährt für dich weiter (Pause bei langen Rennen)
+/play - dein Klon kommt an die Box, du übernimmst wieder
+/rec off, /rec delete - Aufzeichnung aus bzw. löschen
+
+Wetter mit CSP (Sol/Pure), Streckenwechsel mit automatischem Neu-Verbinden (CSP).
+Viel Spaß und fair bleiben!

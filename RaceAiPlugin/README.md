@@ -182,6 +182,41 @@ Das Dashboard läuft im Server selbst unter `http://127.0.0.1:<HTTP_PORT>/raceai
 - Oben rechts lassen sich die Datenrate (1–10 pro Sekunde) und die Bildrate der Karte (10–60 fps) einstellen. Weniger heißt
   weniger Last, wenn Spiel und Dashboard auf demselben PC laufen. Die Strecke wird nur neu gezeichnet, wenn sich die Ansicht ändert.
 
+## Strecken-Rotation
+
+Der Server kann nach einer Anzahl Rennen (oder Minuten) die Strecke wechseln. Er startet sich dabei selbst mit dem nächsten
+**Preset** neu (`presets/<name>/` mit eigener `server_cfg.ini`, `entry_list.ini`, `extra_cfg.yml` und Plugin-Konfigurationen,
+„default“ ist der Ordner `cfg/`). Spieler mit **CSP** bekommen ein Banner und werden danach automatisch wieder in ihr Auto verbunden.
+Gewechselt wird nur zwischen zwei Sessions, nie mitten im Rennen.
+
+Neue Strecke hinzufügen (kopiert `cfg/` als Preset, die nötigen Streckendateien und trägt sie in `rotation.yml` ein):
+
+```
+race-ai/add-track-preset.sh <AC-Ordner> trialmountain forward
+```
+
+`rotation.yml` im Server-Ordner:
+
+```yaml
+Enabled: true
+Tracks: [default, trialmountain]   # Reihenfolge; default = cfg/
+RacesPerTrack: 1                   # wechseln nach so vielen Rennen (0 = nur nach Zeit)
+MinutesPerTrack: 0                 # oder nach so vielen Minuten (0 = aus)
+Random: false                      # zufällige Reihenfolge
+ChangeWhenEmpty: true              # niemand online und fällig: sofort wechseln
+AnnounceSeconds: 20                # Chat-Hinweis vorher
+FirstStartSeconds: 60              # Wartezeit beim ersten Start einer Strecke (danach gemessen)
+Titles: { default: Nordschleife, trialmountain: Trial Mountain }
+```
+
+- Dashboard, Reiter Server: Karte „Strecken-Rotation“ (jetzt, als Nächstes, sofort wechseln). Admin im Chat: `/raceai_nexttrack [preset]`.
+- Die Willkommensnachricht bekommt automatisch eine Zeile „Strecken-Rotation: jetzt …, danach …“.
+- `WELCOME_MESSAGE` ist ein **Dateipfad** (in `cfg/` relativ zum Server-Ordner, z. B. `cfg/welcome.txt`; in einem Preset relativ zum
+  Preset-Ordner, z. B. `welcome.txt`). Die Kurzbeschreibung in Content Manager kommt aus `ServerDescription` in `extra_cfg.yml`.
+- Strecken, die kein Kunos-Inhalt sind (Mods), müssen die Spieler installiert haben, oder man trägt Download-Links ein
+  (`[DATA]` in `cfg/cm_content/content.json` bzw. über die Content-Manager-Server-Einstellungen).
+- `current-preset` merkt sich die laufende Strecke; `race-ai/server-supervisor.sh` startet nach einem Neustart dort weiter.
+
 ## Einrichtung
 
 1. `extra_cfg.yml`: `EnableAi: false` (die Traffic-KI darf nicht mitlaufen), `EnablePlugins: [RaceAiPlugin]`.

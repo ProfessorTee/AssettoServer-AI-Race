@@ -180,6 +180,13 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
           für den Original-Launcher (der Server lässt sich dort nicht per Link öffnen, nur über Online → Favoriten).</span></div>
       </div>
       <div class="card">
+        <h3>Strecken-Rotation</h3>
+        <div class="row"><span id="rotInfo" class="muted">–</span></div>
+        <div class="row"><select id="rotTarget"></select><button class="btn" id="rotNow">Jetzt wechseln</button></div>
+        <div class="row"><span class="muted">Eingestellt in <code>rotation.yml</code> im Server-Ordner. Gewechselt wird nur zwischen Sessions, nie mitten im Rennen.
+          Spieler mit CSP werden automatisch neu verbunden.</span></div>
+      </div>
+      <div class="card">
         <h3>Server</h3>
         <div class="row"><button class="btn" id="restartServer">Server neu starten</button><button class="btn" id="updateServer">Update holen &amp; neu starten</button></div>
         <div class="row"><span class="muted" id="restartInfo">Neustart dauert etwa eine Minute (Bots werden neu kalibriert). Alle Spieler werden getrennt und können danach wieder beitreten.</span></div>
@@ -573,6 +580,21 @@ async function runCommand(text) {
 }
 $("cmdRun").onclick = () => { const t = $("cmdText").value.trim(); if (t) runCommand(t); };
 $("cmdText").onkeydown = e => { if (e.key === "Enter") $("cmdRun").onclick(); };
+async function loadRotation() {
+  try {
+    const r = await api("/raceai/api/rotation");
+    if (!r.active) { $("rotInfo").textContent = "Keine Rotation eingerichtet (rotation.yml mit Enabled: true und mindestens zwei Strecken)."; $("rotNow").disabled = true; return; }
+    const left = r.racesPerTrack > 0 ? `${Math.max(0, r.racesPerTrack - r.racesDone)} Rennen` : "";
+    const mins = r.minutesLeft != null ? `${Math.round(r.minutesLeft)} min` : "";
+    const tt = t => (r.titles && r.titles[t]) || t;
+    $("rotInfo").textContent = `Jetzt: ${tt(r.current)} · als Nächstes: ${tt(r.next)} · Wechsel nach ${[left, mins].filter(x => x).join(" oder ")}${r.changing ? " · Wechsel läuft …" : ""}`;
+    const sel = $("rotTarget"), cur = sel.value;
+    sel.innerHTML = r.tracks.filter(t => t !== r.current).map(t => `<option value="${esc(t)}"${t === r.next ? " selected" : ""}>${esc(tt(t))}</option>`).join("");
+    if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
+  } catch (e) {}
+}
+loadRotation(); setInterval(loadRotation, 15000);
+$("rotNow").onclick = () => { if (confirm(`Jetzt zu ${$("rotTarget").value} wechseln? Der Server startet neu.`)) act("/raceai/api/server", { action: "rotate", text: $("rotTarget").value }, "Streckenwechsel läuft"); };
 async function loadJoin() {
   try {
     const j = await api("/raceai/api/join");

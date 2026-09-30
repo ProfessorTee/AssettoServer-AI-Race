@@ -1,6 +1,8 @@
 # AssettoServer extra configuration for the Race AI example (only the relevant keys, everything else uses the defaults)
 # The traffic AI must stay off: the racing bots use the AI=fixed slots of entry_list.ini
 EnableAi: false
+# Short info shown in Content Manager's server list
+ServerDescription: "GT3 gegen Race AI: 16 KI-Fahrer mit Charakter und Fahrfehlern, Training/Quali/Rennen, Reifen und Boxenstopps. Fahrweise aufzeichnen mit /rec on, dein Klon fährt weiter bei Verbindungsabbruch (/bot, /play). Wetter mit CSP, Strecken-Rotation."
 EnablePlugins:
   - RaceAiPlugin
   # records players who agree (/rec on) for AI clones of them
