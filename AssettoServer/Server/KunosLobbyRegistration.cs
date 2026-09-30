@@ -18,6 +18,7 @@ public class KunosLobbyRegistration : BackgroundService
     private readonly SessionManager _sessionManager;
     private readonly EntryCarManager _entryCarManager;
     private readonly HttpClient _httpClient;
+    private string? _registeredName;
 
     public KunosLobbyRegistration(ACServerConfiguration configuration, SessionManager sessionManager, EntryCarManager entryCarManager, HttpClient httpClient)
     {
@@ -53,6 +54,9 @@ public class KunosLobbyRegistration : BackgroundService
             try
             {
                 await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+                // Race AI patch: the listed name changed (e.g. player count in the name): register again, the lobby only takes the name there
+                if (_registeredName != null && _configuration.ListedName != _registeredName)
+                    await RegisterToLobbyWithRetryAsync(stoppingToken);
                 await Policy
                     .Handle<KunosLobbyException>()
                     .Or<HttpRequestException>()
@@ -115,7 +119,8 @@ public class KunosLobbyRegistration : BackgroundService
             cars = cars[..last];
         }
         
-        queryParams["name"] = cfg.Name + (_configuration.Extra.EnableServerDetails ? $" ℹ{_configuration.Server.HttpPort}" : "");
+        _registeredName = _configuration.ListedName;
+        queryParams["name"] = _registeredName + (_configuration.Extra.EnableServerDetails ? $" ℹ{_configuration.Server.HttpPort}" : "");
         queryParams["port"] = cfg.UdpPort.ToString();
         queryParams["tcp_port"] = cfg.TcpPort.ToString();
         queryParams["max_clients"] = cfg.MaxClients.ToString();

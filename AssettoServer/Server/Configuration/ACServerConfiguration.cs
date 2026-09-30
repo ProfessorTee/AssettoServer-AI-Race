@@ -25,6 +25,20 @@ public partial class ACServerConfiguration
     public EntryList EntryList { get; }
     public List<SessionConfiguration> Sessions { get; }
     [YamlIgnore] public string FullTrackName { get; }
+    /// <summary>
+    /// Race AI patch: lets a plugin change the name shown in the server lists (lobby, /INFO, /api/details) at runtime,
+    /// e.g. "Bots:16,Player:2 - Name". Gets the name from server_cfg.ini. The in-game name stays unchanged.
+    /// </summary>
+    [YamlIgnore] public Func<string, string>? ListedNameProvider { get; set; }
+    /// <summary>Name for the server lists (see <see cref="ListedNameProvider"/>).</summary>
+    [YamlIgnore] public string ListedName
+    {
+        get
+        {
+            try { return ListedNameProvider?.Invoke(Server.Name) ?? Server.Name; }
+            catch { return Server.Name; }
+        }
+    }
     [YamlIgnore] public CSPTrackOptions CSPTrackOptions { get; }
     [YamlIgnore] public string WelcomeMessage { get; }
     public ACExtraConfiguration Extra { get; private set; } = new();

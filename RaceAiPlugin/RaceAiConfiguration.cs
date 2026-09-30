@@ -287,6 +287,12 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
                               "The bot comes back when the player leaves. false = bot slots are closed to players")]
     public bool PlayersCanTakeBotSlots { get; set; } = true;
 
+    [YamlMember(Description = "Show the number of bots and players in the server list name (Content Manager, CSP, Kunos lobby), e.g. 'Bots:16,Player:2 - My Server'. " +
+                              "Only active when bots are configured. The name in server_cfg.ini stays as it is; the lobby gets the new name within a minute")]
+    public bool ServerNameCounts { get; set; } = true;
+    [YamlMember(Description = "Format for ServerNameCounts: {bots}, {players} and {name} (the name from server_cfg.ini)")]
+    public string ServerNameFormat { get; set; } = "Bots:{bots},Player:{players} - {name}";
+
     [YamlMember(Description = "Human errors for weaker bots: braking too late (running wide) or too early, too much throttle on the exit (the rear steps out). " +
                               "Weaker bots then lose part of their time to mistakes instead of crawling through the corners")]
     public bool HumanErrors { get; set; } = true;

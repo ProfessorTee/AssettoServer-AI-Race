@@ -65,6 +65,21 @@ public sealed partial class RaceAiService : IHostedService
         _sessionManager = sessionManager;
         _server = server;
         _weatherManager = weatherManager;
+        SetupListedName();
+    }
+
+    /// <summary>"Bots:16,Player:2 - Name" in the server lists (only when bots are configured).</summary>
+    private void SetupListedName()
+    {
+        if (!_config.ServerNameCounts || string.IsNullOrWhiteSpace(_config.ServerNameFormat)) return;
+        int configured = ConfiguredBotSlots().Count;
+        if (configured == 0) return;
+        _serverConfig.ListedNameProvider = name =>
+        {
+            int bots = _world != null ? _slots.ToArray().Count(s => s.Active) : configured;
+            int players = _entryCarManager.ConnectedCars.Count;
+            return _config.ServerNameFormat.Replace("{bots}", bots.ToString()).Replace("{players}", players.ToString()).Replace("{name}", name);
+        };
     }
 
     /// <summary>Entry list slots that are bots, as configured (also used by the slot filter before the service has started).</summary>

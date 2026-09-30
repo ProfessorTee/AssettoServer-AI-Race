@@ -17,7 +17,9 @@ public class HttpInfoCache : IHostedService
 
     public IReadOnlyList<string> Cars { get; private set; } = null!;
     public IReadOnlyList<int> Durations { get; }
-    public string ServerName { get; }
+    public string ServerName => _configuration.ListedName + _nameSuffix;
+    private readonly ACServerConfiguration _configuration;
+    private readonly string _nameSuffix;
     public IReadOnlyList<int> SessionTypes { get; }
     public string Track { get; }
     public string PoweredBy { get; }
@@ -32,7 +34,8 @@ public class HttpInfoCache : IHostedService
         
         Durations = configuration.Sessions.Select(c => c.ListDuration).ToList();
         SessionTypes = configuration.Sessions.Select(s => (int)s.Type).ToList();
-        ServerName = configuration.Server.Name + (configuration.Extra.EnableServerDetails ? " ℹ" + configuration.Server.HttpPort : "");
+        _configuration = configuration;
+        _nameSuffix = configuration.Extra.EnableServerDetails ? " ℹ" + configuration.Server.HttpPort : "";
         Track = configuration.Server.Track + (string.IsNullOrEmpty(configuration.Server.TrackConfig) ? null : "-" + configuration.Server.TrackConfig);
         PoweredBy = $"AssettoServer {configuration.ServerVersion}";
         Assists = new DetailResponseAssists

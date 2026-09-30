@@ -182,6 +182,12 @@ Das Dashboard läuft im Server selbst unter `http://127.0.0.1:<HTTP_PORT>/raceai
 - Oben rechts lassen sich die Datenrate (1–10 pro Sekunde) und die Bildrate der Karte (10–60 fps) einstellen. Weniger heißt
   weniger Last, wenn Spiel und Dashboard auf demselben PC laufen. Die Strecke wird nur neu gezeichnet, wenn sich die Ansicht ändert.
 
+## Name in der Server-Liste
+
+Mit Bots zeigt die Server-Liste (Content Manager, CSP, Kunos-Lobby) automatisch `Bots:16,Player:2 - <Name aus server_cfg.ini>`.
+Ein- und ausschalten mit `ServerNameCounts`, das Muster steht in `ServerNameFormat` (`{bots}`, `{players}`, `{name}`).
+Die Lobby bekommt einen neuen Namen spätestens nach einer Minute; im Spiel selbst bleibt der normale Name.
+
 ## Strecken-Rotation
 
 Der Server kann nach einer Anzahl Rennen (oder Minuten) die Strecke wechseln. Er startet sich dabei selbst mit dem nächsten

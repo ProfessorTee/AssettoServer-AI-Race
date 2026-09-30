@@ -154,7 +154,7 @@ public class HttpController : ControllerBase
             Inverted = _configuration.Server.InvertedGridPositions,
             Ip = _geoParamsManager.GeoParams.Ip,
             MaxClients = _configuration.Server.MaxClients,
-            Name = _configuration.Server.Name,
+            Name = _configuration.ListedName,
             Pass = !string.IsNullOrEmpty(_configuration.Server.Password),
             Pickup = true,
             Pit = _configuration.Server.PitWindowEnd > 0,
