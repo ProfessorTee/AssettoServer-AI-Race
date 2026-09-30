@@ -45,6 +45,10 @@ public sealed class BotSlot : IExternalAiController
     /// <summary>When the player comes back, the clone comes into the pits for him at once (false after /bot: he takes a break).</summary>
     public bool ReturnOnJoin { get; set; } = true;
     public double HandoverSince { get; set; }
+    /// <summary>The player was sent into his car before the clone reached the box (his game needs time to load).</summary>
+    public bool EarlyReconnect { get; set; }
+    /// <summary>The player is loading into his car while the clone still drives it; the clone leaves when he's in.</summary>
+    public AssettoServer.Network.Tcp.ACTcpClient? LoadingOwner { get; set; }
 
     /// <summary>Collisions switched off for the clients (emergency ghost).</summary>
     public bool Ghosted { get; set; }

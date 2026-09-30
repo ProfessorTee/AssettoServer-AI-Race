@@ -18,7 +18,7 @@ end
 -- phase: 0 = nothing, 1 = your clone drives (/play brings it to the pits), 2 = clone comes to the pits,
 --        3 = reconnecting you now (driver change), 4 = go to your pit box, the clone takes over there,
 --        5 = you're back while your clone drives: moving you to a spare car to watch,
---        6 = track change: the server restarts with the next track, you're reconnected after eta seconds
+--        6 = track change: the server restarts with the next track, rejoin after eta seconds (via Content Manager)
 ac.OnlineEvent({
   ac.StructItem.key('RAI_swap'),
   phase = ac.StructItem.byte(),
@@ -79,7 +79,11 @@ local texts = {
   [5] = function() return 'Dein Klon fährt gerade dein Auto.', 'Du wirst gleich in ein Ersatzauto in der Box gesetzt und kannst ihm zuschauen.' end,
   [6] = function()
     local left = math.max(0, state.eta - math.floor(clock - state.at))
-    return 'Streckenwechsel: ' .. (state.info or ''), 'Der Server startet neu – du wirst in ' .. left .. ' s automatisch wieder verbunden.'
+    -- no automatic reconnect here: a reconnect keeps the loaded track, the game can't switch to another one that way
+    if left > 0 then
+      return 'Streckenwechsel: ' .. (state.info or ''), 'Der Server startet neu. In etwa ' .. left .. ' s über Content Manager neu beitreten.'
+    end
+    return 'Streckenwechsel: ' .. (state.info or ''), 'Jetzt über Content Manager neu beitreten (Server in der Liste auswählen).'
   end
 }
 

@@ -29,6 +29,48 @@ public sealed partial class RaceAiService
 
     private void Later(ACTcpClient client, Action send, bool repeat = false) => _outbox.Add((client, send, repeat));
     private double _nextSwapInfo;
+    /// <summary>How long each player's game takes to load (s, Steam ID -> smoothed), so the driver change can start early.</summary>
+    private readonly Dictionary<ulong, double> _loadSeconds = new();
+    private readonly Dictionary<AssettoServer.Network.Tcp.ACTcpClient, DateTime> _connectedAt = new();
+    private const double DefaultLoadSeconds = 12;
+
+    private double LoadSecondsOf(ulong guid) => _loadSeconds.TryGetValue(guid, out var s) ? s : DefaultLoadSeconds;
+
+    /// <summary>Handshake to first position update: the time his game needed to load the track.</summary>
+    private void OnSwapFirstUpdate(AssettoServer.Network.Tcp.ACTcpClient client, EventArgs args)
+    {
+        client.FirstUpdateSent -= OnSwapFirstUpdate;
+        lock (_lock)
+        {
+            if (_connectedAt.Remove(client, out var at))
+            {
+                double secs = Math.Clamp((DateTime.UtcNow - at).TotalSeconds, 1, 120);
+                _loadSeconds[client.Guid] = _loadSeconds.TryGetValue(client.Guid, out var old) ? old * 0.5 + secs * 0.5 : secs;
+            }
+            // driver change: the player is in, the clone leaves his car now
+            var slot = _slots.FirstOrDefault(s => s.LoadingOwner == client);
+            if (slot != null)
+            {
+                slot.LoadingOwner = null;
+                EndTakeover(slot, T($"{client.Name} takes over from his clone", $"{client.Name} übernimmt wieder von seinem Klon"));
+                byte c0 = slot.EntryCar.SessionId;
+                Later(client, () => SendSwap(client, 0, c0, 0, 0, 0));
+            }
+        }
+    }
+
+    /// <summary>About how long until the clone stands in its box (s): to the pit entry at its lap pace, then the pit lane.</summary>
+    private double SecondsUntilBox(RaceBot bot)
+    {
+        var lane = _world?.PitLane;
+        if (lane == null || _track == null) return 30;
+        float limit = _world!.Settings.PitSpeedLimit * 0.85f;
+        if (bot.InPitLane) return bot.Pit == PitPhase.Stopped ? 0 : MathF.Max(0, bot.PitBoxS - bot.PitS) / MathF.Max(5, MathF.Min(limit, MathF.Max(bot.Speed, 8))) + 1.5;
+        float s = _track.Line.WrapS((float)bot.Distance);
+        float toEntry = _track.Line.WrapS(lane.EntryTrackS - s);
+        float avg = bot.Clone != null ? _track.Line.Length / MathF.Max(40, bot.Clone.AverageLap) : 40;
+        return toEntry / MathF.Max(15, avg) + MathF.Max(0, bot.PitBoxS) / MathF.Max(5, limit) + 4; // + braking into the lane
+    }
     private bool _swapScriptAdded;
 
     private void AddSwapScript()
@@ -61,7 +103,8 @@ public sealed partial class RaceAiService
     {
         try
         {
-            client.SendPacket(new RaiSwapPacket { Phase = 6, Car = client.SessionId, Reconnect = (byte)Math.Clamp(seconds, 1, 255), Eta = (ushort)seconds, Info = track });
+            // no automatic reconnect: CSP's reconnect keeps the loaded track and the game crashes when the server has another one
+            client.SendPacket(new RaiSwapPacket { Phase = 6, Car = client.SessionId, Reconnect = 0, Eta = (ushort)seconds, Info = track });
         }
         catch (Exception ex)
         {
@@ -121,6 +164,8 @@ public sealed partial class RaceAiService
     private void OnSwapWatcherConnected(ACTcpClient client)
     {
         client.ChatMessageReceived += OnChatForSwap;
+        _connectedAt[client] = DateTime.UtcNow;
+        client.FirstUpdateSent += OnSwapFirstUpdate;
         var slot = _slots.FirstOrDefault(s => s.TakeoverGuid == client.Guid);
         if (slot == null || slot.EntryCar == client.EntryCar) return;
         slot.Watcher = client;
@@ -134,6 +179,9 @@ public sealed partial class RaceAiService
     private void OnSwapClientDisconnected(ACTcpClient client)
     {
         client.ChatMessageReceived -= OnChatForSwap;
+        client.FirstUpdateSent -= OnSwapFirstUpdate;
+        _connectedAt.Remove(client);
+        foreach (var loading in _slots.Where(s => s.LoadingOwner == client)) loading.LoadingOwner = null; // gave up loading
         // passing through his own car on the way to a spare car: the others must see the clone again
         var passing = _slots.FirstOrDefault(s => s.TakeoverGuid == client.Guid && s.EntryCar == client.EntryCar && s.Active);
         if (passing != null)
@@ -288,6 +336,22 @@ public sealed partial class RaceAiService
             var bot = slot.Bot;
             if (slot.Swap == SwapPhase.PitRequested && bot.Pit == PitPhase.None && !bot.InPitLane && bot.Phase == BotPhase.Racing)
                 world.RequestPitStop(bot, "driver change"); // e.g. the pit decision reset it
+
+            // send the player into his car early: his game needs a while to load, he should be in when the clone stops in the box
+            if (slot.Swap == SwapPhase.PitRequested && slot.Watcher != null && bot.Phase == BotPhase.Racing
+                && SecondsUntilBox(bot) <= LoadSecondsOf(slot.TakeoverGuid!.Value) - 1)
+            {
+                slot.Swap = SwapPhase.Handover;
+                slot.HandoverSince = now;
+                slot.EarlyReconnect = true;
+                Log.Information("Race AI: driver change for {Player}: moving him into his car {Eta:F0} s before the clone reaches the box (his game loads in about {Load:F0} s)",
+                    slot.TakeoverPlayer, SecondsUntilBox(bot), LoadSecondsOf(slot.TakeoverGuid!.Value));
+                SendSwap(slot.Watcher, 3, slot.EntryCar.SessionId, 0, 0, 2, slot.EntryCar.Model);
+                Tell(slot.Watcher, "Driver change! You're put into your car now, your clone is coming into the pits. (Without CSP: leave and rejoin the server.)",
+                    "Fahrerwechsel! Du wirst jetzt in dein Auto gesetzt, dein Klon kommt gerade an die Box. (Ohne CSP: Server verlassen und wieder beitreten.)");
+                _entryCarManager.BroadcastChat(T($"Driver change: {slot.TakeoverPlayer} takes over from his clone in the pits",
+                    $"Fahrerwechsel: {slot.TakeoverPlayer} übernimmt in der Box von seinem Klon"));
+            }
 
             // in the box: wait for the player
             if (slot.Swap is SwapPhase.PitRequested or SwapPhase.Handover && bot.Pit == PitPhase.Stopped)

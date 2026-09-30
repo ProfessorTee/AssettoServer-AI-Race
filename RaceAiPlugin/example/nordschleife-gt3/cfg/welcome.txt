@@ -9,5 +9,5 @@ Befehle im Chat:
 /play - dein Klon kommt an die Box, du übernimmst wieder
 /rec off, /rec delete - Aufzeichnung aus bzw. löschen
 
-Wetter mit CSP (Sol/Pure), Streckenwechsel mit automatischem Neu-Verbinden (CSP).
+Wetter mit CSP (Sol/Pure), Strecken-Rotation: nach dem Streckenwechsel einfach über Content Manager neu beitreten.
 Viel Spaß und fair bleiben!

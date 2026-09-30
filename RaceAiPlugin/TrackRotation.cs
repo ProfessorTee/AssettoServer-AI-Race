@@ -27,7 +27,7 @@ public sealed class TrackRotationConfiguration
     /// <summary>Warning in the chat this many seconds before the change.</summary>
     public int AnnounceSeconds { get; set; } = 20;
     /// <summary>
-    /// Players with CSP are reconnected automatically after the change. Seconds to wait for the new server when it has never
+    /// Players see a countdown until they can rejoin (the game has to load the new track, so no automatic reconnect). Seconds to wait for the new server when it has never
     /// started this track before (later the measured start time is used).
     /// </summary>
     public int FirstStartSeconds { get; set; } = 60;
@@ -37,7 +37,7 @@ public sealed class TrackRotationConfiguration
 
 /// <summary>
 /// Track rotation: after a number of races (or minutes) the server restarts itself with the next preset (presets/&lt;name&gt;/ with its own
-/// server_cfg.ini, entry_list.ini, extra_cfg.yml and plugin cfgs). Players with CSP are reconnected into their car automatically.
+/// server_cfg.ini, entry_list.ini, extra_cfg.yml and plugin cfgs). Players with CSP get a banner with a countdown to rejoin.
 /// Changes only happen between sessions, never during a race. State in rotation.state, the running preset in current-preset
 /// (read by race-ai/server-supervisor.sh, so a restart continues on the same track).
 /// </summary>
@@ -243,8 +243,8 @@ public sealed class TrackRotation : BackgroundService
                 int announce = Math.Max(0, _cfg.AnnounceSeconds);
                 if (_entryCarManager.ConnectedCars.Count > 0 && announce > 0)
                 {
-                    _entryCarManager.BroadcastChat(T($"Track change to {Title(next)} in {announce} s. With CSP you're reconnected automatically (about {wait} s), otherwise please rejoin.",
-                        $"Streckenwechsel zu {Title(next)} in {announce} s. Mit CSP wirst du automatisch neu verbunden (etwa {wait} s), sonst bitte neu beitreten."));
+                    _entryCarManager.BroadcastChat(T($"Track change to {Title(next)} in {announce} s. The server restarts, please rejoin via Content Manager after about {wait} s.",
+                        $"Streckenwechsel zu {Title(next)} in {announce} s. Der Server startet neu, bitte nach etwa {wait} s über Content Manager neu beitreten."));
                     await Task.Delay(announce * 1000);
                 }
                 foreach (var car in _entryCarManager.EntryCars.Where(c => c.Client != null))

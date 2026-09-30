@@ -364,6 +364,13 @@ public sealed partial class RaceAiService : IHostedService
                 {
                     // back in his own car: at the driver change, or on his way to a spare car to watch from
                     if (client.Guid == slot.TakeoverGuid && slot.Swap != SwapPhase.Handover && ArriveForWatching(client, slot)) return;
+                    // driver change started early: the clone drives on into the box while his game loads, and leaves when he's in
+                    if (client.Guid == slot.TakeoverGuid && slot.Swap == SwapPhase.Handover && slot.EarlyReconnect)
+                    {
+                        slot.LoadingOwner = client;
+                        Log.Information("Race AI: {Player} is loading into his car, the clone drives on until he's in", client.Name);
+                        return;
+                    }
                     EndTakeover(slot, client.Guid == slot.TakeoverGuid
                         ? T($"{client.Name} is back and takes over from his clone", $"{client.Name} ist zurück und übernimmt wieder von seinem Klon")
                         : null);

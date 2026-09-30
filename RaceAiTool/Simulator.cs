@@ -108,6 +108,21 @@ public static class Simulator
             if (info.PitBoxes.FirstOrDefault(p => p.Index == i) is { } box && info.PitBoxes.Count > i)
                 world.SetPitBox(bot, box.Position);
         }
+        // --clone <folder with recorded laps (*.csv.gz)>: the first bot becomes a clone of that player
+        CloneProfile? cloneProfile = null;
+        if (o.Get("clone") is { } cloneDir)
+        {
+            var recLaps = LoadRecordedLaps(cloneDir);
+            cloneProfile = CloneProfile.Build(line, recLaps, "", "player", models.FirstOrDefault() ?? "");
+            if (cloneProfile == null) { Console.WriteLine("No usable clean laps in " + cloneDir); return 1; }
+            var cb = world.Bots[0];
+            cb.Clone = cloneProfile;
+            cb.Driver.Pace = 1; cb.Driver.Consistency = 0.97f;
+            float spreadRel = cloneProfile.AverageLap > 0 ? cloneProfile.LapSpread / cloneProfile.AverageLap : 0;
+            cb.Driver.Errors = settings.HumanErrors ? Math.Clamp(spreadRel * 25, 0.05f, 0.6f) : 0;
+            Console.WriteLine($"Clone: {recLaps.Count} laps ({recLaps.Count(l => l.Valid)} clean), {cloneProfile.LapsUsed} used, best {Fmt(cloneProfile.BestLap)}, " +
+                              $"average {Fmt(cloneProfile.AverageLap)}, errors {cb.Driver.Errors:F2}, offset |avg| {cloneProfile.Offset.Average(MathF.Abs):F2} m, max {cloneProfile.Offset.Max(MathF.Abs):F2} m");
+        }
         foreach (var bot in world.Bots)
             world.ResetCarCondition(bot, hotlap ? 30 : world.FuelForLaps(bot, laps + 0.5f));
 
@@ -151,6 +166,7 @@ public static class Simulator
         world.Trace = Console.WriteLine;
         var stats = new SimStats(world);
         var trace = hotlap ? new SpeedTrace(line, info) : null;
+        var cloneCmp = new SortedDictionary<int, (float V, float O, int N)>();
         float dt = 1f / tickHz;
         double maxTime = hotlap ? 60 * 20 : laps * 60 * 12 + 120;
         world.PitStopCompleted += (bot, t, fuel, tyres) =>
@@ -177,6 +193,13 @@ public static class Simulator
             world.Advance(now);
             stats.Sample(now);
             trace?.Sample(world.Bots[0]);
+            if (cloneProfile != null && world.Bots[0].LapsCompleted >= 1)
+            {
+                var cb = world.Bots[0];
+                int bin = (int)(line.WrapS((float)cb.Distance) / 100f);
+                cloneCmp.TryGetValue(bin, out var acc);
+                cloneCmp[bin] = (acc.V + cb.Speed, acc.O + cb.Offset, acc.N + 1);
+            }
 
             if (hotlap && world.Bots[0].LapsCompleted >= Math.Max(1, laps)) break;
             if (!hotlap && world.Bots.All(b => b.LapsCompleted >= laps)) break;
@@ -185,8 +208,53 @@ public static class Simulator
         Console.WriteLine();
         Console.WriteLine($"Simulated {now:F0} s in {sw.Elapsed.TotalSeconds:F1} s real time");
         if (trace != null) trace.Print();
+        if (cloneProfile != null)
+        {
+            Console.WriteLine("Clone vs player every 100 m (laps 2+): speed km/h player/clone, line offset m player/clone");
+            foreach (var (bin, acc) in cloneCmp)
+            {
+                float s0 = bin * 100 + 50;
+                float pv = cloneProfile.SpeedAt(s0, line.Length) * 3.6f, po = cloneProfile.OffsetAt(s0, line.Length);
+                float cv = acc.V / acc.N * 3.6f, co = acc.O / acc.N;
+                Console.WriteLine($"  {bin * 100,5} m  {pv,5:F0} / {cv,5:F0}  ({cv - pv,+5:F0})   {po,5:F1} / {co,5:F1}");
+            }
+        }
         stats.Print(laps);
         return 0;
+    }
+
+    private static List<RecordedLap> LoadRecordedLaps(string dir)
+    {
+        var laps = new List<RecordedLap>();
+        foreach (var f in Directory.GetFiles(dir, "*.csv.gz"))
+        {
+            using var gz = new System.IO.Compression.GZipStream(File.OpenRead(f), System.IO.Compression.CompressionMode.Decompress);
+            using var r = new StreamReader(gz);
+            var samples = new List<RecordedSample>();
+            float lapTime = 0; bool valid = false;
+            int ix = -1, iy = -1, iz = -1, iv = -1, ig = -1, ib = -1;
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            string? l;
+            while ((l = r.ReadLine()) != null)
+            {
+                if (l.StartsWith("# laptime_ms=")) lapTime = float.Parse(l[13..], ci) / 1000f;
+                else if (l.StartsWith("# valid=")) valid = l.EndsWith("1");
+                else if (l.StartsWith("t,"))
+                {
+                    var h = l.Split(',');
+                    ix = Array.IndexOf(h, "x"); iy = Array.IndexOf(h, "y"); iz = Array.IndexOf(h, "z");
+                    iv = Array.IndexOf(h, "speed_kmh"); ig = Array.IndexOf(h, "gas"); ib = Array.IndexOf(h, "brake");
+                }
+                else if (!l.StartsWith("#") && ix >= 0)
+                {
+                    var p = l.Split(',');
+                    float F(int i) => float.Parse(p[i], ci);
+                    samples.Add(new RecordedSample(new System.Numerics.Vector3(F(ix), F(iy), F(iz)), F(iv) / 3.6f, F(ig) / 255f, F(ib) / 255f));
+                }
+            }
+            laps.Add(new RecordedLap { LapTime = lapTime, Valid = valid, Samples = samples });
+        }
+        return laps;
     }
 
     private static void PlaceOnGrid(RaceWorld world, TrackInfo info, RaceBot bot, int slot)

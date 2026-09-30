@@ -801,6 +801,8 @@ public sealed partial class RaceWorld
             int i = Line.IndexAt(s0 + d);
             float k = Line.Curvature[i];
             float off = offset;
+            // a clone will be on the player's line there, not where it is now
+            if (bot.Clone is { } lc && bot.Phase == BotPhase.Racing && d > 5) off = lc.OffsetAt(s0 + d, Line.Length);
             bool inPlan = plan && InPlannedCorner(bot, s0 + d);
             if (shifted && inPlan) off += CornerShift(bot, s0 + d);
             // radius changes when driving off the line: positive curvature turns towards +offset (inside)
@@ -817,7 +819,9 @@ public sealed partial class RaceWorld
             {
                 // the player's own speed here (scaled with the grip we have now), never more than the car can do on this line
                 float cv = clone.SpeedAt(s0 + d, Line.Length) * bot.ClonePace * MathF.Sqrt(MathF.Max(0.3f, phys));
-                vLim = MathF.Min(cv, car.CornerLimit(k, Line.VerticalCurvature[i], 1.04f * phys, bot.MassRatio));
+                // the player really drove that fast here: our grip model is only an estimate (downforce, real car), so it may
+                // only stop the clone when it's far off
+                vLim = MathF.Min(cv, car.CornerLimit(k, Line.VerticalCurvature[i], 1.25f * phys, bot.MassRatio));
             }
             else if (Settings.UseTrackHints)
                 vLim = MathF.Min(vLim * MathF.Sqrt(Line.HintFactor[i]), Line.MaxSpeed[i]); // hint scales the usable grip
@@ -833,6 +837,13 @@ public sealed partial class RaceWorld
             var pers = bot.Driver.Personality;
             decel *= (1 + 0.05f * pers.BrakeBehavior * (bot.OvertakeTargetId >= 0 && pers.BrakeBehavior > 0 ? 1.6f : 1f)) * (1 - 0.15f * pers.Smoothness);
             if (inPlan || (plan && Line.Delta(s0 + d, bot.PlanStartS) >= 0)) decel *= bot.PlanBrake; // this corner's braking point
+            if (bot.Clone is { } bc && bot.Phase == BotPhase.Racing && d > 1)
+            {
+                // a clone brakes where and as hard as the player did (his speed trace already is his braking curve)
+                float pv0 = bc.SpeedAt(s0, Line.Length), pv1 = bc.SpeedAt(s0 + d, Line.Length);
+                float playerDecel = (pv0 * pv0 - pv1 * pv1) / (2 * d);
+                if (playerDecel > decel) decel = MathF.Min(playerDecel * 1.02f, car.BrakeAt(v, 1.1f, bot.MassRatio));
+            }
             // braking too early: at corner speed already some metres before the corner (only for real braking zones)
             float margin = 0;
             if (bot.Phase == BotPhase.Racing && v - vLim > 5)
@@ -1188,7 +1199,7 @@ public sealed partial class RaceWorld
             {
                 // go back to the racing line when that lane is free
                 float lineOffset = me.Clone is { } cl
-                    ? Math.Clamp(cl.OffsetAt(myS + me.Speed * 0.35f, Line.Length) + me.CloneZ * cl.OffsetSpreadAt(myS, Line.Length), minOff, maxOff)
+                    ? Math.Clamp(cl.OffsetAt(myS + me.Speed * 0.55f, Line.Length) + me.CloneZ * cl.OffsetSpreadAt(myS, Line.Length), minOff, maxOff)
                     : RainLineOffset(me, myS, minOff, maxOff);
                 if (LaneFree(me, lineOffset, myS, -(me.Car.Length + 2), 25))
                     me.TargetOffset = lineOffset;
@@ -1373,6 +1384,13 @@ public sealed partial class RaceWorld
         {
             me.Brake = MathF.Max(0, me.Brake - dt / 0.25f);
             float full = me.Car.AccelAt(v, throttlePace) / me.MassRatio + (me.Draft - (DamageDrag(me) - 1)) * me.Car.DragCoefficient * v * v;
+            // a clone accelerates like the player did here: our engine model is only an estimate of the real car
+            if (me.Clone is { } cl && me.Phase == BotPhase.Racing && !me.InPitLane)
+            {
+                float v1 = cl.SpeedAt(sNow, Line.Length), v2 = cl.SpeedAt(sNow + CloneProfile.BinSize, Line.Length);
+                float playerAccel = (v2 * v2 - v1 * v1) / (2 * CloneProfile.BinSize);
+                if (playerAccel > full) full = MathF.Min(playerAccel * 1.03f, full + 4f);
+            }
             // full throttle when far below the target, part throttle to hold the speed near it (fast corners, following)
             float hold = MathF.Max(0, full) > 0.1f ? Math.Clamp(drag / (full + drag), 0, 1) : 1;
             float pedal = Math.Clamp(hold + (target - v) / 0.6f, 0, 1);
@@ -1392,8 +1410,10 @@ public sealed partial class RaceWorld
         if (!me.Overspeed)
         {
             float err = me.TargetOffset - me.Offset;
-            float maxLat = MathF.Min(3.5f, 0.5f + me.Speed * 0.06f);
-            float desiredLat = Math.Clamp(err * 1.4f, -maxLat, maxLat);
+            // a clone follows the player's line more tightly (the line is his, not a lane change)
+            bool tight = me.Clone != null && me.OvertakeTargetId < 0;
+            float maxLat = MathF.Min(tight ? 5f : 3.5f, 0.5f + me.Speed * (tight ? 0.09f : 0.06f));
+            float desiredLat = Math.Clamp(err * (tight ? 2.5f : 1.4f), -maxLat, maxLat);
             float latAcc = 5f;
             me.LateralSpeed += Math.Clamp(desiredLat - me.LateralSpeed, -latAcc * dt, latAcc * dt);
         }

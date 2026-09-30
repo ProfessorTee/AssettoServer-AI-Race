@@ -192,7 +192,8 @@ Die Lobby bekommt einen neuen Namen spätestens nach einer Minute; im Spiel selb
 
 Der Server kann nach einer Anzahl Rennen (oder Minuten) die Strecke wechseln. Er startet sich dabei selbst mit dem nächsten
 **Preset** neu (`presets/<name>/` mit eigener `server_cfg.ini`, `entry_list.ini`, `extra_cfg.yml` und Plugin-Konfigurationen,
-„default“ ist der Ordner `cfg/`). Spieler mit **CSP** bekommen ein Banner und werden danach automatisch wieder in ihr Auto verbunden.
+„default“ ist der Ordner `cfg/`). Spieler mit **CSP** bekommen ein Banner mit Countdown, danach treten sie über Content Manager neu bei. (Ein automatisches Neu-Verbinden
+geht nicht: CSP behält dabei die geladene Strecke, das Spiel stürzt mit der neuen ab.)
 Gewechselt wird nur zwischen zwei Sessions, nie mitten im Rennen.
 
 **Presets enthalten nur, was anders ist.** Der Server lädt zuerst `cfg/` und legt das Preset darüber: in `server_cfg.ini` Wert für
