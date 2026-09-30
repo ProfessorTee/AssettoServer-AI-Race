@@ -154,6 +154,8 @@ public sealed partial class RaceAiService : IHostedService
             SpotHeightOffset = RaceWorld.MeasureSpotHeight(_track.Line, _track.Info.StartGrid.Select(g => g.Position)),
             EdgeMargin = _config.EdgeMargin,
             SideMargin = _config.SideMargin,
+            PlayerSideMargin = _config.PlayerSideMargin,
+            PlayerOverlap = _config.PlayerOverlap,
             HeightOffset = _config.HeightOffset,
             CoolDownPace = _config.CoolDownPace,
             UseTrackHints = _config.UseTrackHints,

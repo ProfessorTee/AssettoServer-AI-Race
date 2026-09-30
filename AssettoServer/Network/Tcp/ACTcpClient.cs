@@ -1000,7 +1000,11 @@ public class ACTcpClient : IClient
         LuaReady?.Invoke(this, EventArgs.Empty);
     }
 
-    public void SendChatMessage(string message, byte senderId = 255) => SendPacket(new ChatMessage { Message = message, SessionId = senderId });
+    public void SendChatMessage(string message, byte senderId = 255)
+    {
+        foreach (var part in AssettoServer.Utils.ChatSplitter.Split(message))
+            SendPacket(new ChatMessage { Message = part, SessionId = senderId });
+    }
 
     private static string IdFromGuid(ulong guid)
     {

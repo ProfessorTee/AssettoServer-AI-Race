@@ -26,7 +26,6 @@ end
 
 local samplesEvent = ac.OnlineEvent({
   ac.StructItem.key('DR_samples'),
-  count = ac.StructItem.byte(),
   time = ac.StructItem.array(ac.StructItem.float(), BATCH),
   spline = ac.StructItem.array(ac.StructItem.float(), BATCH),
   position = ac.StructItem.array(ac.StructItem.vec3(), BATCH),
@@ -44,7 +43,7 @@ local statusEvent = ac.OnlineEvent({
   tyreTemp = ac.StructItem.array(ac.StructItem.float(), 4),
   tyreWear = ac.StructItem.array(ac.StructItem.float(), 4),
   tyrePressure = ac.StructItem.array(ac.StructItem.float(), 4),
-  fuel = ac.StructItem.float()
+  fuel = ac.StructItem.array(ac.StructItem.float(), 4)
 })
 
 local controlEvent = ac.OnlineEvent({
@@ -97,7 +96,6 @@ local function addSample(car)
 
   if n >= BATCH then
     samplesEvent({
-      count = n,
       time = batch.time, spline = batch.spline, position = batch.position, speed = batch.speed,
       gas = batch.gas, brake = batch.brake, clutch = batch.clutch, steer = batch.steer, gear = batch.gear, flags = batch.flags
     })
@@ -113,7 +111,7 @@ local function sendStatus(car)
     wear[i + 1] = opt(function() return w.tyreWear end, -1)
     pressure[i + 1] = opt(function() return w.tyrePressure end, 0)
   end
-  statusEvent({ tyreTemp = temp, tyreWear = wear, tyrePressure = pressure, fuel = opt(function() return car.fuel end, 0) })
+  statusEvent({ tyreTemp = temp, tyreWear = wear, tyrePressure = pressure, fuel = { opt(function() return car.fuel end, 0), 0, 0, 0 } })
 end
 
 function script.update(dt)

@@ -150,6 +150,8 @@ public sealed class StrengthCalibration
             UseTrackHints = template.UseTrackHints,
             EdgeMargin = template.EdgeMargin,
             SideMargin = template.SideMargin,
+            PlayerSideMargin = template.PlayerSideMargin,
+            PlayerOverlap = template.PlayerOverlap,
             Seed = seed,
             HumanErrors = errors > 0,
             Spins = template.Spins,

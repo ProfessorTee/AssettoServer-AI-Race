@@ -332,6 +332,10 @@ public sealed class RaceWorldSettings
     public float EdgeMargin { get; set; } = 0.4f;
     /// <summary>Extra lateral space kept to other cars (m).</summary>
     public float SideMargin { get; set; } = 0.5f;
+    /// <summary>Lateral space kept to players (m): their position arrives with a delay and they don't drive exactly.</summary>
+    public float PlayerSideMargin { get; set; } = 1.0f;
+    /// <summary>A player counts as alongside while he overlaps within this many metres (m), bots then leave him room.</summary>
+    public float PlayerOverlap { get; set; } = 3.0f;
     /// <summary>Use the speed recorded in fast_lane.ai as an upper limit, scaled by this factor. 0 = off.</summary>
     public float SpeedHintScale { get; set; } = 0f;
     /// <summary>Height of the track's AC_START_x / AC_PIT_x dummies above the ground (m), subtracted when parking in the pit box.</summary>
@@ -883,13 +887,16 @@ public sealed partial class RaceWorld
             float ds = Line.Delta(myS, o.S);
             if (!Considers(me, o, ds)) continue;
             float longClear = (me.Car.Length + o.Length) / 2;
-            float margin = _now < me.MarginOverrideUntil ? -0.2f : Settings.SideMargin;
+            // players: more room (their position arrives late) and a longer overlap window, so a bot doesn't turn in on a player
+            // whose nose is next to its rear wheel
+            float margin = o.IsBot && _now < me.MarginOverrideUntil ? -0.2f : SideMarginFor(o);
             float latClear = (me.Car.Width + o.Width) / 2 + margin;
             float dOff = o.Offset - me.Offset;
             float closing = o.Speed - me.Speed; // > 0: car behind is faster
+            float overlap = o.IsBot ? 1.0f : MathF.Max(1.0f, Settings.PlayerOverlap);
 
-            bool isAlongside = MathF.Abs(ds) < longClear + 1.0f
-                               || (ds < 0 && ds > -(longClear + MathF.Max(2f, closing * 1.2f)));
+            bool isAlongside = MathF.Abs(ds) < longClear + overlap
+                               || (ds < 0 && ds > -(longClear + MathF.Max(overlap + 1f, closing * 1.2f)));
             if (isAlongside)
             {
                 alongside = true;
@@ -1020,7 +1027,7 @@ public sealed partial class RaceWorld
             {
                 float ds = Line.Delta(myS, target.Value.S);
                 me.OvertakeBestGap = MathF.Min(me.OvertakeBestGap, ds);
-                float tLatClear = (me.Car.Width + target.Value.Width) / 2 + Settings.SideMargin;
+                float tLatClear = (me.Car.Width + target.Value.Width) / 2 + SideMarginFor(target.Value);
                 if (MathF.Abs(target.Value.Offset - me.Offset) > tLatClear - 0.4f)
                     me.OvertakeSeparatedAt = _now;
                 // keep aiming for the chosen side of the target (the lane gets re-clamped to the road below)
@@ -1047,7 +1054,7 @@ public sealed partial class RaceWorld
         // ---- car in front
         if (ahead is { } a)
         {
-            float latClear = (me.Car.Width + a.Width) / 2 + Settings.SideMargin;
+            float latClear = (me.Car.Width + a.Width) / 2 + SideMarginFor(a);
             bool gripLimited = vLine < me.Car.TopSpeed * 0.93f;
             if (gripLimited && aheadGap < 40)
             {
@@ -1300,11 +1307,13 @@ public sealed partial class RaceWorld
             if (o.Id == ignoreId) continue;
             float ds = Line.Delta(myS, o.S);
             if (ds < from - o.Length / 2 || ds > to + o.Length / 2) continue;
-            float latClear = (me.Car.Width + o.Width) / 2 + Settings.SideMargin;
+            float latClear = (me.Car.Width + o.Width) / 2 + SideMarginFor(o);
             if (MathF.Abs(o.Offset - offset) < latClear) return false;
         }
         return true;
     }
+
+    private float SideMarginFor(in Neighbor o) => o.IsBot ? Settings.SideMargin : MathF.Max(Settings.SideMargin, Settings.PlayerSideMargin);
 
     private double NextGaussian()
     {

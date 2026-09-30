@@ -137,6 +137,14 @@
 - Dashboard `GET /raceai/api/rotation`, Aktion `rotate` (Ziel in `text`), Log liest alle `*.txt` (Presets haben eigene Log-Präfixe).
 - `race-ai/add-track-preset.sh`: Preset aus `cfg/`, Streckendaten (ai, data, models_<layout>.ini), Eintrag in `rotation.yml`.
 
+## Neu in Teil 12: Hoster (BisectHosting), Chat, Rücksicht auf Spieler
+- Core: `ChatSplitter` teilt Chat-Nachrichten > 250 Zeichen (AC schickt die Länge in einem Byte, sonst Zeichensalat „von“ einem anderen Auto).
+- Core: Steam wird beim Stoppen heruntergefahren (Neustart im selben Prozess), Presets ohne `ADMIN_PASSWORD` nehmen das aus `cfg/`,
+  `ListedNameProvider` (Name in der Server-Liste), Session-Längen für die Server-Liste.
+- `PlayerSideMargin` (1,0 m) und `PlayerOverlap` (3 m): Spieler gelten länger als „nebeneinander“, Bots lassen mehr Platz.
+- DriverRecorder: Pakete ohne Skalar neben Arrays (`count` entfernt, `fuel` als float[4]), damit die Feldreihenfolge in CSP und
+  AssettoServer eindeutig gleich ist; `/rec info` zeigt empfangene Messungen und Ziellinien-Überquerungen.
+
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:
 1. Offizielles Release `assetto-server-linux-x64.tar.gz` (v0.0.55-pre42) laden. Es ist ein Single-File-Bundle mit .NET 11 RC,

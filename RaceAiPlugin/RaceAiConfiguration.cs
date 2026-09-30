@@ -203,6 +203,13 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     [YamlMember(Description = "Extra lateral space bots keep to other cars (m)")]
     public float SideMargin { get; set; } = 0.5f;
 
+    [YamlMember(Description = "Lateral space bots keep to players (m). Larger than SideMargin because a player's position arrives with a delay")]
+    public float PlayerSideMargin { get; set; } = 1.0f;
+
+    [YamlMember(Description = "A player counts as alongside while his car overlaps within this many metres (front/rear). Bots then leave him room " +
+                              "and don't turn in on him. 0 = like a bot")]
+    public float PlayerOverlap { get; set; } = 3.0f;
+
     [YamlMember(Description = "Height of the car position above the racing line (m). AssettoServer's traffic AI uses 0")]
     public float HeightOffset { get; set; } = 0f;
 

@@ -57,6 +57,11 @@ public sealed class DriverRecorderService : IHostedService
         public float TyreFront, TyreRear, Fuel;
         public bool Recording;
         public int Saved;
+        /// <summary>Diagnostics for /rec info: samples received, time of the last one, lap cuts seen.</summary>
+        public long Received;
+        public DateTime LastSample;
+        public int Cuts;
+        public float LastSpline = -1;
     }
 
     public DriverRecorderService(DriverRecorderConfiguration config, ACServerConfiguration serverConfig, EntryCarManager entryCarManager,
@@ -209,7 +214,7 @@ public sealed class DriverRecorderService : IHostedService
         {
             rec.TyreFront = (packet.TyreTemp[0] + packet.TyreTemp[1]) / 2;
             rec.TyreRear = (packet.TyreTemp[2] + packet.TyreTemp[3]) / 2;
-            rec.Fuel = packet.Fuel;
+            rec.Fuel = packet.Fuel[0];
         }
     }
 
@@ -218,7 +223,12 @@ public sealed class DriverRecorderService : IHostedService
         if (!_recorders.TryGetValue(client, out var rec) || !rec.Recording) return; // no consent: ignore
         lock (rec)
         {
-            int n = Math.Min(packet.Count, (byte)DrSamplesPacket.Size);
+            if (rec.Received == 0)
+                Log.Information("DriverRecorder: receiving data from {Player}", client.Name);
+            int n = DrSamplesPacket.Size;
+            rec.Received += n;
+            rec.LastSample = DateTime.UtcNow;
+            if (n > 0) rec.LastSpline = packet.Spline[n - 1];
             for (int i = 0; i < n; i++)
             {
                 var s = new Sample
@@ -233,6 +243,7 @@ public sealed class DriverRecorderService : IHostedService
                 // crossing the start line: the spline position jumps from ~1 back to ~0
                 if (prev != null && prev.Spline > 0.9f && s.Spline < 0.1f)
                 {
+                    rec.Cuts++;
                     var lap = rec.Buffer.GetRange(0, rec.Buffer.Count - 1);
                     rec.Buffer.RemoveRange(0, rec.Buffer.Count - 1);
                     rec.Waiting.Add(new LapCandidate { Samples = lap, At = DateTime.UtcNow, Complete = lap.Count > 0 && lap[0].Spline < 0.05f });
@@ -378,6 +389,22 @@ public sealed class DriverRecorderService : IHostedService
                 if (f.Contains("_valid")) valid++;
             }
         bool on = IsOptedIn(client.Guid);
+        string diag = "";
+        if (on && _recorders.TryGetValue(client, out var r))
+        {
+            lock (r)
+            {
+                diag = r.Received == 0
+                    ? T(" No data received from your game yet (CSP needed; drive a few seconds).", " Noch keine Daten von deinem Spiel empfangen (CSP nötig; ein paar Sekunden fahren).")
+                    : T($" Data: {r.Received} samples, last {(DateTime.UtcNow - r.LastSample).TotalSeconds:F0} s ago, track position {r.LastSpline:F3}, finish line crossed {r.Cuts}x.",
+                        $" Daten: {r.Received} Messungen, zuletzt vor {(DateTime.UtcNow - r.LastSample).TotalSeconds:F0} s, Streckenposition {r.LastSpline:F3}, Ziellinie {r.Cuts}x überquert.");
+            }
+        }
+        return InfoText(on, all, valid) + diag;
+    }
+
+    private string InfoText(bool on, int all, int valid)
+    {
         return T($"Driver Recorder: recording {(on ? "ON" : "off")}. Laps on this track: {all} ({valid} clean). " +
                  "Recorded: throttle, brake, clutch, steering, gear, position, speed, tyre temperatures, fuel – only your own car, only on this server. " +
                  "The server uses it for an AI clone of you. /rec on, /rec off, /rec delete (deletes all your recordings).",

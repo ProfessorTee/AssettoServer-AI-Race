@@ -25,8 +25,8 @@ public class DrSamplesPacket : OnlineEvent<DrSamplesPacket>
 {
     public const int Size = 5;
 
-    [OnlineEventField(Name = "count")]
-    public byte Count;
+    // Race AI note: no scalar fields next to the arrays. CSP and AssettoServer may sort fields of arrays by different sizes
+    // (element vs. whole array); with only equally long arrays the order is the same either way. Always full batches.
     /// <summary>Client clock (s).</summary>
     [OnlineEventField(Name = "time", Size = Size)]
     public float[] Time = null!;
@@ -69,7 +69,7 @@ public class DrStatusPacket : OnlineEvent<DrStatusPacket>
     /// <summary>psi</summary>
     [OnlineEventField(Name = "tyrePressure", Size = 4)]
     public float[] TyrePressure = null!;
-    /// <summary>Litres.</summary>
-    [OnlineEventField(Name = "fuel")]
-    public float Fuel;
+    /// <summary>Litres in [0] (an array like the others, so the field order is unambiguous).</summary>
+    [OnlineEventField(Name = "fuel", Size = 4)]
+    public float[] Fuel = null!;
 }

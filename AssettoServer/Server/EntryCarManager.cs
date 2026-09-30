@@ -158,8 +158,11 @@ public class EntryCarManager
         }
     }
 
-    public void BroadcastChat(string message, byte senderId = 255) =>
-        BroadcastPacket(new ChatMessage { SessionId = senderId, Message = message });
+    public void BroadcastChat(string message, byte senderId = 255)
+    {
+        foreach (var part in AssettoServer.Utils.ChatSplitter.Split(message))
+            BroadcastPacket(new ChatMessage { SessionId = senderId, Message = part });
+    }
         
     public void BroadcastPacketUdp<TPacket>(in TPacket packet, ACTcpClient? sender = null, float? range = null, bool skipSender = true) where TPacket : IOutgoingNetworkPacket
     {
