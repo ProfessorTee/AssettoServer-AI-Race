@@ -138,6 +138,16 @@ public partial class ACServerConfiguration
 
             var config = ServerConfiguration.FromFile(path);
 
+            // Race AI patch: a preset (track rotation) without its own ADMIN_PASSWORD uses the one from cfg/server_cfg.ini,
+            // so the admin password is only set in one place
+            var mainCfg = Path.Join("cfg", "server_cfg.ini");
+            if (string.IsNullOrWhiteSpace(config.AdminPassword) && File.Exists(mainCfg)
+                && Path.GetFullPath(path) != Path.GetFullPath(mainCfg))
+            {
+                try { config.AdminPassword = ServerConfiguration.FromFile(mainCfg).AdminPassword; }
+                catch { /* ignored */ }
+            }
+
             if (portOverrides != null)
             {
                 config.TcpPort = portOverrides.TcpPort;
