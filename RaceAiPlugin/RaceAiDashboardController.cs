@@ -55,10 +55,20 @@ public class RaceAiDashboardController : ControllerBase
     {
         if (IsLocal) return true;
         if (!_service.DashboardRemoteAccess || string.IsNullOrEmpty(_service.AdminPassword)) return false;
-        return Request.Headers.TryGetValue("X-Admin-Password", out var pw) && pw.ToString() == _service.AdminPassword;
+        string? given = null;
+        if (Request.Headers.TryGetValue("X-Admin-Password-Enc", out var enc))
+        {
+            try { given = Uri.UnescapeDataString(enc.ToString()); } catch { given = null; }
+        }
+        else if (Request.Headers.TryGetValue("X-Admin-Password", out var pw)) given = pw.ToString();
+        return given != null && given.Trim() == _service.AdminPassword.Trim();
     }
 
-    private IActionResult Denied() => StatusCode(403, new { error = "Dashboard: only from this computer (DashboardRemoteAccess) or with the admin password" });
+    private IActionResult Denied() => StatusCode(403, new
+    {
+        error = "Dashboard: only from this computer (DashboardRemoteAccess) or with the admin password",
+        reason = !IsLocal && !_service.DashboardRemoteAccess ? "remote" : string.IsNullOrEmpty(_service.AdminPassword) ? "nopassword" : "password"
+    });
 
     [HttpGet("/raceai")]
     public IActionResult Page()

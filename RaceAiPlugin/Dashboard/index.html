@@ -199,7 +199,7 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
     </div>
   </aside>
 </main>
-<div id="login"><div class="card"><h3>Admin-Passwort</h3><p class="muted">Zugriff von einem anderen Rechner: ADMIN_PASSWORD aus server_cfg.ini</p>
+<div id="login"><div class="card"><h3>Admin-Passwort</h3><p class="muted">Zugriff von einem anderen Rechner: ADMIN_PASSWORD aus server_cfg.ini</p><p id="pwErr" style="color:#f87171;min-height:1.2em;margin:4px 0"></p>
   <div class="row"><input type="password" id="pw" style="flex:1"><button class="btn primary" id="pwOk">OK</button></div></div></div>
 <div class="toast" id="toast"></div>
 <script>
@@ -219,16 +219,25 @@ let pollHz = pref("raceaiPollHz", 4), mapFps = pref("raceaiMapFps", 30);
 
 async function api(path, body) {
   const opt = { headers: { "Content-Type": "application/json" } };
-  if (password) opt.headers["X-Admin-Password"] = password;
+  // encoded, so passwords with ä, ö, ß, € … work too (HTTP headers only allow plain characters)
+  if (password) opt.headers["X-Admin-Password-Enc"] = encodeURIComponent(password);
   if (body !== undefined) { opt.method = "POST"; opt.body = JSON.stringify(body); }
   const r = await fetch(path, opt);
-  if (r.status === 403) { $("login").style.display = "flex"; throw new Error("forbidden"); }
+  if (r.status === 403) {
+    let why = "";
+    try { why = (await r.json()).reason || ""; } catch (e) {}
+    $("pwErr").textContent = why === "remote" ? "Zugriff von außen ist aus (DashboardRemoteAccess in plugin_race_ai_cfg.yml)."
+      : why === "nopassword" ? "Auf dem Server ist kein ADMIN_PASSWORD gesetzt."
+      : password ? "Passwort falsch. Es muss genau ADMIN_PASSWORD aus der server_cfg.ini sein, die der Server gerade benutzt (nach dem Ändern neu starten). Der Server liest nur Zeichen ohne Umlaute/€/ß." : "";
+    $("login").style.display = "flex"; throw new Error("forbidden");
+  }
   if (!r.ok) { let m = r.statusText; try { m = (await r.json()).error || m; } catch (e) {} throw new Error(m); }
   return r.json();
 }
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), 2200); }
 async function act(path, body, ok) { try { await api(path, body); toast(ok || "OK"); } catch (e) { toast("Fehler: " + e.message); } }
-$("pwOk").onclick = () => { password = $("pw").value; try { localStorage.setItem("raceaiPw", password); } catch (e) {} $("login").style.display = "none"; loadTrack(); };
+$("pw").onkeydown = e => { if (e.key === "Enter") $("pwOk").click(); };
+$("pwOk").onclick = () => { password = $("pw").value; $("pwErr").textContent = ""; try { localStorage.setItem("raceaiPw", password); } catch (e) {} $("login").style.display = "none"; loadTrack(); };
 
 // ---------------------------------------------------------------- tabs
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
