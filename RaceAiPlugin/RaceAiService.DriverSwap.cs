@@ -21,6 +21,7 @@ public sealed partial class RaceAiService
         public required ulong Guid;
         public required DateTime At;
         public bool Triggered;
+        public EntryCar? Seat;
     }
 
     private readonly Dictionary<ulong, PendingBot> _pendingBot = new();
@@ -118,12 +119,71 @@ public sealed partial class RaceAiService
         try { client.SendChatMessage(T(en, de)); } catch { /* gone */ }
     }
 
-    /// <summary>A free player car (not a bot, not his own) for the player to watch from, any model.</summary>
-    private EntryCar? SpareCar(EntryCar own)
-        => _entryCarManager.EntryCars.Where(c => c != own && c.Client == null && !_slotsBySessionId.ContainsKey(c.SessionId))
-            .OrderBy(c => c.Model == own.Model ? 0 : 1).FirstOrDefault();
+    /// <summary>
+    /// A car of the same model as his own for the player to watch his clone from: a free player slot, otherwise a bot's slot
+    /// (the bot drives on, the player only sits in that car in the pits). Never another model.
+    /// </summary>
+    private EntryCar? SpareCar(EntryCar own, ulong guid)
+    {
+        var free = _entryCarManager.EntryCars.FirstOrDefault(c => c != own && c.Model == own.Model && c.Client == null
+            && !_slotsBySessionId.ContainsKey(c.SessionId) && !SeatTakenByOther(c, guid));
+        if (free != null) return free;
+        return _slots.Where(s => s.TakeoverGuid == null && s.Active && !s.Benched && s.EntryCar != own && s.EntryCar.Model == own.Model
+                                 && s.EntryCar.Client == null && (s.LentTo == null || s.LentTo == guid))
+            .OrderByDescending(s => s.LentTo == guid) // his seat from last time
+            .Select(s => s.EntryCar).FirstOrDefault();
+    }
 
-    private bool SpareCarFor(ulong guid, EntryCar own) => SpareCar(own) != null;
+    private bool SpareCarFor(ulong guid, EntryCar own) => SpareCar(own, guid) != null;
+
+    /// <summary>A watch seat already promised to another player.</summary>
+    private bool SeatTakenByOther(EntryCar car, ulong guid)
+        => _slots.Any(s => s.TakeoverGuid != null && s.TakeoverGuid != guid && s.WatchSeat == car)
+           || _pendingBot.Values.Any(p => p.Guid != guid && p.Seat == car);
+
+    /// <summary>Promise the seat to the player; a bot's slot is lent (the bot keeps its result and drives on).</summary>
+    private void ReserveSeat(EntryCar seat, ulong guid)
+    {
+        if (!_slotsBySessionId.TryGetValue(seat.SessionId, out var botSlot) || botSlot.TakeoverGuid != null) return;
+        botSlot.Lend(guid);
+        var results = _sessionManager.CurrentSession.Results;
+        if (results != null && results.TryGetValue(seat.SessionId, out var r)) botSlot.SavedResult = r;
+        Log.Information("Race AI: {Bot}'s slot {Slot} ({Model}) lent to a player to watch his clone from, the bot drives on",
+            botSlot.Bot.Name, seat.SessionId, seat.Model);
+    }
+
+    /// <summary>The player doesn't need the seat any more: a lent bot slot is the bot's alone again.</summary>
+    private void ReleaseSeat(EntryCar? seat, ulong guid)
+    {
+        if (seat == null || !_slotsBySessionId.TryGetValue(seat.SessionId, out var botSlot) || botSlot.LentTo != guid) return;
+        bool wasIn = seat.Client?.Guid == guid;
+        botSlot.EndLend();
+        if (seat.Client == null || wasIn) ReannounceBot(botSlot);
+    }
+
+    /// <summary>The others saw a player join/leave the slot: show them the bot again (now and once more after the server's own packets).</summary>
+    private void ReannounceBot(BotSlot botSlot)
+    {
+        void Send()
+        {
+            if (!botSlot.Active) return;
+            _entryCarManager.BroadcastPacket(new AssettoServer.Shared.Network.Packets.Outgoing.CarConnected
+                { SessionId = botSlot.EntryCar.SessionId, Name = botSlot.Bot.Name, Nation = botSlot.Nation });
+        }
+        Send();
+        _ = Task.Delay(1500).ContinueWith(_ => { try { Send(); } catch { /* server stopping */ } });
+    }
+
+    /// <summary>The player arrived in a lent bot slot: keep the bot's result, the bot stays.</summary>
+    private bool OnSeatJoined(ACTcpClient client, BotSlot botSlot)
+    {
+        if (botSlot.TakeoverGuid != null || botSlot.LentTo != client.Guid) return false;
+        var results = _sessionManager.CurrentSession.Results;
+        if (results != null && botSlot.SavedResult != null) results[botSlot.EntryCar.SessionId] = botSlot.SavedResult;
+        ReannounceBot(botSlot);
+        Log.Information("Race AI: {Player} watches from {Bot}'s car (slot {Slot}), the bot drives on", client.Name, botSlot.Bot.Name, botSlot.EntryCar.SessionId);
+        return true;
+    }
 
     /// <summary>
     /// The player rejoined into his own car while his clone drives it: the clone keeps driving, the CSP script moves him on
@@ -131,15 +191,18 @@ public sealed partial class RaceAiService
     /// </summary>
     private bool ArriveForWatching(ACTcpClient client, BotSlot slot)
     {
-        var spare = SpareCar(slot.EntryCar);
+        var spare = SpareCar(slot.EntryCar, client.Guid);
         if (spare == null || _track?.PitLane == null) return false;
         slot.Swap = SwapPhase.Away;
+        if (slot.WatchSeat != spare) ReleaseSeat(slot.WatchSeat, client.Guid);
+        slot.WatchSeat = spare;
+        ReserveSeat(spare, client.Guid);
         byte car = slot.EntryCar.SessionId;
         string model = spare.Model;
         Later(client, () => SendSwap(client, 5, car, 0, 0, 2, model), repeat: true); // until the script has moved him
-        Later(client, () => Tell(client, $"Your clone is driving your car. You're moved to a spare car ({spare.Model}) in a moment to watch it, it comes into the pits for you. (Without CSP: /play, then wait in the pits.)",
-            $"Dein Klon fährt gerade dein Auto. Du wirst gleich in ein Ersatzauto ({spare.Model}) gesetzt und kannst zuschauen, er kommt für dich an die Box. (Ohne CSP: /play und in der Box warten.)"));
-        Log.Information("Race AI: {Player} is back, moved to a spare {Model} to watch his clone", client.Name, spare.Model);
+        Later(client, () => Tell(client, "Your clone is driving your car. You're moved to a second car of your model in a moment to watch it, it comes into the pits for you. (Without CSP: /play, then wait in the pits.)",
+            "Dein Klon fährt gerade dein Auto. Du wirst gleich in ein zweites Auto deines Modells gesetzt und kannst zuschauen, er kommt für dich an die Box. (Ohne CSP: /play und in der Box warten.)"));
+        Log.Information("Race AI: {Player} is back, moved to slot {Slot} ({Model}) to watch his clone", client.Name, spare.SessionId, spare.Model);
         return true;
     }
 
@@ -149,8 +212,16 @@ public sealed partial class RaceAiService
         lock (_lock)
         {
             var own = _slots.FirstOrDefault(s => s.TakeoverGuid == guid);
-            var owner = _slotsBySessionId.TryGetValue(entryCar.SessionId, out var s0) ? s0.TakeoverGuid : null;
+            _slotsBySessionId.TryGetValue(entryCar.SessionId, out var s0);
+            var owner = s0?.TakeoverGuid;
             if (owner != null && owner != guid) return false; // somebody else's car, driven by his clone
+            if (s0 is { LentTo: { } lentTo } && lentTo != guid) return false; // a bot's car somebody watches from
+            if (s0 is { LentTo: { } } && own == null && !_pendingBot.ContainsKey(guid)) return false; // his watching is over
+            if (SeatTakenByOther(entryCar, guid)) return false;
+            // on his way to watch his clone: only the seat meant for him (same model as his own car, so his own car is closed)
+            var seat = own?.WatchSeat ?? (_pendingBot.TryGetValue(guid, out var pb) && pb.Triggered ? pb.Seat : null);
+            if (seat != null && own?.Swap != SwapPhase.Handover)
+                return entryCar == seat;
             if (own == null) return null;
             // his own car: always (driver change; or passing through on his way to a spare car)
             if (entryCar == own.EntryCar) return true;
@@ -194,6 +265,8 @@ public sealed partial class RaceAiService
         if (watching != null)
         {
             watching.Watcher = null;
+            ReleaseSeat(client.EntryCar, client.Guid);
+            if (watching.WatchSeat == client.EntryCar) watching.WatchSeat = null;
             if (watching.Swap != SwapPhase.Handover) watching.Swap = SwapPhase.Away;
             return; // he left the spare car (reconnecting into his own car, or gone)
         }
@@ -206,10 +279,12 @@ public sealed partial class RaceAiService
             if (slot != null)
             {
                 slot.ReturnOnJoin = false;
+                slot.WatchSeat = pending.Seat;
                 return;
             }
+            ReleaseSeat(pending.Seat, client.Guid);
         }
-        _pendingBot.Remove(client.Guid);
+        if (_pendingBot.Remove(client.Guid, out var gone)) ReleaseSeat(gone.Seat, client.Guid);
         if (TryTakeOver(client) == null) ReserveForRejoin(client);
     }
 
@@ -256,14 +331,17 @@ public sealed partial class RaceAiService
             if (_track?.PitLane == null)
                 return T("This track has no pit lane for the AI.", "Diese Strecke hat keine Boxengasse für die KI.");
             if (!SpareCarFor(client.Guid, client.EntryCar))
-                return T("No free car to watch from, the driver change isn't possible right now.",
-                    "Kein freies Auto zum Zuschauen, der Fahrerwechsel geht gerade nicht.");
-            if (_pendingBot.Remove(client.Guid))
+                return T($"No second {client.EntryCar.Model} free to watch from, the driver change isn't possible right now.",
+                    $"Kein zweites Auto deines Modells ({client.EntryCar.Model}) frei zum Zuschauen, der Fahrerwechsel geht gerade nicht.");
+            if (_pendingBot.Remove(client.Guid, out var old))
+            {
+                ReleaseSeat(old.Seat, client.Guid);
                 return T("Driver change cancelled.", "Fahrerwechsel abgebrochen.");
+            }
             _pendingBot[client.Guid] = new PendingBot { Guid = client.Guid, At = DateTime.UtcNow };
             SendSwap(client, 4, client.SessionId, 0, 0, 0);
-            return T("Driver change: drive into your pit box and stop there. Your clone takes over, you watch from a spare car. /bot again cancels.",
-                "Fahrerwechsel: fahr in deine Box und halte dort an. Dein Klon übernimmt, du schaust aus einem Ersatzauto zu. Nochmal /bot bricht ab.");
+            return T("Driver change: drive into your pit box and stop there. Your clone takes over your car, you watch from a second car of your model in the pits. /bot again cancels.",
+                "Fahrerwechsel: fahr in deine Box und halte dort an. Dein Klon übernimmt dein Auto, du schaust aus einem zweiten Auto deines Modells in der Box zu. Nochmal /bot bricht ab.");
         }
     }
 
@@ -272,8 +350,9 @@ public sealed partial class RaceAiService
     {
         lock (_lock)
         {
-            if (_pendingBot.Remove(client.Guid))
+            if (_pendingBot.Remove(client.Guid, out var old))
             {
+                ReleaseSeat(old.Seat, client.Guid);
                 SendSwap(client, 0, client.SessionId, 0, 0, 0);
                 return T("Driver change cancelled, you drive on.", "Fahrerwechsel abgebrochen, du fährst weiter.");
             }
@@ -308,7 +387,11 @@ public sealed partial class RaceAiService
             var car = _entryCarManager.EntryCars.FirstOrDefault(c => c.Client?.Guid == pending.Guid);
             if (car?.Client == null || _sessionType != SessionType.Race)
             {
-                _pendingBot.Remove(pending.Guid);
+                if (!pending.Triggered || (DateTime.UtcNow - pending.At).TotalSeconds > 120)
+                {
+                    _pendingBot.Remove(pending.Guid);
+                    ReleaseSeat(pending.Seat, pending.Guid);
+                }
                 continue;
             }
             if (pending.Triggered) continue;
@@ -316,19 +399,37 @@ public sealed partial class RaceAiService
             bool inBox = _track.Info.PitBoxes.Count > 0 && box.Index == car.SessionId
                          && System.Numerics.Vector3.Distance(box.Position, car.Status.Position) < 8 && car.Status.Velocity.Length() < 1.5f;
             if (!inBox) continue;
-            var spare = SpareCar(car);
+            var spare = SpareCar(car, pending.Guid);
             if (spare == null)
             {
                 _pendingBot.Remove(pending.Guid);
-                Tell(car.Client, "No free car to watch from right now, the driver change is cancelled.", "Gerade kein freies Auto zum Zuschauen, der Fahrerwechsel fällt aus.");
+                Tell(car.Client, "No second car of your model free to watch from right now, the driver change is cancelled.",
+                    "Gerade kein zweites Auto deines Modells frei zum Zuschauen, der Fahrerwechsel fällt aus.");
                 SendSwap(car.Client, 0, car.SessionId, 0, 0, 0);
                 continue;
             }
             pending.Triggered = true;
-            // the CSP script reconnects him into a spare car; the clone takes over when he leaves this one
+            pending.At = DateTime.UtcNow;
+            pending.Seat = spare;
+            ReserveSeat(spare, pending.Guid);
+            // the CSP script reconnects him into the second car of his model; the clone takes over when he leaves this one
             SendSwap(car.Client, 3, car.SessionId, 0, 0, 2, spare.Model);
-            Tell(car.Client, "Driver change: you're moved to a spare car in a moment, your clone takes over. (Without CSP: leave and rejoin the server.)",
-                "Fahrerwechsel: du wirst gleich in ein Ersatzauto gesetzt, dein Klon übernimmt. (Ohne CSP: Server verlassen und wieder beitreten.)");
+            Tell(car.Client, "Driver change: your clone takes over your car, you're moved to a second car of your model in the pits in a moment. (Without CSP: leave and rejoin the server.)",
+                "Fahrerwechsel: dein Klon übernimmt dein Auto, du wirst gleich in ein zweites Auto deines Modells in der Box gesetzt. (Ohne CSP: Server verlassen und wieder beitreten.)");
+        }
+
+        // lent seats nobody uses (he went elsewhere, or never arrived): back to the bot
+        foreach (var lent in _slots.Where(s => s.LentTo != null && s.EntryCar.Client == null).ToList())
+        {
+            ulong g = lent.LentTo!.Value;
+            bool wanted = _slots.Any(s => s.TakeoverGuid == g && s.WatchSeat == lent.EntryCar && s.Swap != SwapPhase.Handover)
+                          || _pendingBot.TryGetValue(g, out var pb) && pb.Seat == lent.EntryCar;
+            if (!wanted || (DateTime.UtcNow - lent.LentSince).TotalSeconds > 180)
+            {
+                lent.EndLend();
+                ReannounceBot(lent);
+                foreach (var s in _slots.Where(s => s.WatchSeat == lent.EntryCar)) s.WatchSeat = null;
+            }
         }
 
         foreach (var slot in _slots.Where(s => s.TakeoverGuid != null).ToList())
@@ -416,7 +517,7 @@ public sealed partial class RaceAiService
         float Progress(EntryCar c)
         {
             if (!session.Results.TryGetValue(c.SessionId, out var r)) return -1;
-            var pos = c.Status.Position;
+            var pos = _slotsBySessionId.TryGetValue(c.SessionId, out var sl) && sl.Active ? sl.Status.Position : c.Status.Position;
             float s = line.WrapS(line.Project(pos).S - _track.StartLineS);
             return r.NumLaps + s / line.Length;
         }

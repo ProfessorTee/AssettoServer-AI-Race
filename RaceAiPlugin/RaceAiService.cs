@@ -422,6 +422,7 @@ public sealed partial class RaceAiService : IHostedService
                     if (client.Guid == slot.TakeoverGuid) { byte c0 = slot.EntryCar.SessionId; Later(client, () => SendSwap(client, 0, c0, 0, 0, 0)); }
                     return;
                 }
+                if (OnSeatJoined(client, slot)) return; // watching his clone from this bot's car, the bot drives on
                 if (slot.Active)
                 {
                     Log.Information("Race AI: {Player} took over bot slot {Slot} ({Model}), bot {Bot} left", client.Name, client.SessionId, slot.EntryCar.Model, slot.Bot.Name);
@@ -450,6 +451,7 @@ public sealed partial class RaceAiService : IHostedService
 
     private void OnCollision(ACTcpClient sender, CollisionEventArgs args)
     {
+        if (_slots.Any(s => s.Watcher == sender)) return; // parked in the pits watching his clone: the others don't see this car
         if (args.TargetCar != null && _slotsBySessionId.ContainsKey(args.TargetCar.SessionId))
             _contacts.Enqueue((args.TargetCar.SessionId, sender.SessionId, sender.EntryCar.Status.Position, args.Speed / 3.6f));
     }
@@ -469,6 +471,19 @@ public sealed partial class RaceAiService : IHostedService
         if (_world == null) return;
         foreach (var t in _slots.Where(s => s.TakeoverGuid != null).ToList())
             EndTakeover(t, null);
+        // players still watching from a bot's car: back into their own car, the bot keeps its car
+        foreach (var lent in _slots.Where(s => s.LentTo != null).ToList())
+        {
+            if (lent.EntryCar.Client is { } watcher)
+            {
+                SendSwap(watcher, 3, watcher.SessionId, 0, 0, 2, watcher.EntryCar.Model);
+                Tell(watcher, "New session: you're put back into your own car.", "Neue Session: du wirst wieder in dein eigenes Auto gesetzt.");
+            }
+            else
+            {
+                lent.EndLend();
+            }
+        }
         _sessionType = session.Configuration.Type;
         _raceStarted = false;
         ClearRejoins();
