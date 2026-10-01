@@ -28,6 +28,34 @@ public partial class EntryCar : IEntryCar<ACTcpClient>
     public long LastActiveTime { get; internal set; }
     public bool HasUpdateToSend { get; internal set; }
     public int TimeOffset { get; internal set; }
+    private double _clockOffset;
+    private double _clockMinPing;
+    private int _clockSamples;
+
+    /// <summary>
+    /// Clock sync from a ping response. One sample per second is noisy (half the ping jitter), and every jump of the offset moves all
+    /// other cars on this client's screen by speed x jump (10 ms at 250 km/h = 0.7 m). So the offset is filtered: samples with a ping
+    /// close to the best recent one are trusted most, slow ones hardly move it. Big changes (> 250 ms) are taken at once.
+    /// </summary>
+    internal void UpdateClock(long serverNow, ushort ping, int clientTime)
+    {
+        double sample = serverNow - ping / 2.0 - clientTime;
+        if (_clockSamples == 0 || Math.Abs(sample - _clockOffset) > 250)
+        {
+            _clockOffset = sample;
+            _clockMinPing = ping;
+            _clockSamples = 1;
+        }
+        else
+        {
+            _clockSamples++;
+            _clockMinPing = Math.Min(_clockMinPing + 0.3, ping); // the best ping slowly ages, so a new route is learned
+            double excess = ping - _clockMinPing;
+            double weight = _clockSamples < 5 ? 0.5 : excess <= 3 ? 0.2 : excess <= 12 ? 0.06 : 0.015;
+            _clockOffset += (sample - _clockOffset) * weight;
+        }
+        TimeOffset = (int)Math.Round(_clockOffset);
+    }
     public byte SessionId { get; }
     public uint LastRemoteTimestamp { get; internal set; }
     public long LastPingTime { get; internal set; }
@@ -146,6 +174,7 @@ public partial class EntryCar : IEntryCar<ACTcpClient>
         LastActiveTime = 0;
         HasUpdateToSend = false;
         TimeOffset = 0;
+        _clockSamples = 0;
         LastRemoteTimestamp = 0;
         LastPingTime = 0;
         Ping = 0;

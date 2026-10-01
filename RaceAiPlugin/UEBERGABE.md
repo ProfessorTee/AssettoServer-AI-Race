@@ -154,6 +154,17 @@
 - Reifen: neue Temperaturkurve (kalt/heiß kostet mehr Grip), wenig Grip macht mehr Fehler.
 - Dashboard: kein „Server beenden“ mehr; Neustart-Knöpfe nur mit `start-server.sh`.
 
+## Neu in Teil 14: Kollisionen / „Reinglitchen“
+- Core: Uhrabgleich pro Client gefiltert (`EntryCar.UpdateClock`). Vorher wurde der Zeit-Offset jede Sekunde aus einer einzelnen
+  Ping-Messung gesetzt; ein Ausreißer (z. B. 100 ms) verschob für eine Sekunde alle anderen Autos auf dem Bildschirm des Spielers
+  um Tempo x Ausreißer (bei 200 km/h 5 m) und die Bots sahen den Spieler ebenso versetzt. Messung mit Testclient (30 ms + 0–20 ms
+  Jitter, Last): Streuung des Offsets 39 ms -> 1 ms, größter Sprung 125 ms -> 1 ms.
+- Bots sehen Spieler zu jedem Rechenschritt: letzter Stand ab Zeitstempel mit Tempo und Bremsen/Beschleunigen hochgerechnet.
+- Hinter Spielern etwas mehr Abstand, Bremsen des Spielers wird vorweggenommen.
+- Berührungen ohne Sprünge: seitlich wegfedern statt Versatz, von hinten getroffen -> wird angeschoben statt abgebremst,
+  nach dem Auseinanderschieben kein weiteres Hineinrutschen (das Zittern ineinander).
+- RaceAiTool `sim --player-pace 0.97 --player-aggression 0.9 --latency 0.04`: Netzmodell, misst Überlappungen aus Sicht des Spielers.
+
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:
 1. Offizielles Release `assetto-server-linux-x64.tar.gz` (v0.0.55-pre42) laden. Es ist ein Single-File-Bundle mit .NET 11 RC,

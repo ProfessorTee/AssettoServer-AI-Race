@@ -88,6 +88,13 @@ public sealed class ExternalCar
     public float S { get; internal set; }
     public float Offset { get; internal set; }
     public float Speed { get; internal set; }
+    /// <summary>Sideways speed (m/s, + = towards positive offset) and forward acceleration (m/s², from the last updates).</summary>
+    public float LateralSpeed { get; internal set; }
+    public float Accel { get; internal set; }
+    /// <summary>World time (s) the position belongs to; the bots extrapolate from there to their own time.</summary>
+    public double At { get; internal set; } = double.NaN;
+    internal float PrevSpeed;
+    internal double PrevAt = double.NaN;
     /// <summary>Completed laps of this car in the current race (set from outside, used for blue flags).</summary>
     public int Laps { get; set; }
     internal int HintIndex = -1;
@@ -459,6 +466,8 @@ public sealed partial class RaceWorld
         public int Id;
         public bool IsBot;
         public float S, Offset, Speed, Length, Width;
+        /// <summary>Forward acceleration (players only, bots: 0).</summary>
+        public float Accel;
         /// <summary>Race progress in metres (laps * length + distance from the start line).</summary>
         public float Progress;
         public RaceBot? Bot;
@@ -601,38 +610,85 @@ public sealed partial class RaceWorld
     public void RemoveExternal(int id) => Externals.RemoveAll(e => e.Id == id);
 
     /// <summary>Feeds the current state of a human car.</summary>
-    public void UpdateExternal(ExternalCar car, Vector3 position, Vector3 velocity, bool active = true)
+    /// <param name="at">World time of this state (the player's timestamp); NaN = now. The bots extrapolate from there
+    /// with speed and acceleration, so they see where the player is at every step, not where his last packet said.</param>
+    public void UpdateExternal(ExternalCar car, Vector3 position, Vector3 velocity, bool active = true, double at = double.NaN)
     {
         if (!active)
         {
             car.Valid = false;
+            car.PrevAt = double.NaN;
             return;
         }
 
+        if (double.IsNaN(at)) at = _now;
         var p = Line.Project(position, car.HintIndex);
         car.HintIndex = p.Index;
         car.S = p.S;
         car.Offset = p.Offset;
         car.Speed = Vector3.Dot(velocity, Line.Forward[p.Index]);
+        var lat = Line.LateralAt(p.S);
+        car.LateralSpeed = Vector3.Dot(velocity, lat);
+        // acceleration from the speed change between two updates (smoothed; braking shows up within ~2 packets)
+        if (!double.IsNaN(car.PrevAt) && at - car.PrevAt > 0.015 && at - car.PrevAt < 0.5)
+        {
+            float a = Math.Clamp((car.Speed - car.PrevSpeed) / (float)(at - car.PrevAt), -25f, 15f);
+            car.Accel = car.Accel * 0.4f + a * 0.6f;
+        }
+        else if (double.IsNaN(car.PrevAt)) car.Accel = 0;
+        if (double.IsNaN(car.PrevAt) || at - car.PrevAt > 0.015)
+        {
+            car.PrevAt = at;
+            car.PrevSpeed = car.Speed;
+        }
+        car.At = at;
         int i = p.Index;
         // only relevant while on (or near) the track surface
         car.Valid = p.Offset > -Line.RoomMinus[i] - 4 && p.Offset < Line.RoomPlus[i] + 4 && MathF.Abs(p.Height) < 6;
     }
 
     /// <summary>A human car touched this bot. The bot gives way: loses some speed and moves away.</summary>
-    public void OnContact(RaceBot bot, Vector3 otherPosition, float impactSpeed)
+    public void OnContact(RaceBot bot, Vector3 otherPosition, float impactSpeed, ExternalCar? other = null)
     {
         if (!bot.OnTrack) return;
         bot.Contacts++;
-        var p = Line.Project(otherPosition, Line.IndexAt((float)bot.Distance));
-        float dOff = bot.Offset - p.Offset;
-        float ds = Line.Delta(p.S, Line.WrapS((float)bot.Distance));
-        float loss = Math.Clamp(impactSpeed / 60f, 0.03f, 0.3f);
-        if (ds < -1) // hit from the front: the bot ran into someone -> bigger slowdown
-            loss *= 1.5f;
-        bot.Speed *= 1 - loss;
-        if (MathF.Abs(dOff) > 0.3f && MathF.Abs(ds) < bot.Car.Length)
-            bot.Offset += MathF.Sign(dOff) * 0.35f;
+        // where the other car is now (the collision message is a little old), else where it was
+        float oS, oOff, oSpeed;
+        if (other is { Valid: true } && !double.IsNaN(other.At))
+        {
+            float dt = Math.Clamp((float)(_now - other.At), 0, 0.35f);
+            oS = Line.WrapS(other.S + other.Speed * dt);
+            oOff = other.Offset + other.LateralSpeed * dt;
+            oSpeed = MathF.Max(0, other.Speed);
+        }
+        else
+        {
+            var p = Line.Project(otherPosition, Line.IndexAt((float)bot.Distance));
+            oS = p.S;
+            oOff = p.Offset;
+            oSpeed = bot.Speed;
+        }
+        float dOff = bot.Offset - oOff;
+        float ds = Line.Delta(oS, Line.WrapS((float)bot.Distance)); // > 0: the bot is ahead
+        float impact = Math.Clamp(impactSpeed, 0, 30);
+        bool side = MathF.Abs(dOff) > 0.6f * bot.Car.Width && MathF.Abs(ds) < bot.Car.Length;
+        // no jumps: everything changes speeds, so the car moves on smoothly on the players' screens
+        if (side)
+        {
+            bot.LateralSpeed = MathF.Sign(dOff) * (0.6f + 0.08f * impact);
+            bot.Speed *= 0.99f;
+        }
+        else if (ds > 0)
+        {
+            // hit from behind: pushed forward (it takes some of the other car's speed), a little wobble
+            bot.Speed = MathF.Max(bot.Speed, MathF.Min(oSpeed, bot.Speed + 0.4f * impact + 0.3f));
+            Wobble(bot, Math.Clamp(impact / 15f, 0.1f, 0.4f));
+        }
+        else
+        {
+            // the bot ran into the other car: it slows down to the other car's speed minus a bit
+            bot.Speed = MathF.Max(0, MathF.Min(bot.Speed - 0.6f * impact, oSpeed - 0.5f));
+        }
         bot.CautiousUntil = _now + 3;
         bot.OvertakeTargetId = -1;
     }
@@ -741,10 +797,14 @@ public sealed partial class RaceWorld
         foreach (var e in Externals)
         {
             if (!e.Valid) continue;
+            // where the player is at this step: his last state moved on with his speed and braking/acceleration
+            float dt = double.IsNaN(e.At) ? 0 : Math.Clamp((float)(_now - e.At), -0.1f, 0.35f);
+            float v = MathF.Max(0, e.Speed + e.Accel * dt);
+            float s = e.S + (e.Speed + v) * 0.5f * dt;
             _neighbors.Add(new Neighbor
             {
                 Id = e.Id, IsBot = false, External = e,
-                S = e.S, Offset = e.Offset, Speed = MathF.Max(0, e.Speed),
+                S = Line.WrapS(s), Offset = e.Offset + e.LateralSpeed * dt, Speed = v, Accel = e.Accel,
                 Length = e.Length, Width = e.Width,
                 Progress = e.Laps * Line.Length + Line.WrapS(e.S - Settings.StartLineS)
             });
@@ -1159,7 +1219,10 @@ public sealed partial class RaceWorld
                 followGap = MathF.Max(1.0f + me.Speed * 0.04f, followGap * (1 - 0.35f * imp));
                 // in the slipstream on a straight: close right up for a run at the next braking zone
                 if (me.Draft > 0.05f && !gripLimited && !cautious) followGap *= 0.45f;
-                float vFollow = a.Speed + (aheadGap - followGap) * 0.8f;
+                // a player's braking reaches us late (network): follow a little further back and react to it at once
+                float aSpeed = a.IsBot ? a.Speed : MathF.Max(0, a.Speed + MathF.Min(0, a.Accel) * 0.25f);
+                if (!a.IsBot) followGap += MathF.Max(0, me.Speed - aSpeed) * 0.15f + 0.5f;
+                float vFollow = aSpeed + (aheadGap - followGap) * 0.8f;
                 vTarget = MathF.Min(vTarget, MathF.Max(0, vFollow));
             }
         }
@@ -1478,6 +1541,11 @@ public sealed partial class RaceWorld
                     float push = o.IsBot ? latPen / 2 : latPen;
                     me.Offset = ClampToRoad(me, me.Offset - MathF.Sign(dOff) * push);
                     if (o.IsBot) o.Bot!.Offset = ClampToRoad(o.Bot, o.Bot.Offset + MathF.Sign(dOff) * push);
+                    // don't keep sliding into it (that's what makes a car jitter in and out of another one on the clients)
+                    float otherLat = o.IsBot ? o.Bot!.LateralSpeed : o.External!.LateralSpeed;
+                    if ((me.LateralSpeed - otherLat) * MathF.Sign(dOff) > 0) me.LateralSpeed = otherLat - MathF.Sign(dOff) * 0.3f;
+                    if (o.IsBot && (o.Bot!.LateralSpeed - me.LateralSpeed) * MathF.Sign(dOff) < 0) o.Bot.LateralSpeed = me.LateralSpeed + MathF.Sign(dOff) * 0.3f;
+                    if (!o.IsBot) me.CautiousUntil = Math.Max(me.CautiousUntil, _now + 1.5);
                 }
                 else if (ds > 0)
                 {
@@ -1487,8 +1555,9 @@ public sealed partial class RaceWorld
                 }
                 else if (!o.IsBot)
                 {
-                    // a player is behind me and overlapping: he rammed me, let him through a bit
+                    // a player is behind me and overlapping: he pushes me, I take his speed
                     me.Distance += longPen * 0.5f;
+                    me.Speed = MathF.Max(me.Speed, o.Speed);
                 }
             }
         }

@@ -27,7 +27,7 @@ public sealed partial class RaceAiService : IHostedService
 
     private readonly object _lock = new();
     private ConfigWriter _configWriter = null!;
-    private readonly ConcurrentQueue<(byte BotSessionId, Vector3 OtherPosition, float Speed)> _contacts = new();
+    private readonly ConcurrentQueue<(byte BotSessionId, byte OtherSessionId, Vector3 OtherPosition, float Speed)> _contacts = new();
     private readonly Dictionary<byte, BotSlot> _slotsBySessionId = new();
     private readonly List<BotSlot> _slots = [];
     private readonly Random _rng = new();
@@ -419,7 +419,7 @@ public sealed partial class RaceAiService : IHostedService
     private void OnCollision(ACTcpClient sender, CollisionEventArgs args)
     {
         if (args.TargetCar != null && _slotsBySessionId.ContainsKey(args.TargetCar.SessionId))
-            _contacts.Enqueue((args.TargetCar.SessionId, sender.EntryCar.Status.Position, args.Speed / 3.6f));
+            _contacts.Enqueue((args.TargetCar.SessionId, sender.SessionId, sender.EntryCar.Status.Position, args.Speed / 3.6f));
     }
 
     private void OnSessionChanged(SessionManager sender, SessionChangedEventArgs args)
@@ -797,7 +797,7 @@ public sealed partial class RaceAiService : IHostedService
         {
             if (_slotsBySessionId.TryGetValue(c.BotSessionId, out var slot) && slot.Active)
             {
-                world.OnContact(slot.Bot, c.OtherPosition, c.Speed);
+                world.OnContact(slot.Bot, c.OtherPosition, c.Speed, world.Externals.FirstOrDefault(e => e.Id == c.OtherSessionId));
                 world.AddDamage(slot.Bot, ContactZone(world, slot.Bot, c.OtherPosition), c.Speed * 3.6f);
             }
         }
@@ -810,9 +810,10 @@ public sealed partial class RaceAiService : IHostedService
             if (_slotsBySessionId.TryGetValue(car.SessionId, out var standIn) && standIn.Active) continue; // his clone drives, he's only passing through
             var ext = world.GetOrAddExternal(car.SessionId);
             bool active = client.HasSentFirstUpdate && !car.IsSpectator;
-            // the last position update is already a little old (network delay): the bots see where the car is now
-            float age = Math.Clamp((_sessionManager.ServerTimeMilliseconds - car.Status.Timestamp) / 1000f, 0, 0.3f);
-            world.UpdateExternal(ext, car.Status.Position + car.Status.Velocity * age, car.Status.Velocity, active);
+            // the last position update is already a little old (network delay): the world extrapolates it from its timestamp
+            // to every simulation step (speed and braking), so the bots see where the car is now
+            double at = Math.Max(car.Status.Timestamp / 1000.0, now - 0.3);
+            world.UpdateExternal(ext, car.Status.Position, car.Status.Velocity, active, at);
             ext.Laps = session.Results != null && session.Results.TryGetValue(car.SessionId, out var res) ? (int)res.NumLaps : 0;
         }
 

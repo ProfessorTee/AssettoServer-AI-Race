@@ -155,7 +155,7 @@ public class ACUdpServer : BackgroundService
                     
                     long currentTime = _sessionManager.ServerTimeMilliseconds;
                     car.Ping = (ushort)(currentTime - packet.Time);
-                    car.TimeOffset = (int)currentTime - ((car.Ping / 2) + packet.ClientTime);
+                    car.UpdateClock(currentTime, car.Ping, packet.ClientTime);
                     car.LastPongTime = currentTime;
                 }
                 else if (_configuration.Extra.EnableUdpClientMessages && packetId == ACServerProtocol.Extended)

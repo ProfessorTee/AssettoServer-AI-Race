@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Diagnostics;
 using RaceAiPlugin.Core;
 
@@ -136,7 +137,7 @@ public static class Simulator
         if (playerPace > 0)
         {
             playerWorld = new RaceWorld(line, new RaceWorldSettings { StartLineS = settings.StartLineS, Seed = seed + 1 });
-            playerWorld.Bots.Add(new RaceBot { Id = 1000, Name = "Player", Car = new CarSpec(), Driver = new DriverProfile { Pace = playerPace, Aggression = 0, Consistency = 1 } });
+            playerWorld.Bots.Add(new RaceBot { Id = 1000, Name = "Player", Car = new CarSpec(), Driver = new DriverProfile { Pace = playerPace, Aggression = o.Float("player-aggression", 0), Consistency = 1 } });
             player = world.GetOrAddExternal(1000);
         }
 
@@ -182,18 +183,34 @@ public static class Simulator
 
         world.Advance(0);
         playerWorld?.Advance(0);
+        // network model (--latency seconds one way): the server sees the player's packets late, the player sees the bots' packets late
+        // and extrapolates them with their velocity like AC does. Measured from the player's view: overlaps and jumps of cars near him.
+        float latency = o.Float("latency", 0);
+        var net = latency > 0 && playerWorld != null ? new NetModel(line, latency) : null;
         while (now < maxTime)
         {
             now += dt;
             if (playerWorld != null && player != null)
             {
-                playerWorld.Advance(now);
                 var pb = playerWorld.Bots[0];
-                var pose = playerWorld.GetPose(pb);
-                world.UpdateExternal(player, pose.Position, pose.Velocity);
+                if (net != null)
+                {
+                    net.FeedPlayerView(playerWorld, world, now);
+                    playerWorld.Advance(now);
+                    var pose = playerWorld.GetPose(pb);
+                    net.SendPlayer(now, pose.Position, pose.Velocity);
+                    if (net.ReceivePlayer(now) is { } pkt) world.UpdateExternal(player, pkt.Pos, pkt.Vel, true, pkt.T);
+                }
+                else
+                {
+                    playerWorld.Advance(now);
+                    var pose = playerWorld.GetPose(pb);
+                    world.UpdateExternal(player, pose.Position, pose.Velocity);
+                }
             }
             foreach (var b in world.Bots) b.RemainingLaps = hotlap ? int.MaxValue : Math.Max(0, laps - b.LapsCompleted);
             world.Advance(now);
+            net?.SendBots(world, now);
             stats.Sample(now);
             trace?.Sample(world.Bots[0]);
             if (cloneProfile != null && world.Bots[0].LapsCompleted >= 1)
@@ -223,7 +240,102 @@ public static class Simulator
             }
         }
         stats.Print(laps);
+        net?.Print();
         return 0;
+    }
+
+    /// <summary>Packets between server and player with a fixed one-way delay; the player's view of the bots is what AC shows.</summary>
+    private sealed class NetModel
+    {
+        private readonly RacingLine _line;
+        private readonly double _lat;
+        private readonly Queue<(double Arrive, double T, Vector3 Pos, Vector3 Vel)> _toServer = new();
+        private readonly Queue<(double Arrive, double T, (int Id, Vector3 Pos, Vector3 Vel, float Len, float Wid)[] Cars)> _toPlayer = new();
+        private readonly Dictionary<int, (double T, Vector3 Pos, Vector3 Vel)> _seen = new();
+        private readonly HashSet<int> _inContact = new();
+        private int _episodes, _frames, _snaps, _nearSnaps, _nSnap;
+        private float _maxDepth, _sumDepth, _maxNearSnap;
+        private double _sumSnap;
+        private readonly List<string> _events = new();
+
+        public NetModel(RacingLine line, float latency) { _line = line; _lat = latency; }
+
+        public void SendPlayer(double now, Vector3 pos, Vector3 vel) => _toServer.Enqueue((now + _lat, now, pos, vel));
+
+        public (double T, Vector3 Pos, Vector3 Vel)? ReceivePlayer(double now)
+        {
+            (double, Vector3, Vector3)? last = null;
+            while (_toServer.Count > 0 && _toServer.Peek().Arrive <= now + 1e-9) { var p = _toServer.Dequeue(); last = (p.T, p.Pos, p.Vel); }
+            return last;
+        }
+
+        public void SendBots(RaceWorld w, double now)
+        {
+            var cars = w.Bots.Where(b => b.Phase is BotPhase.Racing or BotPhase.CoolDown or BotPhase.Grid)
+                .Select(b => { var p = w.GetPose(b); return (b.Id, p.Position, p.Velocity, b.Car.Length, b.Car.Width); }).ToArray();
+            _toPlayer.Enqueue((now + _lat, now, cars));
+        }
+
+        /// <summary>Delivers bot packets to the player and feeds the extrapolated positions to his world (he avoids what he sees).</summary>
+        public void FeedPlayerView(RaceWorld pw, RaceWorld server, double now)
+        {
+            var me = pw.Bots[0];
+            var mePose = pw.GetPose(me);
+            bool racing = now > 15 && me.Speed > 5;
+            while (_toPlayer.Count > 0 && _toPlayer.Peek().Arrive <= now + 1e-9)
+            {
+                var pk = _toPlayer.Dequeue();
+                foreach (var c in pk.Cars)
+                {
+                    if (_seen.TryGetValue(c.Id, out var prev) && racing && prev.Vel.Length() > 5)
+                    {
+                        var predicted = prev.Pos + prev.Vel * (float)(pk.T - prev.T);
+                        float snap = Vector3.Distance(predicted, c.Pos);
+                        if (snap < 25)
+                        {
+                            bool near = Vector3.Distance(c.Pos, mePose.Position) < 12;
+                            _sumSnap += snap; _nSnap++;
+                            if (snap > 0.25f) { _snaps++; if (near) _nearSnaps++; }
+                            if (near) _maxNearSnap = MathF.Max(_maxNearSnap, snap);
+                            if (near && snap > 1 && _events.Count < 25) _events.Add($"  {now,7:F1}s snap {snap:F2} m of bot {c.Id} near the player");
+                        }
+                    }
+                    _seen[c.Id] = (pk.T, c.Pos, c.Vel);
+                }
+            }
+            var mp = _line.Project(mePose.Position);
+            foreach (var (id, st) in _seen)
+            {
+                float age = Math.Clamp((float)(now - st.T), 0, 0.5f);
+                var shown = st.Pos + st.Vel * age;
+                var e = pw.GetOrAddExternal(id);
+                pw.UpdateExternal(e, shown, st.Vel);
+                if (!racing) continue;
+                var pr = _line.Project(shown);
+                var bot = server.Bots.First(b => b.Id == id);
+                float lp = (me.Car.Length + bot.Car.Length) / 2 - MathF.Abs(_line.Delta(mp.S, pr.S));
+                float wp = (me.Car.Width + bot.Car.Width) / 2 - MathF.Abs(pr.Offset - mp.Offset);
+                if (lp > 0 && wp > 0)
+                {
+                    float depth = MathF.Min(lp, wp);
+                    _frames++; _sumDepth += depth; _maxDepth = MathF.Max(_maxDepth, depth);
+                    if (_inContact.Add(id))
+                    {
+                        _episodes++;
+                        if (_events.Count < 25) _events.Add($"  {now,7:F1}s overlap with {bot.Name} depth {depth:F2} m (long {lp:F2} lat {wp:F2}) player {me.Speed * 3.6f:F0} km/h bot {bot.Speed * 3.6f:F0} km/h");
+                    }
+                }
+                else _inContact.Remove(id);
+            }
+        }
+
+        public void Print()
+        {
+            Console.WriteLine($"Network {_lat * 1000:F0} ms one way, seen by the player: {_episodes} overlaps ({_frames} frames, max {_maxDepth:F2} m, " +
+                              $"avg {(_frames > 0 ? _sumDepth / _frames : 0):F2} m), jumps > 0.25 m: {_snaps} ({_nearSnaps} near him, max {_maxNearSnap:F2} m), " +
+                              $"average prediction error {(_nSnap > 0 ? _sumSnap / _nSnap * 100 : 0):F1} cm");
+            foreach (var e in _events) Console.WriteLine(e);
+        }
     }
 
     private static List<RecordedLap> LoadRecordedLaps(string dir)
