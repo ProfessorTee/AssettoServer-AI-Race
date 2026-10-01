@@ -27,38 +27,56 @@ public sealed class StrengthCalibration
         return errors <= 0.5f ? ErrorLossHalf * errors / 0.5f : ErrorLossHalf + (ErrorLossFull - ErrorLossHalf) * (errors - 0.5f) / 0.5f;
     }
 
-    public static StrengthCalibration Measure(RacingLine line, CarSpec car, RaceWorldSettings template)
+    /// <summary>
+    /// Drives the calibration laps (7 pace values, plus 1 + 2 x 5 laps with mistakes). All laps are independent, so they run in parallel
+    /// on <paramref name="threads"/> cores (0 = all). <paramref name="step"/>: simulation step (the live world's step for a final
+    /// calibration, a coarse one for a quick provisional one); <paramref name="errorLaps"/>: laps averaged per error level.
+    /// </summary>
+    public static StrengthCalibration Measure(RacingLine line, CarSpec car, RaceWorldSettings template, float step = RaceWorld.DefaultStep,
+        int threads = 0, int errorLaps = 5, CancellationToken cancel = default)
     {
-        var times = new float[Paces.Length];
-        for (int i = 0; i < Paces.Length; i++)
+        const float errorPace = 0.75f; // mistakes are measured at a typical pace of a weaker bot
+        var jobs = new List<(float Pace, float Errors, int Seed)>();
+        foreach (var p in Paces) jobs.Add((p, 0, 1));
+        if (template.HumanErrors)
         {
-            times[i] = FlyingLap(line, car, Paces[i], template, out var fuel, out var vkm);
+            jobs.Add((errorPace, 0, 1));
+            for (int k = 0; k < errorLaps; k++) jobs.Add((errorPace, 0.5f, 100 + k * 7));
+            for (int k = 0; k < errorLaps; k++) jobs.Add((errorPace, 1f, 100 + k * 7));
+        }
+        var results = new float[jobs.Count];
+        float fuel = 0, vkm = 0;
+        Parallel.For(0, jobs.Count, new ParallelOptions
+        {
+            MaxDegreeOfParallelism = threads > 0 ? threads : Environment.ProcessorCount,
+            CancellationToken = cancel
+        }, i =>
+        {
+            var j = jobs[i];
+            results[i] = FlyingLap(line, car, j.Pace, template, out var f, out var v, j.Errors, j.Seed, step: step);
             if (i == Paces.Length - 2)
             {
                 // consumption and wear of a typical race pace
-                car.CalibratedFuelPerLap = fuel;
-                car.CalibratedTyreVkmPerLap = vkm;
+                fuel = f;
+                vkm = v;
             }
-        }
+        });
+        car.CalibratedFuelPerLap = fuel;
+        car.CalibratedTyreVkmPerLap = vkm;
+
+        var times = results.Take(Paces.Length).ToArray();
         // make sure the table is strictly decreasing (guards against noise)
         for (int i = times.Length - 2; i >= 0; i--)
             times[i] = MathF.Max(times[i], times[i + 1] + 0.01f);
         var cal = new StrengthCalibration(times);
-
         if (template.HumanErrors)
         {
-            // mistakes are random: average a few laps with different seeds, at a typical pace of a weaker bot
-            const float pace = 0.75f;
-            float clean = FlyingLap(line, car, pace, template, out _, out _);
-            float Avg(float errors)
-            {
-                float sum = 0;
-                const int n = 5;
-                for (int k = 0; k < n; k++) sum += FlyingLap(line, car, pace, template, out _, out _, errors, 100 + k * 7);
-                return MathF.Max(0, sum / n - clean);
-            }
-            cal.ErrorLossHalf = Avg(0.5f);
-            cal.ErrorLossFull = MathF.Max(cal.ErrorLossHalf, Avg(1f));
+            int o = Paces.Length;
+            float clean = results[o];
+            float half = results.Skip(o + 1).Take(errorLaps).Average();
+            float full = results.Skip(o + 1 + errorLaps).Take(errorLaps).Average();
+            cal.ErrorLossHalf = MathF.Max(0, half - clean);
+            cal.ErrorLossFull = MathF.Max(cal.ErrorLossHalf, full - clean);
         }
         return cal;
     }
@@ -142,7 +160,7 @@ public sealed class StrengthCalibration
         => FlyingLap(line, car, pace, template, out _, out _);
 
     public static float FlyingLap(RacingLine line, CarSpec car, float pace, RaceWorldSettings template, out float fuelPerLap, out float tyreVkmPerLap,
-        float errors = 0, int seed = 1, float fuelLitres = 33.6f)
+        float errors = 0, int seed = 1, float fuelLitres = 33.6f, float step = RaceWorld.DefaultStep)
     {
         var settings = new RaceWorldSettings
         {
@@ -165,7 +183,7 @@ public sealed class StrengthCalibration
             TyreWearScale = template.TyreWearScale,
             PitStops = false
         };
-        var world = new RaceWorld(line, settings) { MaxStep = RaceWorld.DefaultStep };
+        var world = new RaceWorld(line, settings) { MaxStep = step };
         var bot = new RaceBot
         {
             Id = 0,

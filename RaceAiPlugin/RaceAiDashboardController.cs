@@ -112,28 +112,38 @@ public class RaceAiDashboardController : ControllerBase
     [HttpGet("/raceai/api/track")]
     public IActionResult Track() => Allowed() ? Ok(_service.TrackOutline()) : Denied();
 
+    /// <summary>
+    /// Log lines. The first call gets the last <paramref name="lines"/> lines; with the <c>file</c> and <c>offset</c> of the previous
+    /// answer only what was written since then (a few hundred bytes instead of ~50 KB every 2 s).
+    /// </summary>
     [HttpGet("/raceai/api/log")]
-    public IActionResult Log([FromQuery] int lines = 200)
+    public IActionResult Log([FromQuery] int lines = 200, [FromQuery] string? file = null, [FromQuery] long offset = -1)
     {
         if (!Allowed()) return Denied();
         try
         {
-            var file = Directory.Exists("logs") ? new DirectoryInfo("logs").GetFiles("*.txt").OrderByDescending(f => f.LastWriteTimeUtc).FirstOrDefault() : null;
-            if (file == null) return Ok(new { lines = Array.Empty<string>() });
-            using var fs = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var fi = Directory.Exists("logs") ? new DirectoryInfo("logs").GetFiles("*.txt").OrderByDescending(f => f.LastWriteTimeUtc).FirstOrDefault() : null;
+            if (fi == null) return Ok(new { lines = Array.Empty<string>(), file = "", offset = 0L, append = false });
+            using var fs = new FileStream(fi.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             long size = fs.Length;
-            int take = (int)Math.Min(size, 96 * 1024);
-            fs.Seek(size - take, SeekOrigin.Begin);
-            var buf = new byte[take];
+            bool append = file == fi.Name && offset >= 0 && offset <= size && size - offset <= 256 * 1024;
+            long from = append ? offset : Math.Max(0, size - 96 * 1024);
+            fs.Seek(from, SeekOrigin.Begin);
+            var buf = new byte[size - from];
             fs.ReadExactly(buf);
-            var all = Encoding.UTF8.GetString(buf).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            // only complete lines; the rest comes next time
+            int end = Array.LastIndexOf(buf, (byte)'\n') + 1;
+            if (append && end <= 0) return Ok(new { lines = Array.Empty<string>(), file = fi.Name, offset, append = true });
+            var text = Encoding.UTF8.GetString(buf, 0, Math.Max(0, end));
+            var all = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
             // only real log lines (they start with the date), not stack traces
-            var result = all.Where(l => l.Length > 20 && char.IsDigit(l[0])).TakeLast(Math.Clamp(lines, 10, 1000)).ToArray();
-            return Ok(new { lines = result });
+            var result = all.Where(l => l.Length > 20 && char.IsDigit(l[0])).Select(l => l.TrimEnd('\r'));
+            if (!append) result = result.TakeLast(Math.Clamp(lines, 10, 1000));
+            return Ok(new { lines = result.ToArray(), file = fi.Name, offset = from + Math.Max(0, end), append });
         }
         catch (Exception ex)
         {
-            return Ok(new { lines = new[] { "Log not readable: " + ex.Message } });
+            return Ok(new { lines = new[] { "Log not readable: " + ex.Message }, file = "", offset = -1L, append = false });
         }
     }
 

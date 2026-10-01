@@ -188,6 +188,20 @@
 - Core: Uhrabgleich übernimmt große Sprünge (> 250 ms) erst nach 3 Messungen in Folge (vorher reichte ein Lag-Spike).
   Testclient unter Last: Streuung 36 -> 1,6 ms, größter Sprung 143 -> 3,4 ms, größter Positionssprung eines Bots 10,7 -> 0,8 m.
 
+## Neu in Teil 18: Schneller Start, Kalibrierung im Hintergrund, Dashboard
+- Kalibrierung (`RaceAiService.Calibration.cs`): beim Start pro Auto die finale aus dem Cache, sonst eine vorläufige (älterer Build
+  aus dem Cache oder grob gemessen: 50-ms-Schritte, 2 statt 5 Fehlerrunden). Der Server startet sofort; ein Hintergrund-Thread misst
+  die finalen und tauscht sie ein (Stärken werden neu angewendet), danach die Autos der anderen Rotationsstrecken (Preset-Ordner,
+  server_cfg/entry_list mit Rückfall auf cfg/). Cache-Dateien: `<model>-<basis>-<build>.json`; alte Builds werden ersetzt.
+  Messung (2 Kerne, Nordschleife, 8 Autos, leerer Cache): Start 80 s -> 16 s; mit Cache 3 s; Trial Mountain danach sofort.
+- `StrengthCalibration.Measure`: alle 18 Kalibrierrunden sind unabhängig und laufen parallel auf allen Kernen.
+- Multithreading im Takt: bewusst nicht. Ein Takt braucht 0,5 ms (Qualifying) bis 3 ms (Rennen, 16 Bots) von 33 ms; die Bots teilen
+  sich einen Zufallsgenerator und lesen sich gegenseitig, Aufteilen brächte 1-2 ms bei echtem Risiko für schwer findbare Fehler.
+- Core: Antwortkompression (Brotli/Gzip, nur wenn der Client sie anfordert). Dashboard-Status 9 -> 1,6 KB, Strecke 119 -> 44 KB.
+- Dashboard: Tabelle wird zeilenweise aktualisiert (kein Neuaufbau 4x pro Sekunde), Karte rechnet Autos mit ihrer Geschwindigkeit
+  weiter (statt eine Abfrage hinterher zu sein), Log nur noch neue Zeilen (statt ~50 KB alle 2 s), Server-Zustand im Kopf
+  (Takt, CPU, Kerne, RAM), Kalibrierungs-Hinweis, Tag „Duell“, Handy-Ansicht aufgeräumt.
+
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:
 1. Offizielles Release `assetto-server-linux-x64.tar.gz` (v0.0.55-pre42) laden. Es ist ein Single-File-Bundle mit .NET 11 RC,

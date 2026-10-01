@@ -36,13 +36,14 @@ nav button.active { color: var(--text); border-bottom-color: var(--accent); }
 .tab.active { display: block; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 4px 6px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
+#field td:last-child { white-space: normal; }
 th { color: var(--muted); font-weight: 500; position: sticky; top: -10px; background: var(--bg); }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tr.car { cursor: pointer; }
 tr.car:hover { background: var(--panel2); }
 tr.car.sel { background: #1d2b3a; }
 .pers { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-.tag { font-size: 11px; padding: 0 5px; border-radius: 4px; background: var(--panel2); border: 1px solid var(--line); margin-left: 3px; }
+.tag { white-space: nowrap; font-size: 11px; padding: 0 5px; border-radius: 4px; background: var(--panel2); border: 1px solid var(--line); margin-left: 3px; }
 .tag.warn { color: var(--warn); border-color: #5a4a20; } .tag.bad { color: var(--bad); border-color: #5a2a2a; } .tag.info { color: var(--accent); border-color: #1f3e5c; }
 .bar { width: 44px; height: 6px; background: var(--panel2); border-radius: 3px; display: inline-block; vertical-align: middle; overflow: hidden; }
 .bar i { display: block; height: 100%; background: var(--ok); }
@@ -67,6 +68,13 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
 .toast.show { opacity: 1; }
 #login { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; }
 #login .card { width: 320px; }
+@media (max-width: 600px) {
+  header { gap: 6px; padding: 6px 10px; } header h1 { width: 100%; }
+  .chip { white-space: normal; padding: 2px 8px; font-size: 12px; }
+  label.chip { display: none; }
+  .mapbar .btn { padding: 4px 8px; font-size: 12px; }
+  .legend { display: none; }
+}
 @media (max-width: 900px) { main { grid-template-columns: 1fr; grid-template-rows: 45vh auto; height: auto; overflow: visible; } aside { overflow: visible; } #mapPanel { height: 45vh; border-right: none; border-bottom: 1px solid var(--line); } }
 </style>
 </head>
@@ -77,7 +85,9 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
   <span class="chip" id="sessionChip">Session –</span>
   <span class="chip" id="weatherChip">Wetter –</span>
   <span class="chip" id="countChip">–</span>
+  <span class="chip" id="calChip" style="display:none" title="Die Bots werden im Hintergrund fein kalibriert bzw. die anderen Strecken der Rotation vorbereitet. Der Server läuft schon normal."></span>
   <span class="spacer"></span>
+  <span class="chip" id="healthChip" title="Server: Rechenzeit der Bots pro Takt (Schnitt / Spitze der letzten 10 s), CPU des Servers, Arbeitsspeicher">–</span>
   <label class="chip" title="Wie oft das Dashboard neue Daten vom Server holt">Daten
     <select id="rateSel" class="mini"><option value="1">1/s</option><option value="2">2/s</option><option value="4">4/s</option><option value="10">10/s</option></select></label>
   <label class="chip" title="Bilder pro Sekunde der Karte (weniger = weniger Last für den PC)">Karte
@@ -367,9 +377,14 @@ function frame(now) {
   lastFrame = now;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, cv.width, cv.height);
-  // smooth movement between the updates (4 per second)
-  const span = 1000 / pollHz + 10;
-  for (const c of cars.values()) { const k = Math.min(1, (now - c.t) / span); c.x = c.px + (c.tx - c.px) * k; c.z = c.pz + (c.tz - c.pz) * k; }
+  // where the car is now: last known position moved on with its speed (like the game does), the dot follows smoothly
+  const dtf = Math.min(0.1, (now - (frame.last || now)) / 1000); frame.last = now;
+  const blend = 1 - Math.exp(-dtf * 14);
+  for (const c of cars.values()) {
+    const age = Math.min(0.6, (now - c.t) / 1000);
+    const px = c.tx + c.vx * age, pz = c.tz + c.vz * age;
+    c.x += (px - c.x) * blend; c.z += (pz - c.z) * blend;
+  }
   if (follow && selected !== null && cars.has(selected)) { const c = cars.get(selected); view.cx += (c.x - view.cx) * 0.2; view.cz += (c.z - view.cz) * 0.2; }
   drawTrack();
   if (state) {
@@ -427,11 +442,18 @@ async function poll() {
     for (const c of s.cars) {
       seen.add(c.id);
       const o = cars.get(c.id);
-      if (!o || Math.hypot(o.tx - c.x, o.tz - c.z) > 300) cars.set(c.id, { x: c.x, z: c.z, px: c.x, pz: c.z, tx: c.x, tz: c.z, t: now });
-      else { o.px = o.x; o.pz = o.z; o.tx = c.x; o.tz = c.z; o.t = now; }
+      if (!o || Math.hypot(o.tx - c.x, o.tz - c.z) > 300) cars.set(c.id, { x: c.x, z: c.z, tx: c.x, tz: c.z, vx: c.vx || 0, vz: c.vz || 0, t: now });
+      else { o.tx = c.x; o.tz = c.z; o.vx = c.vx || 0; o.vz = c.vz || 0; o.t = now; }
     }
     for (const id of [...cars.keys()]) if (!seen.has(id)) cars.delete(id);
     if (!poll.tempInit) { poll.tempInit = true; $("tAir").value = w.ambient; $("tRoad").value = w.road; }
+    const h = s.health;
+    if (h) {
+      const de = (v, d = 1) => Number(v).toFixed(d).replace(".", ",");
+      $("healthChip").innerHTML = `Takt <b>${de(h.tickMs, 2)}</b>/${de(h.tickMaxMs, 1)} ms · CPU <b>${de(h.cpu)} %</b> (${h.cores} Kerne) · RAM <b>${h.ramMb} MB</b>`;
+      $("calChip").style.display = h.calibration ? "" : "none";
+      if (h.calibration) $("calChip").textContent = "⚙ " + h.calibration;
+    }
     renderField(); renderLegend(); syncAi();
   } catch (e) {
     $("conn").classList.remove("on"); $("connText").textContent = "keine Verbindung";
@@ -443,7 +465,7 @@ async function poll() {
 function statusTags(c) {
   const t = [];
   if (!c.bot) t.push(`<span class="tag info">Spieler</span>`);
-  if (!c.bot && c.ping != null) t.push(`<span class="tag${c.ping > 150 || c.jitter > 15 ? " warn" : ""}" title="Ping und wie stark er schwankt">Ping ${c.ping} ±${c.jitter} ms</span>`);
+  if (!c.bot && c.ping != null) t.push(`<span class="tag${c.ping > 150 || c.jitter > 15 ? " warn" : ""}" title="Ping und wie stark er schwankt">${c.ping}±${c.jitter} ms</span>`);
   if (c.finished) t.push(`<span class="tag">🏁</span>`);
   if (c.bot) {
     if (c.pit === "InLane" || c.pit === "Stopped") t.push(`<span class="tag info">Box</span>`);
@@ -451,7 +473,8 @@ function statusTags(c) {
     if (c.mistake === "Spin") t.push(`<span class="tag bad">Dreher</span>`);
     else if (c.mistake) t.push(`<span class="tag warn">${{ LateBrake: "verbremst", Slide: "Rutscher", Grass: "Gras" }[c.mistake] || c.mistake}</span>`);
     if (c.ghost) t.push(`<span class="tag bad">Geist</span>`);
-    if (c.takeover) t.push(`<span class="tag info">Klon übernimmt</span>`);
+    if (c.duel) t.push(`<span class="tag info">Duell</span>`);
+    else if (c.takeover) t.push(`<span class="tag info">Klon übernimmt</span>`);
     else if (c.clone) t.push(`<span class="tag info">Klon</span>`);
     if (c.weaving) t.push(`<span class="tag">pendelt</span>`);
     if (c.pressure > 0.3) t.push(`<span class="tag warn">unter Druck</span>`);
@@ -461,14 +484,27 @@ function statusTags(c) {
 }
 const bar = (v, max = 100) => v == null ? "" : `<span class="bar"><i style="width:${Math.max(0, Math.min(100, v / max * 100))}%;background:${v / max < 0.2 ? "var(--bad)" : v / max < 0.5 ? "var(--warn)" : "var(--ok)"}"></i></span>`;
 
+// the table is updated row by row: only cells that changed are touched, rows keep their hover and nothing flickers
+const rowCache = new Map(); // id -> {tr, html}
+$("field").addEventListener("click", e => { const tr = e.target.closest("tr.car"); if (tr) select(+tr.dataset.id); });
+function rowHtml(c) {
+  return `<td class="num">${c.pos}</td>`
+    + `<td><span class="pers" style="background:${c.bot ? PCOL(c.personality) : "var(--accent)"}"></span><span title="${esc(c.model)}">${esc(c.name)}</span> <span class="muted">#${c.id}</span></td>`
+    + `<td class="num">${c.laps}</td><td class="num">${fmtLap(c.best)}</td><td class="num">${fmtLap(c.last)}</td><td class="num">${c.speed}</td>
+    <td class="num">${c.bot ? Math.round(c.fuel) + " l" : ""}</td><td>${c.bot ? bar(c.tyres - 80, 20) + (c.tyreTemp ? ` <span class="muted" title="Reifentemperatur vorne/hinten">${c.tyreTemp[0]}°/${c.tyreTemp[1]}°</span>` : "") : ""}</td><td>${statusTags(c)}</td>`;
+}
 function renderField() {
-  const rows = state.cars.map(c => `<tr class="car${c.id === selected ? " sel" : ""}" data-id="${c.id}">
-    <td class="num">${c.pos}</td>
-    <td><span class="pers" style="background:${c.bot ? PCOL(c.personality) : "var(--accent)"}"></span><span title="${esc(c.model)}">${esc(c.name)}</span> <span class="muted">#${c.id}</span></td>
-    <td class="num">${c.laps}</td><td class="num">${fmtLap(c.best)}</td><td class="num">${fmtLap(c.last)}</td><td class="num">${c.speed}</td>
-    <td class="num">${c.bot ? Math.round(c.fuel) + " l" : ""}</td><td>${c.bot ? bar(c.tyres - 80, 20) + (c.tyreTemp ? ` <span class="muted" title="Reifentemperatur vorne/hinten">${c.tyreTemp[0]}°/${c.tyreTemp[1]}°</span>` : "") : ""}</td><td>${statusTags(c)}</td></tr>`).join("");
-  $("field").innerHTML = rows;
-  $("field").querySelectorAll("tr.car").forEach(tr => tr.onclick = () => select(+tr.dataset.id));
+  const body = $("field"), seen = new Set();
+  state.cars.forEach((c, i) => {
+    seen.add(c.id);
+    let r = rowCache.get(c.id);
+    if (!r) { const tr = document.createElement("tr"); tr.className = "car"; tr.dataset.id = c.id; r = { tr, html: "" }; rowCache.set(c.id, r); }
+    const html = rowHtml(c);
+    if (html !== r.html) { r.tr.innerHTML = html; r.html = html; }
+    r.tr.classList.toggle("sel", c.id === selected);
+    if (body.children[i] !== r.tr) body.insertBefore(r.tr, body.children[i] || null);
+  });
+  for (const [id, r] of rowCache) if (!seen.has(id)) { r.tr.remove(); rowCache.delete(id); }
   renderDetail(false);
 }
 
@@ -525,6 +561,7 @@ function liveInfo(c) {
 
 function renderLegend() {
   const names = [...new Set(state.cars.filter(c => c.bot).map(c => c.personality))];
+  const key = names.join("|"); if (key === renderLegend.key) return; renderLegend.key = key;
   $("legend").innerHTML = `<span><i style="background:var(--accent)"></i>Spieler</span>` +
     names.map(n => `<span><i style="background:${PCOL(n)}"></i>${esc(n)}</span>`).join("") +
     `<span><i style="background:transparent;border:2px dashed #fff"></i>Geist</span>`;
@@ -643,12 +680,15 @@ $("updateServer").onclick = () => serverRestart("update");
 (async () => { try { const types = await api("/raceai/api/server", { action: "weathertypes" }); $("wType").innerHTML = types.map(t => `<option value="${t}"${t === "Clear" ? " selected" : ""}>${esc(WX[t] ? `${WX[t]} (${t})` : t)}</option>`).join(""); } catch (e) {} })();
 
 // ---------------------------------------------------------------- log
-let logLines = [];
+let logLines = [], logFile = "", logOffset = -1;
 async function loadLog() {
   if (!$("tab-log").classList.contains("active") || !$("logFollow").checked) return;
   try {
-    const lines = (await api("/raceai/api/log?lines=400")).lines;
-    if (lines && lines.length) { logLines = lines; renderLog(); }
+    // only what's new since the last call
+    const r = await api(`/raceai/api/log?lines=400&file=${encodeURIComponent(logFile)}&offset=${logOffset}`);
+    logFile = r.file || ""; logOffset = r.offset ?? -1;
+    if (r.append) { if (r.lines.length) { logLines = logLines.concat(r.lines).slice(-1000); renderLog(); } }
+    else if (r.lines) { logLines = r.lines; renderLog(); }
     $("logInfo").textContent = "aktualisiert " + new Date().toLocaleTimeString();
   } catch (e) { $("logInfo").textContent = "Log nicht erreichbar"; }
 }

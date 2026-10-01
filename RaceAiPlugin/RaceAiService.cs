@@ -222,19 +222,22 @@ public sealed partial class RaceAiService : IHostedService
             specCache[k] = sp;
             toCalibrate.Add((sp, $"{ec.Ballast}/{ec.Restrictor}"));
         }
+        // calibration: from the cache, or provisional (quick) now and final in the background, so the server starts right away
         var calSw = System.Diagnostics.Stopwatch.StartNew();
-        var done = new System.Collections.Concurrent.ConcurrentDictionary<CarSpec, StrengthCalibration>();
-        Parallel.ForEach(toCalibrate, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount) },
-            c => done[c.Spec] = CachedCalibration(c.Spec, settings, c.Variant));
-        foreach (var (sp, _) in toCalibrate)
+        var done = new System.Collections.Concurrent.ConcurrentDictionary<CarSpec, (StrengthCalibration Cal, bool Final)>();
+        Parallel.ForEach(toCalibrate, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
+            c => done[c.Spec] = StartupCalibration(c.Spec, settings, c.Variant));
+        foreach (var (sp, variant) in toCalibrate)
         {
-            var cal = done[sp];
+            var (cal, final) = done[sp];
             _calibrations[sp] = cal;
-            Log.Information("Race AI: car {Model} ({Source}): top {Top:F0} km/h, grip {Grip:F2} g, 100 % = {Best}, {Fuel:F1} l/lap, tyres {Compound}, mistakes {Loss:F0} s/lap at most",
-                sp.Model, sp.Source, sp.TopSpeed * 3.6f, sp.LateralGrip, FormatLap(cal.BestLap), sp.CalibratedFuelPerLap, sp.TyreCompound, cal.ErrorLossFull);
+            if (!final) _provisional.Add((sp, variant));
+            Log.Information("Race AI: car {Model} ({Source}): top {Top:F0} km/h, grip {Grip:F2} g, 100 % = {Best}{Prov}, {Fuel:F1} l/lap, tyres {Compound}, mistakes {Loss:F0} s/lap at most",
+                sp.Model, sp.Source, sp.TopSpeed * 3.6f, sp.LateralGrip, FormatLap(cal.BestLap), final ? "" : " (provisional)", sp.CalibratedFuelPerLap, sp.TyreCompound, cal.ErrorLossFull);
         }
         if (toCalibrate.Count > 0)
-            Log.Information("Race AI: {Count} cars calibrated in {Seconds:F1} s", toCalibrate.Count, calSw.Elapsed.TotalSeconds);
+            Log.Information("Race AI: {Count} cars ready in {Seconds:F1} s on {Cores} CPU core(s), {Prov} to be calibrated finally in the background",
+                toCalibrate.Count, calSw.Elapsed.TotalSeconds, Environment.ProcessorCount, _provisional.Count);
 
         foreach (var slotIndex in botSlots)
         {
@@ -248,8 +251,9 @@ public sealed partial class RaceAiService : IHostedService
                 var root = carRoots.FirstOrDefault(r => Directory.Exists(Path.Join(r, entryCar.Model))) ?? carRoots.FirstOrDefault() ?? "content/cars";
                 spec = CarDataLoader.Load(root, entryCar.Model, entryCar.Ballast, entryCar.Restrictor, msg => Log.Warning("Race AI: {Message}", msg));
                 specCache[key] = spec;
-                var cal = CachedCalibration(spec, settings, $"{entryCar.Ballast}/{entryCar.Restrictor}");
+                var (cal, final) = StartupCalibration(spec, settings, $"{entryCar.Ballast}/{entryCar.Restrictor}");
                 _calibrations[spec] = cal;
+                if (!final) _provisional.Add((spec, $"{entryCar.Ballast}/{entryCar.Restrictor}"));
                 Log.Information("Race AI: car {Model} ({Source}): top {Top:F0} km/h, grip {Grip:F2} g, 100 % = {Best}, {Fuel:F1} l/lap, tyres {Compound}, mistakes {Loss:F0} s/lap at most",
                     spec.Model, spec.Source, spec.TopSpeed * 3.6f, spec.LateralGrip, FormatLap(cal.BestLap), spec.CalibratedFuelPerLap, spec.TyreCompound, cal.ErrorLossFull);
             }
@@ -310,14 +314,7 @@ public sealed partial class RaceAiService : IHostedService
         }
 
         if (_config.AiStrengthReference == StrengthReference.Field && _calibrations.Count > 0)
-        {
-            var bests = _calibrations.Values.Select(c => c.BestLap).OrderBy(x => x).ToList();
-            _referenceBestLap = bests[bests.Count / 2];
-            foreach (var bot in world.Bots)
-                ApplyStrength(bot, bot.Driver.Level, _calibrations[bot.Car]);
-            Log.Information("Race AI: 100 % = {Lap} (median best lap of the bot cars); e.g. 95 % = {Lap95}, 90 % = {Lap90}",
-                FormatLap(_referenceBestLap.Value), FormatLap(_referenceBestLap.Value / 0.95f), FormatLap(_referenceBestLap.Value / 0.9f));
-        }
+            ApplyCalibrations(world, log: true);
 
         foreach (var bot in world.Bots.OrderByDescending(b => b.Driver.Level))
             Log.Information("Race AI:   {Name,-22} {Strength,5:F1} %  target lap {Lap}{Errors}", bot.Name, bot.Driver.Level,
@@ -348,6 +345,7 @@ public sealed partial class RaceAiService : IHostedService
 
         _server.Update += OnUpdate;
         Log.Information("Race AI: {Count} bots ready on {Track} ({Length:F1} km)", _slots.Count, trackName, _track.Line.Length / 1000);
+        StartBackgroundCalibration(settings);
         if (_botLimit != null)
             lock (_lock)
             {
@@ -359,6 +357,7 @@ public sealed partial class RaceAiService : IHostedService
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
+        _background.Cancel();
         _server.Update -= OnUpdate;
         return Task.CompletedTask;
     }
@@ -793,10 +792,12 @@ public sealed partial class RaceAiService : IHostedService
 
         try
         {
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             lock (_lock)
             {
                 Tick(world);
             }
+            RecordTick(System.Diagnostics.Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
         }
         catch (Exception ex)
         {
@@ -1272,42 +1273,6 @@ public sealed partial class RaceAiService : IHostedService
         bot.Driver.Level = MathF.Round(reference / MathF.Max(1, clone.AverageLap / bot.ClonePace) * 1000) / 10;
     }
 
-    /// <summary>
-    /// The calibration of a car takes a few seconds per car; it's stored in cache/raceai/ and reused as long as the track, the car,
-    /// the settings that change the driving and the plugin build are the same (fast restarts, e.g. for the track rotation).
-    /// </summary>
-    private StrengthCalibration CachedCalibration(CarSpec spec, RaceWorldSettings settings, string variant)
-    {
-        string key = string.Join("|", TrackKey(), _track!.Line.Length.ToString("F1", System.Globalization.CultureInfo.InvariantCulture),
-            spec.Model, variant, spec.TopSpeed, spec.DragCoefficient, spec.LateralGrip, spec.BrakeGrip, spec.ReferenceMass, spec.FuelCapacity,
-            settings.HumanErrors, settings.LineErrors, settings.Spins, settings.GrassMoments, settings.UseTrackHints, settings.EdgeMargin,
-            settings.TyreWearScale, typeof(RaceAiService).Assembly.ManifestModule.ModuleVersionId);
-        string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)))[..16];
-        string path = Path.Join("cache", "raceai", TrackKey(), $"{spec.Model}-{hash}.json");
-        try
-        {
-            if (File.Exists(path))
-            {
-                var saved = System.Text.Json.JsonSerializer.Deserialize<StrengthCalibration.Saved>(File.ReadAllText(path));
-                if (saved != null && StrengthCalibration.Load(saved, spec) is { } cached) return cached;
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Debug(ex, "Race AI: calibration cache not readable");
-        }
-        var cal = StrengthCalibration.Measure(_track.Line, spec, settings);
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, System.Text.Json.JsonSerializer.Serialize(cal.Save(spec)));
-        }
-        catch (Exception ex)
-        {
-            Log.Debug(ex, "Race AI: calibration cache not writable");
-        }
-        return cal;
-    }
 
     public string TrackKeyName => TrackKey();
     public float TrackLengthMeters => _track?.Line.Length ?? 0;

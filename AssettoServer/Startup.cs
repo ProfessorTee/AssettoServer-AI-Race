@@ -175,6 +175,17 @@ public class Startup
             .AddScheme<ACClientAuthenticationSchemeOptions, ACClientAuthenticationHandler>(
                 ACClientAuthenticationSchemeOptions.Scheme, _ => { });
         services.AddAuthorization();
+        // compressed answers for clients that ask for it (browsers: dashboard, stats page). JSON shrinks to about a sixth,
+        // which matters when the dashboard is used over the internet at several updates per second. CM/Kunos requests are unchanged.
+        services.AddResponseCompression(o =>
+        {
+            o.EnableForHttps = true;
+            o.Providers.Add<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProvider>();
+            o.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();
+            o.MimeTypes = Microsoft.AspNetCore.ResponseCompression.ResponseCompressionDefaults.MimeTypes.Concat(["application/json"]);
+        });
+        services.Configure<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProviderOptions>(o => o.Level = System.IO.Compression.CompressionLevel.Fastest);
+        services.Configure<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProviderOptions>(o => o.Level = System.IO.Compression.CompressionLevel.Fastest);
         services.AddControllers().AddJsonOptions(options =>
         {
             options.JsonSerializerOptions.TypeInfoResolverChain.Insert(0, JsonSourceGenerationContext.Default);
@@ -206,6 +217,7 @@ public class Startup
             app.UseDeveloperExceptionPage();
         }
 
+        app.UseResponseCompression();
         app.UseRouting();
         app.UseCors();
         app.UseAuthentication();

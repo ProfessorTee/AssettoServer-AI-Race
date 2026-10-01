@@ -61,6 +61,7 @@ public sealed partial class RaceAiService
     /// <summary>Everything the dashboard shows, polled a few times per second.</summary>
     public object State()
     {
+        var health = Health(); // outside the lock: reads /proc, the main loop must not wait for it
         lock (_lock)
         {
             var session = _sessionManager.CurrentSession;
@@ -87,6 +88,7 @@ public sealed partial class RaceAiService
                     ["bot"] = bot,
                     ["x"] = R(pos.X), ["z"] = R(pos.Z),
                     ["speed"] = MathF.Round(carStatus.Velocity.Length() * 3.6f),
+                    ["vx"] = MathF.Round(carStatus.Velocity.X, 1), ["vz"] = MathF.Round(carStatus.Velocity.Z, 1),
                     ["laps"] = result?.NumLaps ?? 0,
                     ["best"] = Lap(result?.BestLap ?? 0),
                     ["last"] = Lap(result?.LastLap ?? 0),
@@ -108,6 +110,7 @@ public sealed partial class RaceAiService
                     d["tyres"] = MathF.Round(b.Car.TyreGripAt(b.TyreVirtualKm) * 100, 1);
                     d["tyreTemp"] = new[] { MathF.Round(b.TyreTempFront), MathF.Round(b.TyreTempRear) };
                     d["clone"] = b.Clone?.PlayerName;
+                    d["duel"] = slot == _duelSlot;
                     d["takeover"] = slot.TakeoverGuid != null;
                     d["damage"] = MathF.Round(RaceWorld.BodyDamagePercent(b));
                     d["suspension"] = MathF.Round(b.Suspension * 100);
@@ -170,9 +173,74 @@ public sealed partial class RaceAiService
                     features = FeatureStates(),
                     personalities = _personalities.Select(p => p.Personality.Name).DefaultIfEmpty("Balanced").ToList()
                 },
-                cars = ordered
+                cars = ordered,
+                health
             };
         }
+    }
+
+    // ---- server health for the dashboard: bot tick time, CPU, memory
+    private double _tickSum, _tickMax;
+    private int _tickCount;
+    private double _lastTickAvg, _lastTickMax;
+    private long _tickWindowStart = System.Diagnostics.Stopwatch.GetTimestamp();
+    private TimeSpan _lastCpu;
+    private long _lastCpuAt;
+    private double _cpuPercent;
+
+    private void RecordTick(double ms)
+    {
+        _tickSum += ms;
+        _tickCount++;
+        if (ms > _tickMax) _tickMax = ms;
+        if (System.Diagnostics.Stopwatch.GetElapsedTime(_tickWindowStart).TotalSeconds >= 10)
+        {
+            _lastTickAvg = _tickCount > 0 ? _tickSum / _tickCount : 0;
+            _lastTickMax = _tickMax;
+            _tickSum = _tickMax = 0;
+            _tickCount = 0;
+            _tickWindowStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        }
+    }
+
+    private readonly object _healthLock = new();
+
+    private object Health()
+    {
+        lock (_healthLock) return HealthLocked();
+    }
+
+    private object HealthLocked()
+    {
+        using var p = System.Diagnostics.Process.GetCurrentProcess();
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        var cpu = p.TotalProcessorTime;
+        if (_lastCpuAt != 0)
+        {
+            double wall = System.Diagnostics.Stopwatch.GetElapsedTime(_lastCpuAt, now).TotalSeconds;
+            if (wall >= 1) // average over at least a second
+            {
+                _cpuPercent = (cpu - _lastCpu).TotalSeconds / wall / Environment.ProcessorCount * 100;
+                _lastCpu = cpu;
+                _lastCpuAt = now;
+            }
+        }
+        else
+        {
+            _lastCpu = cpu;
+            _lastCpuAt = now;
+        }
+        return new
+        {
+            tickMs = Math.Round(_lastTickAvg, 2),
+            tickMaxMs = Math.Round(_lastTickMax, 2),
+            cpu = Math.Round(_cpuPercent, 1),
+            cores = Environment.ProcessorCount,
+            ramMb = p.WorkingSet64 / 1048576,
+            heapMb = Math.Round(GC.GetTotalMemory(false) / 1048576.0, 1),
+            uptimeMin = (int)(DateTime.Now - p.StartTime).TotalMinutes,
+            calibration = CalibrationStatus
+        };
     }
 
     private Dictionary<string, bool> FeatureStates()
