@@ -410,6 +410,13 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
                               "true = also from other computers, then the ADMIN_PASSWORD is required")]
     public bool DashboardRemoteAccess { get; set; } = false;
 
+    [YamlMember(Description = "Public live page http://<server>:<HTTP_PORT>/raceai/live: map, timing tower with gaps, telemetry of one car, " +
+                              "for everybody (no admin data). false = off")]
+    public bool LiveView { get; set; } = true;
+
+    [YamlMember(Description = "Updates per second the live page gets (1-10, pushed as a stream; only computed while somebody watches)")]
+    public int LiveViewHz { get; set; } = 5;
+
     [YamlMember(Description = "Practice / qualifying start: Pits = the bots leave their boxes one after the other (players first), Track = spread over the track at speed")]
     public BotSessionStart SessionStart { get; set; } = BotSessionStart.Pits;
 

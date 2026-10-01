@@ -292,6 +292,14 @@ Titles: { default: Nordschleife, trialmountain: Trial Mountain }
   auf die zuletzt gefahrene Strecke; „Server neu starten“ im Dashboard startet dann im selben Prozess neu.
 - `current-preset` merkt sich die laufende Strecke; `race-ai/server-supervisor.sh` startet nach einem Neustart dort weiter.
 
+## Live-Timing (öffentlich)
+`http://<server>:<HTTP_PORT>/raceai/live`: Streckenkarte (ganze Strecke oder einem Auto folgen), Zeitenturm mit Abstand/Intervall
+(Zeitmesspunkte alle ~20 m, überrundete mit „+1 Rd.“), Box, letzte Runde (lila = schnellste der Session, grün = persönliche Bestzeit),
+Lizenz der Spieler, Tempo/Gang/Gas/Bremse/Drehzahl eines Autos mit Tempo-Kurve (diese und letzte Runde), Ereignisse (Start, Führung,
+schnellste Runde, Boxenstopps). Die Daten kommen als Server-Sent Events (`/raceai/api/live/stream`, Takt `LiveViewHz`, Standard 5/s),
+werden nur berechnet solange jemand zuschaut, einmal pro Takt für alle Zuschauer (30 Zuschauer ≈ 3 % eines Kerns). Ohne Stream fragt die
+Seite `/raceai/api/live/state` jede Sekunde ab. Keine Admin-Daten (keine Steam-IDs, keine KI-Interna). `LiveView: false` schaltet ab.
+
 ## Fahrzeugklassen
 Fertige Klassen in `race-ai/classes/classes.json`: **GT3** (12 Autos), **GTE/GT2** (C7.R, 911 RSR 2017, 458 GT2, M3 GT2),
 **LMP1** (TS040, 919 Hybrid 2015/2016, R18 e-tron, mit Hybrid-Boost aus `ers.ini`), **JDM** (Supra MkIV, Skyline R34, RX-7 Spirit R, 370Z).

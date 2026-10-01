@@ -42,6 +42,12 @@ ol { padding-left: 20px; margin: 6px 0 0; }
   </div>
 
   <div class="card">
+    <h2>Nur zuschauen</h2>
+    <a class="btn alt" href="live">Live-Timing mit Streckenkarte öffnen</a>
+    <div class="muted">Positionen, Abstände und Tempo aller Autos im Browser, ohne Spiel.</div>
+  </div>
+
+  <div class="card">
     <h2>Adresse</h2>
     <div class="row"><code id="addr">–</code><button data-copy="addr">Kopieren</button></div>
     <div class="row" id="lanRow" hidden><code id="lan">–</code><button data-copy="lan">Kopieren</button></div>

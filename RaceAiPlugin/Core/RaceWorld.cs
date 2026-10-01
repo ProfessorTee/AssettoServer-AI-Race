@@ -990,6 +990,14 @@ public sealed partial class RaceWorld
         }
     }
 
+    /// <summary>A player's car (external) in the pit lane.</summary>
+    public bool ExternalInPitLane(int id)
+    {
+        foreach (var e in Externals)
+            if (e.Id == id) return e.Valid && IsInPitLane(e);
+        return false;
+    }
+
     private bool IsInPitLane(ExternalCar e)
     {
         var lane = PitLane;

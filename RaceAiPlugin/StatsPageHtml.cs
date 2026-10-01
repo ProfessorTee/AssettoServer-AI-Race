@@ -42,6 +42,7 @@ tr.click { cursor: pointer; } tr.click:hover td { background: var(--bg); }
 <main>
   <h1>Bestzeiten &amp; Fahrer</h1>
   <div class="muted" id="sub">lädt …</div>
+  <p><a href="live">Gerade auf der Strecke: Live-Timing öffnen</a></p>
   <div class="tabs" id="tabs"></div>
   <div class="grid">
     <div class="card"><h2 id="weekTitle">Diese Woche</h2><table id="week"></table></div>

@@ -213,6 +213,18 @@ public sealed class PlayerStats : BackgroundService
         _ => "R"
     };
 
+    /// <summary>Licence class and safety rating of a player for the live page ("A 4.2"), null when unknown or too few km.</summary>
+    public string? Licence(ulong guid)
+    {
+        if (guid == 0) return null;
+        lock (_lock)
+        {
+            if (!_players.TryGetValue(guid, out var p)) return null;
+            var sr = SafetyRating(p);
+            return sr == null ? null : $"{SafetyClass(sr)} {sr.Value.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)}";
+        }
+    }
+
     public static string Fmt(uint ms) => TimeSpan.FromMilliseconds(ms).ToString(@"m\:ss\.fff");
 
     // ------------------------------------------------------------------ queries

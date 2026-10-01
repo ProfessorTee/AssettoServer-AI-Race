@@ -28,10 +28,13 @@ public class RaceAiDashboardController : ControllerBase
     private readonly JoinInfo _joinInfo;
     private readonly TrackRotation _rotation;
     private readonly PlayerStats _stats;
+    private readonly LiveFeed _live;
 
     public RaceAiDashboardController(RaceAiService service, SessionManager sessionManager, WeatherManager weatherManager,
-        EntryCarManager entryCarManager, ACServerConfiguration serverConfig, IHostApplicationLifetime lifetime, ChatService chatService, JoinInfo joinInfo, TrackRotation rotation, PlayerStats stats)
+        EntryCarManager entryCarManager, ACServerConfiguration serverConfig, IHostApplicationLifetime lifetime, ChatService chatService, JoinInfo joinInfo, TrackRotation rotation, PlayerStats stats,
+        LiveFeed live)
     {
+        _live = live;
         _stats = stats;
         _rotation = rotation;
         _joinInfo = joinInfo;
@@ -93,6 +96,46 @@ public class RaceAiDashboardController : ControllerBase
     /// <summary>Public page for friends: Content Manager link, IP and ports.</summary>
     [HttpGet("/raceai/join")]
     public IActionResult JoinPage() => Content(JoinPageHtml.Html, "text/html; charset=utf-8");
+
+    // ---- public live page: map, timing, telemetry (no admin data)
+    [HttpGet("/raceai/live")]
+    public IActionResult LivePage() => _live.Enabled ? Content(LivePageHtml.Html, "text/html; charset=utf-8") : NotFound();
+
+    [HttpGet("/raceai/api/live/track")]
+    public IActionResult LiveTrack() => _live.Enabled ? Ok(_service.TrackOutline()) : NotFound();
+
+    [HttpGet("/raceai/api/live/state")]
+    public IActionResult LiveState() => _live.Enabled ? File(_live.Latest(), "application/json") : NotFound();
+
+    /// <summary>Server-Sent Events: the live frames pushed a few times per second.</summary>
+    [HttpGet("/raceai/api/live/stream")]
+    public async Task LiveStream()
+    {
+        if (!_live.Enabled) { Response.StatusCode = 404; return; }
+        var reader = _live.Subscribe();
+        if (reader == null) { Response.StatusCode = 503; return; }
+        try
+        {
+            HttpContext.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpResponseBodyFeature>()?.DisableBuffering();
+            Response.ContentType = "text/event-stream";
+            Response.Headers.CacheControl = "no-cache";
+            Response.Headers["X-Accel-Buffering"] = "no";
+            var ct = HttpContext.RequestAborted;
+            await Response.Body.WriteAsync("retry: 2000\n\n"u8.ToArray(), ct);
+            await Response.Body.FlushAsync(ct);
+            await foreach (var frame in reader.ReadAllAsync(ct))
+            {
+                await Response.Body.WriteAsync(frame, ct);
+                await Response.Body.FlushAsync(ct);
+            }
+        }
+        catch (OperationCanceledException) { /* viewer left */ }
+        catch (IOException) { /* connection dropped */ }
+        finally
+        {
+            _live.Unsubscribe(reader);
+        }
+    }
 
     [HttpGet("/raceai/api/ping")]
     public IActionResult Ping() => Ok(new { ok = true, server = _service.ServerName, local = IsLocal, supervised = Supervised });

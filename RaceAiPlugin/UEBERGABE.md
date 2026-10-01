@@ -241,6 +241,16 @@
   listet/zeigt den Inhalt einer data.acd.
 - KI bei 100 % auf Trial Mountain: GT3 1:30,7–1:33,2, GTE 1:31,4–1:32,5, LMP1 1:19,9–1:22,0, JDM 1:46,3–1:52,5.
 
+## Neu in Teil 22: /bot im eigenen Modell, Live-Timing
+- `/bot`: Zuschauen nur noch aus einem Auto des eigenen Modells (`SpareCar(own, guid)`): freier Spielerplatz, sonst wird ein Bot-Platz
+  geliehen (`BotSlot.Lend`): Bot fährt weiter mit eigenem Status (`_standInStatus`), sein Ergebnis wird nach dem Beitritt zurückgesetzt
+  (`SavedResult`), `CarConnected` mit Botnamen erneut an alle. Slot-Filter öffnet nur den zugewiesenen Platz (`WatchSeat` /
+  `PendingBot.Seat`). Freigabe beim Verlassen, bei neuer Session oder nach 3 min unbenutzt. Kontakte des Zuschauers werden ignoriert.
+  Lokal getestet (Fake-Client landet in Slot 4, Bot fährt weiter).
+- Live-Timing: `LiveFeed` (Singleton, Server-Sent Events, eine Berechnung pro Takt für alle), `RaceAiService.LiveSnapshot()`,
+  `LivePageHtml`, `PlayerStats.Licence()`, `RaceWorld.ExternalInPitLane()`. Abstände über Zeitmesspunkte (Runde × ~20 m) mit
+  Interpolation zwischen den Frames; Fortschritt monoton gemacht (Linie überquert, Runde noch nicht gezählt).
+
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:
 1. Offizielles Release `assetto-server-linux-x64.tar.gz` (v0.0.55-pre42) laden. Es ist ein Single-File-Bundle mit .NET 11 RC,
