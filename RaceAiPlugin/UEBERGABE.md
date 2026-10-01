@@ -173,6 +173,12 @@
 - Core: Autos außerhalb der Netzwerk-Blase (500 m) mit 10 statt 4 Updates/s.
 - Dashboard: Ping und Ping-Schwankung pro Spieler (`EntryCar.PingJitter`).
 
+## Neu in Teil 16: Speicher wächst über Stunden
+- Ursache: der Server erzeugt nur ~1 MB/min Müll, die erste GC-Generation ist auf großen Host-CPUs aber so groß (aus dem CPU-Cache
+  berechnet), dass stundenlang nicht aufgeräumt wird (gemeldet: 300 -> 700 MB in 8 h, lebende Daten ~12 MB).
+- Core: alle 5 min eine Hintergrund-GC (`ASSETTOSERVER_GC_INTERVAL`, Sekunden, 0 = aus). Test 25 min: verwalteter Speicher
+  konstant 12 MB, Arbeitsspeicher pendelt 190-210 MB statt zu steigen.
+
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:
 1. Offizielles Release `assetto-server-linux-x64.tar.gz` (v0.0.55-pre42) laden. Es ist ein Single-File-Bundle mit .NET 11 RC,

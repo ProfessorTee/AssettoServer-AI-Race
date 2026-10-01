@@ -71,10 +71,27 @@ public static class Program
     private static bool _generatePluginConfigs;
     private static TaskCompletionSource<StartOptions> _restartTask = new();
     
+    /// <summary>
+    /// The server allocates very little (~1 MB/min), so on a big host CPU the GC's first-generation budget (sized from the CPU cache)
+    /// is never reached and garbage piles up for hours (seen: 300 -> 700 MB in 8 h, live data ~15 MB). A background collection every
+    /// few minutes keeps it small; it runs concurrently, the pause is well under a millisecond with such a small heap.
+    /// ASSETTOSERVER_GC_INTERVAL (seconds, 0 = off) changes the interval.
+    /// </summary>
+    private static Timer? _memoryTrim;
+
+    private static void StartMemoryTrim()
+    {
+        int seconds = int.TryParse(Environment.GetEnvironmentVariable("ASSETTOSERVER_GC_INTERVAL"), out var v) ? v : 300;
+        if (seconds <= 0) return;
+        _memoryTrim = new Timer(_ => GC.Collect(2, GCCollectionMode.Forced, blocking: false), null,
+            TimeSpan.FromSeconds(seconds), TimeSpan.FromSeconds(seconds));
+    }
+
     internal static async Task Main(string[] args)
     {
         SetupFluentValidation();
         SetupMetrics();
+        StartMemoryTrim();
         DetectContentManager();
         
         var options = Parser.Default.ParseArguments<Options>(args).Value;
