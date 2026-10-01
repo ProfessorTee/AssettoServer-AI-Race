@@ -167,6 +167,13 @@ public class RaceAiCommandModule : ACModuleBase
         if (_service.StartDuel(player, bot, pace) is { } error) Reply(error);
     }
 
+    /// <summary>Rubber band to the players: /raceai_rubber 50 (0 = off).</summary>
+    [Command("raceai_rubber", "raceai_rubberband"), RequireAdmin]
+    public void Rubber(float percent)
+    {
+        Reply(_service.SetRubberBand(percent));
+    }
+
     [Command("raceai_aggression"), RequireAdmin]
     public void SetAggression(float aggression)
     {

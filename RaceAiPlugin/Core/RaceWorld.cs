@@ -137,6 +137,8 @@ public sealed class RaceBot
     // behaviour state
     internal int OvertakeTargetId = -1;
     internal double OvertakeSince;
+    /// <summary>Since when the chosen side of the target is closed (the target covered it, or the track narrows).</summary>
+    internal double OvertakeClosedSince = double.NaN;
     internal float OvertakeBestGap;
     internal double OvertakeCooldownUntil;
     internal int LastOvertakeTargetId = -1;
@@ -260,13 +262,28 @@ public sealed class RaceBot
     internal float CloneZ;
     /// <summary>The applied share of <see cref="CloneZ"/>: changes slowly, so a new corner doesn't make the line jump.</summary>
     internal float CloneZNow;
-    /// <summary>The clone is on the player's line right now (not overtaking, defending, ...): follows it exactly.</summary>
-    internal bool OnCloneLine;
+    /// <summary>On its own line right now (a clone: the player's; a bot: its personal line), not overtaking, defending, ...: follows it exactly.</summary>
+    internal bool OnOwnLine;
+    /// <summary>The bot's personal line: the AI line widened (+) or narrowed (-) around the middle of the track, and its apex moved (m).</summary>
+    internal float LineScale, ApexShift;
+    internal bool StyleRolled;
+    /// <summary>Statistics: defensive moves, cars let by on purpose.</summary>
+    public int Defends { get; internal set; }
+    public int LetBy { get; internal set; }
+    public int GreedyExits { get; internal set; }
 
     // ---- how the current corner is driven (RaceWorld.Lines.cs)
     public bool PlanActive { get; internal set; }
     internal bool PlanRolled;
     internal float PlanStartS, PlanApexS, PlanEndS, PlanSign, PlanAmp, PlanPace = 1, PlanBrake = 1, PlanExitDelay, PlanBrakeMargin;
+    /// <summary>This driver's version of his personality (0.6..1.4 x the style, his own bias), rolled once.</summary>
+    internal float StyleScale, StyleBias;
+    /// <summary>Pace added by the rubber band (+ faster, - slower).</summary>
+    public float PaceBoost { get; internal set; }
+    // start: when the clutch comes up, how the launch goes
+    internal double LaunchAt = double.NaN;
+    internal LaunchKind Launch;
+    internal float LaunchSpin;
     public CornerLineKind PlanKind { get; internal set; }
     internal bool PlanLift;
     internal double PlanApexPassedAt = double.NaN, PlanLiftAt = double.NaN;
@@ -336,12 +353,28 @@ public readonly record struct BotPose(
     float FrontTyreFactor = 1,
     float RearTyreFactor = 1);
 
+public enum LaunchKind { Clean, Wheelspin, Bog }
+
 public sealed class RaceWorldSettings
 {
     /// <summary>Distance along the racing line where the start/finish line is.</summary>
     public float StartLineS { get; set; } = 0;
     /// <summary>Distance kept to the track edge (m).</summary>
     public float EdgeMargin { get; set; } = 0.4f;
+    /// <summary>Every bot drives its own line (by personality and driver) instead of everybody on the AI line.</summary>
+    public bool PersonalLines { get; set; } = true;
+    /// <summary>Starts with reaction times, clutch, wheelspin and bogged launches instead of a perfect launch for everybody.</summary>
+    public bool RealisticStart { get; set; } = true;
+    /// <summary>
+    /// Rubber band to the players (0..1 = 0..100 %): bots ahead of the nearest player get slower, bots behind faster, growing with the
+    /// distance (full at <see cref="RubberBandDistance"/>) and over time (full after <see cref="RubberBandTime"/>), like CSP's.
+    /// </summary>
+    public float RubberBand { get; set; }
+    /// <summary>At most this much slower (share of pace) ahead of the players / faster behind them, at RubberBand 1.</summary>
+    public float RubberBandAhead { get; set; } = 0.03f;
+    public float RubberBandBehind { get; set; } = 0.06f;
+    public float RubberBandDistance { get; set; } = 200f;
+    public float RubberBandTime { get; set; } = 60f;
     /// <summary>Extra lateral space kept to other cars (m).</summary>
     public float SideMargin { get; set; } = 0.5f;
     /// <summary>Lateral space kept to players (m): their position arrives with a delay and they don't drive exactly.</summary>
@@ -596,9 +629,78 @@ public sealed partial class RaceWorld
             bot.LapStartTime = now;
             bot.RaceStartTime = now;
             bot.TimingValid = true;
-            // small reaction time spread, better drivers react quicker
-            bot.CautiousUntil = now + 0.15 + (1 - bot.Driver.Consistency) * _rng.NextDouble() * 0.5;
+            // reaction time: 0.2-0.6 s, quicker for drivers who go for the start, slower for careful and inconsistent ones
+            float launch = bot.Clone != null ? 0 : Math.Clamp(bot.Driver.Personality.Launch, -1, 1);
+            double reaction = Math.Clamp(0.30 - 0.08 * launch + NextGaussian() * 0.07 + (1 - bot.Driver.Consistency) * 0.3, 0.17, 0.8);
+            bot.LaunchAt = now + reaction;
+            bot.CautiousUntil = bot.LaunchAt;
+            // the launch itself: clean, too much throttle (wheelspin), or too little (bogs down)
+            double r = _rng.NextDouble();
+            double pSpin = Settings.RealisticStart ? 0.18 + 0.32 * MathF.Max(0, launch) : 0;
+            double pBog = Settings.RealisticStart ? 0.06 + 0.10 * MathF.Max(0, -launch) : 0;
+            bot.Launch = r < pSpin ? LaunchKind.Wheelspin : r < pSpin + pBog ? LaunchKind.Bog : LaunchKind.Clean;
+            bot.LaunchSpin = 0.3f + 0.7f * _rng.NextSingle();
         }
+    }
+
+    private readonly List<float> _playerProgress = [];
+
+    /// <summary>Rubber band: pace offsets towards the nearest player in the race (see <see cref="RaceWorldSettings.RubberBand"/>).</summary>
+    private void UpdateRubberBand(float dt)
+    {
+        _playerProgress.Clear();
+        if (Settings.RubberBand > 0 && Settings.IsRace)
+            foreach (var e in Externals)
+                if (e.Valid && !IsInPitLane(e))
+                    _playerProgress.Add(e.Laps * Line.Length + Line.WrapS(e.S - Settings.StartLineS));
+        float rate = MathF.Max(Settings.RubberBandAhead, Settings.RubberBandBehind) / MathF.Max(1, Settings.RubberBandTime) * dt;
+        foreach (var bot in Bots)
+        {
+            float target = 0;
+            if (_playerProgress.Count > 0 && bot.Phase == BotPhase.Racing && !bot.InPitLane && bot.Clone == null)
+            {
+                float mine = bot.LapsCompleted * Line.Length + Line.WrapS((float)bot.Distance - Settings.StartLineS);
+                float d = float.MaxValue;
+                foreach (var p in _playerProgress) if (MathF.Abs(mine - p) < MathF.Abs(d)) d = mine - p;
+                float k = Math.Clamp(MathF.Abs(d) / MathF.Max(1, Settings.RubberBandDistance), 0, 1);
+                target = Settings.RubberBand * (d > 0 ? -Settings.RubberBandAhead * k : Settings.RubberBandBehind * k);
+                // never quicker than a little over the car's limit
+                target = MathF.Min(target, MathF.Max(0, 1.03f - bot.Driver.Pace));
+            }
+            bot.PaceBoost += Math.Clamp(target - bot.PaceBoost, -rate, rate);
+        }
+    }
+
+    /// <summary>
+    /// Traction at the start (share of the full-throttle acceleration): the clutch bites over a third of a second, wheelspin costs
+    /// grip for a second or two, a bogged launch takes a moment to pick up. 1 = normal driving.
+    /// </summary>
+    private float LaunchTraction(RaceBot me)
+    {
+        if (!Settings.RealisticStart || double.IsNaN(me.LaunchAt) || me.LapsCompleted > 0 || me.Speed > 30) return 1;
+        float t = (float)(_now - me.LaunchAt);
+        if (t < 0 || t > 3.5f) return 1;
+        switch (me.Launch)
+        {
+            case LaunchKind.Wheelspin:
+            {
+                float dur = 0.7f + 1.1f * me.LaunchSpin;
+                if (t < dur) return 0.78f - 0.12f * me.LaunchSpin + 0.1f * (t / dur);
+                return 0.96f;
+            }
+            case LaunchKind.Bog:
+                return t < 0.8f ? 0.35f + 0.35f * t / 0.8f : 0.93f;
+            default:
+                return t < 0.35f ? 0.55f + 0.45f * t / 0.35f : 0.98f;
+        }
+    }
+
+    /// <summary>Rear wheels spinning at the start (m/s faster than the car), for the clients' view and sound.</summary>
+    private float LaunchSlipSpeed(RaceBot me)
+    {
+        if (!Settings.RealisticStart || me.Launch != LaunchKind.Wheelspin || double.IsNaN(me.LaunchAt) || me.LapsCompleted > 0) return 0;
+        float t = (float)(_now - me.LaunchAt), dur = 0.7f + 1.1f * me.LaunchSpin;
+        return t < 0 || t > dur ? 0 : (4f + 6f * me.LaunchSpin) * (1 - t / dur);
     }
 
     // ------------------------------------------------------------------ external cars
@@ -794,6 +896,7 @@ public sealed partial class RaceWorld
         BuildNeighbors();
         FindIncidents();
         WatchStoppedCars();
+        UpdateRubberBand(dt);
         if (MeasureJumps) JumpSnapshot();
 
         foreach (var bot in Bots)
@@ -906,7 +1009,7 @@ public sealed partial class RaceWorld
     public float LineSpeedLimit(RaceBot bot, float offset, float extraPaceLoss)
     {
         var car = bot.Car;
-        float skill = bot.Driver.Pace - extraPaceLoss + bot.PaceNoise;
+        float skill = bot.Driver.Pace - extraPaceLoss + bot.PaceNoise + bot.PaceBoost;
         if (_now < bot.MistakeUntil) skill -= 0.08f; // braked too early / too carefully
         if (Settings.RainCaution) skill -= WetFactor() * 0.05f; // careful in the wet
         float phys = Settings.GripFactor * bot.CarGrip * (bot.Phase == BotPhase.CoolDown ? Settings.CoolDownPace : 1);
@@ -921,7 +1024,7 @@ public sealed partial class RaceWorld
         float lateBrake = bot.Mistake == MistakeKind.LateBrake ? 1.2f + 0.3f * bot.MistakeSeverity : 1f;
         float step = MathF.Max(Line.Spacing, 2f);
         bool plan = bot.PlanActive && bot.Phase == BotPhase.Racing;
-        bool shifted = plan && bot.LineShiftNow != 0 || plan && bot.PlanKind != CornerLineKind.Clean;
+        bool shifted = plan && (bot.LineShiftNow != 0 || bot.PlanKind != CornerLineKind.Clean);
 
         for (float d = 0; d <= horizon; d += step)
         {
@@ -930,6 +1033,10 @@ public sealed partial class RaceWorld
             float off = offset;
             // a clone will be on the player's line there, not where it is now
             if (bot.Clone is { } lc && bot.Phase == BotPhase.Racing && d > 5) off = lc.OffsetAt(s0 + d, Line.Length);
+            // a bot on its personal line: where it will be there. Its line is its way of driving the corner, not a slower
+            // path: the radius changes with the offset, the line's own bend is taken as part of the driver's style (he adapts to it)
+            else if (bot.OnOwnLine && (bot.LineScale != 0 || bot.ApexShift != 0) && bot.Phase == BotPhase.Racing && d > 2)
+                off = PersonalLineOffset(bot, s0 + d);
             bool inPlan = plan && InPlannedCorner(bot, s0 + d);
             if (shifted && inPlan) off += CornerShift(bot, s0 + d);
             // radius changes when driving off the line: positive curvature turns towards +offset (inside)
@@ -993,8 +1100,9 @@ public sealed partial class RaceWorld
         float myS = Line.WrapS((float)me.Distance);
         float half = me.Car.Width / 2;
         var (roomMinus, roomPlus) = Line.MinRoom(myS, 25);
-        float minOff = -roomMinus + half + Settings.EdgeMargin;
-        float maxOff = roomPlus - half - Settings.EdgeMargin;
+        float edge = EdgeMarginFor(me);
+        float minOff = -roomMinus + half + edge;
+        float maxOff = roomPlus - half - edge;
         if (minOff > maxOff) minOff = maxOff = (minOff + maxOff) / 2;
 
         // driver form varies a little over time (less consistent drivers vary more)
@@ -1013,6 +1121,7 @@ public sealed partial class RaceWorld
         float behindGap = float.MaxValue;
         bool alongside = false;
         float squeezeAheadSpeed = float.MaxValue;
+        float yieldSpeed = float.MaxValue;
         float lookAhead = MathF.Max(50, me.Speed * 3);
         bool cautious = _now < me.CautiousUntil;
         float cornerSign = NextCornerSign(myS, 200);
@@ -1027,7 +1136,7 @@ public sealed partial class RaceWorld
             float longClear = (me.Car.Length + o.Length) / 2;
             // players: more room (their position arrives late) and a longer overlap window, so a bot doesn't turn in on a player
             // whose nose is next to its rear wheel
-            float margin = o.IsBot && _now < me.MarginOverrideUntil ? -0.2f : SideMarginFor(o);
+            float margin = o.IsBot && _now < me.MarginOverrideUntil ? -0.2f : SideMarginFor(me, o);
             float latClear = (me.Car.Width + o.Width) / 2 + margin;
             float dOff = o.Offset - me.Offset;
             float closing = o.Speed - me.Speed; // > 0: car behind is faster
@@ -1050,14 +1159,25 @@ public sealed partial class RaceWorld
                     if (dOff > 0) sideMax = MathF.Min(sideMax, o.Offset - latClear);
                     else sideMin = MathF.Max(sideMin, o.Offset + latClear);
                 }
-                // who backs out if the two of us get squeezed: the car clearly behind, or when level, the one on the outside of the next corner
+                // who backs out if the two of us get squeezed: the car behind, or when level, the one on the outside of the next corner.
+                // Careful drivers back out early (even when nearly level), aggressive ones hold on until the other is clearly ahead.
+                float give = me.Clone != null ? 0.15f : me.Driver.Personality.Room;
+                float hold = Math.Clamp(0.5f - 0.6f * (give - 0.15f), 0.1f, 0.85f);
+                if (!o.IsBot) hold = MathF.Min(hold, 0.5f); // never hold on against a player
                 bool iYield;
-                if (ds > me.Car.Length * 0.5f) iYield = true;
-                else if (ds < -me.Car.Length * 0.5f) iYield = false;
+                if (ds > me.Car.Length * hold) iYield = true;
+                else if (ds < -me.Car.Length * (1 - hold)) iYield = false;
+                else if (o.IsBot && MathF.Abs(give - o.Bot!.Driver.Personality.Room) > 0.3f) iYield = give > o.Bot.Driver.Personality.Room;
                 else if (cornerSign != 0 && MathF.Abs(dOff) > 0.2f) iYield = cornerSign * (me.Offset - o.Offset) < 0;
                 else iYield = ds > 0;
                 if (iYield)
+                {
                     squeezeAheadSpeed = MathF.Min(squeezeAheadSpeed, o.Speed);
+                    // side by side into a corner: the one who gives way lifts a little and tucks in behind (careful drivers early and
+                    // clearly, aggressive ones only just), instead of staying alongside lap after lap
+                    if (cornerSign != 0 && me.Phase == BotPhase.Racing && ds > -me.Car.Length * 0.3f && _now - Settings.RaceStartTime > 15)
+                        yieldSpeed = MathF.Min(yieldSpeed, o.Speed - (0.3f + 1.2f * Math.Clamp(give + 0.2f, 0, 1)));
+                }
                 continue;
             }
 
@@ -1097,7 +1217,9 @@ public sealed partial class RaceWorld
         me.TargetOffset -= me.LineShiftNow;
         me.LineShiftNow = 0;
         UpdateCornerPlan(me, myS);
-        float vLine = LineSpeedLimit(me, me.TargetOffset, 0);
+        // fighting for a position: the attacker commits (brakes later, carries more speed into the corner) - and risks more
+        bool committing = me.OvertakeTargetId >= 0 && FindNeighbor(me.OvertakeTargetId) is { } tgt && Line.Delta(myS, tgt.S) < 15;
+        float vLine = LineSpeedLimit(me, me.TargetOffset, committing ? -(0.02f + 0.04f * AttackOf(me)) : 0);
         float vTarget = vLine;
 
         // ---- yellow flag: somebody stopped or crawling ahead
@@ -1151,6 +1273,7 @@ public sealed partial class RaceWorld
         if (me.OvertakeTargetId >= 0 && (_now < me.YellowUntil || _now < me.BlueFlagUntil))
         {
             // no overtaking under yellow; a lapped car lets the others through instead of fighting
+            Diag("end:yellow/blue");
             me.OvertakeTargetId = -1;
             me.ReturnToLineAfter = _now;
         }
@@ -1159,32 +1282,59 @@ public sealed partial class RaceWorld
             var target = FindNeighbor(me.OvertakeTargetId);
             if (target == null)
             {
+                Diag("end:target gone");
                 me.OvertakeTargetId = -1;
             }
             else
             {
                 float ds = Line.Delta(myS, target.Value.S);
                 me.OvertakeBestGap = MathF.Min(me.OvertakeBestGap, ds);
-                float tLatClear = (me.Car.Width + target.Value.Width) / 2 + SideMarginFor(target.Value);
+                float tLatClear = (me.Car.Width + target.Value.Width) / 2 + SideMarginFor(me, target.Value);
                 if (MathF.Abs(target.Value.Offset - me.Offset) > tLatClear - 0.4f)
                     me.OvertakeSeparatedAt = _now;
                 // keep aiming for the chosen side of the target (the lane gets re-clamped to the road below)
                 me.TargetOffset = target.Value.Offset + me.OvertakeSide * (tLatClear + 0.2f);
-                if (ds < -((me.Car.Length + target.Value.Length) / 2 + 2))
+                // the door closed (the target covered that side, or the track narrows): try the other side, or wait behind
+                bool closed = me.TargetOffset > maxOff + 0.5f || me.TargetOffset < minOff - 0.5f;
+                if (!closed) me.OvertakeClosedSince = double.NaN;
+                else if (double.IsNaN(me.OvertakeClosedSince)) me.OvertakeClosedSince = _now;
+                else if (_now - me.OvertakeClosedSince > 0.8 && ds > 0)
                 {
+                    float other = target.Value.Offset - me.OvertakeSide * (tLatClear + 0.2f);
+                    bool insideOnly = me.Driver.Personality.InsideLine >= 0.5f && NextCornerSign(myS, 250) is var cs && cs != 0 && MathF.Sign(other - target.Value.Offset) != cs;
+                    if (!insideOnly && other >= minOff && other <= maxOff && LaneFree(me, other, myS, -(me.Car.Length + 3), ds + 15, target.Value.Id, ignoreFasterAhead: true))
+                    {
+                        me.OvertakeSide = -me.OvertakeSide;
+                        me.TargetOffset = other;
+                        me.OvertakeClosedSince = double.NaN;
+                        Diag("switch side");
+                    }
+                    else
+                    {
+                        // stays right behind, waiting for the door to open again (the time limits below end it)
+                        me.OvertakeClosedSince = _now;
+                    }
+                }
+                if (me.OvertakeTargetId < 0) { }
+                else if (ds < -((me.Car.Length + target.Value.Length) / 2 + 2))
+                {
+                    Diag("end:passed");
                     me.OvertakeTargetId = -1;
                     me.Overtakes++;
                     me.ReturnToLineAfter = _now + 0.8;
                 }
-                else if (_now - me.OvertakeSince > 30 || ds > 70
-                         || (ds > me.OvertakeBestGap + 6 && _now - me.OvertakeSince > 2)
-                         || _now - me.OvertakeSeparatedAt > 8)
+                else if (_now - me.OvertakeSince > 12 + 10 * AttackOf(me) || ds > 70
+                         || ((ds - me.OvertakeBestGap) / MathF.Max(me.Speed, 10) > 0.25f + 0.35f * AttackOf(me) && _now - me.OvertakeSince > 2)
+                         || _now - me.OvertakeSeparatedAt > 8 + 6 * AttackOf(me))
                 {
                     // lost ground or took too long: tuck in behind again and wait a moment before the next try
+                    if (_now - me.OvertakeSince > 12 + 10 * AttackOf(me))
+                        Diag($"toolong: ds {(ds < 0 ? "<0" : ds < 5 ? "0-5" : ds < 10 ? "5-10" : ds < 20 ? "10-20" : ">20")} best {(me.OvertakeBestGap < 5 ? "<5" : me.OvertakeBestGap < 10 ? "5-10" : ">10")} sameLane {(MathF.Abs(target.Value.Offset - me.Offset) < tLatClear - 0.4f)}");
+                    Diag(_now - me.OvertakeSince > 12 + 10 * AttackOf(me) ? "end:too long" : ds > 70 ? "end:dropped back" : _now - me.OvertakeSeparatedAt > 8 + 6 * AttackOf(me) ? "end:never alongside" : "end:lost ground");
                     me.OvertakeTargetId = -1;
                     me.OvertakeGiveUps++;
                     me.ReturnToLineAfter = _now;
-                    me.OvertakeCooldownUntil = _now + (3 + _rng.NextDouble() * 3) * (1 - 0.6 * me.Impatience);
+                    me.OvertakeCooldownUntil = _now + (3 + _rng.NextDouble() * 3) * (1 - 0.6 * me.Impatience) * (1.6 - AttackOf(me));
                 }
             }
         }
@@ -1192,7 +1342,7 @@ public sealed partial class RaceWorld
         // ---- car in front
         if (ahead is { } a)
         {
-            float latClear = (me.Car.Width + a.Width) / 2 + SideMarginFor(a);
+            float latClear = (me.Car.Width + a.Width) / 2 + SideMarginFor(me, a);
             bool gripLimited = vLine < me.Car.TopSpeed * 0.93f;
             if (gripLimited && aheadGap < 40)
             {
@@ -1221,8 +1371,9 @@ public sealed partial class RaceWorld
                 : 0;
             me.Impatience = imp;
 
+            float att = AttackOf(me);
             float attackRange = 3 + me.Speed * (0.12f + 0.18f * me.Driver.Aggression) + imp * 8
-                                + 4 * me.Driver.Personality.InsideLine + 3 * me.Driver.Personality.BrakeBehavior;
+                                + 4 * me.Driver.Personality.InsideLine + 3 * me.Driver.Personality.BrakeBehavior + 10 * att;
 
             // stuck in the slipstream on a straight for a while: weave a little to unsettle the car in front
             if (me.Draft > 0.05f && !gripLimited && aheadGap > 4 && aheadGap < 30 && me.OvertakeTargetId != a.Id)
@@ -1235,7 +1386,7 @@ public sealed partial class RaceWorld
                 me.Weaving = true;
                 me.WeaveCenter = a.Offset;
             }
-            float needAdvantage = (1.2f - 0.9f * me.Driver.Aggression) * (1 - imp);
+            float needAdvantage = (1.2f - 0.9f * me.Driver.Aggression) * (1 - imp) * (1.4f - 0.9f * att);
 
             // flash the lights at the car in front
             // not in the first minute of a race, not in the pits, only when I'm clearly quicker and right behind
@@ -1253,7 +1404,7 @@ public sealed partial class RaceWorld
                 me.NextFlashAt = _now + 3; // decided not to flash this time
             }
 
-            if (me.OvertakeTargetId != a.Id && !cautious && !yellow && !blueFlag && !Settings.SafetyCar && me.Phase == BotPhase.Racing && _now >= me.OvertakeCooldownUntil
+            if (me.OvertakeTargetId < 0 && !cautious && !yellow && !blueFlag && !Settings.SafetyCar && me.Phase == BotPhase.Racing && _now >= me.OvertakeCooldownUntil
                 && aheadGap < attackRange && (me.PressureEma > needAdvantage || closing > 1.0f))
             {
                 if (!TryChooseOvertakeSide(me, a, aheadGap, latClear, minOff, maxOff, out var side))
@@ -1263,6 +1414,7 @@ public sealed partial class RaceWorld
                 else
                 {
                     me.OvertakeAttempts++;
+                    Diag(me.OvertakeTargetId >= 0 ? "start:switched target" : "start");
                     me.TargetOffset = side;
                     me.OvertakeTargetId = a.Id;
                     me.OvertakeSince = _now;
@@ -1297,22 +1449,39 @@ public sealed partial class RaceWorld
             me.Impatience = 0;
         }
 
-        // ---- defend against a faster car right behind
-        if (behind is { } b && me.OvertakeTargetId < 0 && me.Phase == BotPhase.Racing && !blueFlag && !yellow
-            && behindGap < 8 && b.Speed > me.Speed + 0.5f && _now > me.DefendUntil + 6
-            && me.Driver.Aggression > 0.25f && _rng.NextSingle() < me.Driver.Aggression * 0.05f * (1 + me.Driver.Personality.InsideLine))
+        // ---- defend against a faster car right behind (or one that is going for it)
+        float def = DefendOf(me);
+        bool attackedBy = behind is { IsBot: true } ab && ab.Bot!.OvertakeTargetId == me.Id;
+        if (behind is { } b && me.OvertakeTargetId < 0 && me.Phase == BotPhase.Racing && !blueFlag && !yellow && !Settings.SafetyCar
+            && behindGap < 2 + 8 * def && (b.Speed > me.Speed + 1f || attackedBy))
         {
-            // one move towards the inside of the next corner
-            float k = NextCornerSign(myS, 250);
-            if (k != 0)
+            if (def >= 0.25f && _now > me.DefendUntil + 8 - 4 * def && _rng.NextSingle() < def * 0.02f * (1 + me.Driver.Personality.InsideLine)
+                     && (b.IsBot || behindGap > 3)) // a player's position arrives late: only cover the inside while he's clearly behind
             {
-                me.DefendOffset = Math.Clamp(k * 2.5f, minOff, maxOff);
-                me.DefendUntil = _now + 4;
+                // one move towards the inside of the next corner: the harder the driver defends, the further over.
+                // Not when the attacker is already there (that would be closing the door on him: contact)
+                float k = NextCornerSign(myS, 250);
+                bool alreadyInside = k != 0 && (b.Offset - me.Offset) * k > 1.0f;
+                if (k != 0 && !alreadyInside)
+                {
+                    me.DefendOffset = Math.Clamp(me.Offset + k * (1.2f + 1.8f * def), minOff, maxOff);
+                    me.DefendUntil = _now + 2.5 + 2 * def;
+                    me.Defends++;
+                }
+            }
+            else if (def < 0.25f && attackedBy && b.Speed > me.Speed + 1f && _now > me.DefendUntil + 3 && MathF.Abs(b.Offset - me.Offset) < 3.5f)
+            {
+                // a careful driver doesn't fight a clearly faster car: moves over a little and lets it by
+                float away = MathF.Sign(me.Offset - b.Offset);
+                if (away == 0) away = 1;
+                me.DefendOffset = Math.Clamp(me.Offset + away * 0.9f, minOff, maxOff);
+                me.DefendUntil = _now + 2;
+                me.LetBy++;
             }
         }
 
         // ---- choose lateral target
-        bool cloneLine = false;
+        bool ownLine = false;
         if (me.Clone != null) me.CloneZNow += (me.CloneZ - me.CloneZNow) * MathF.Min(1, _stepDt / 2.5f);
         if (blueFlag)
         {
@@ -1332,16 +1501,16 @@ public sealed partial class RaceWorld
                 // go back to the racing line when that lane is free
                 float lineOffset = me.Clone is { } cl
                     ? CloneLineOffset(me, cl, myS)
-                    : RainLineOffset(me, myS, minOff, maxOff);
+                    : Math.Clamp(PersonalLineOffset(me, myS) + RainLineOffset(me, myS, minOff, maxOff), minOff, maxOff);
                 if (LaneFree(me, lineOffset, myS, -(me.Car.Length + 2), 25))
                 {
                     me.TargetOffset = lineOffset;
-                    cloneLine = me.Clone != null;
+                    ownLine = true;
                 }
             }
         }
 
-        me.OnCloneLine = cloneLine;
+        me.OnOwnLine = ownLine;
 
         // out-lap with cold tyres and nobody around: weave on the straights to get heat into them
         bool sc = Settings.SafetyCar && me.Phase == BotPhase.Racing && !me.InPitLane;
@@ -1387,6 +1556,8 @@ public sealed partial class RaceWorld
             me.TargetOffset = Math.Clamp(me.TargetOffset, lo, hi);
         }
 
+        if (yieldSpeed < float.MaxValue && me.OvertakeTargetId < 0) vTarget = MathF.Min(vTarget, MathF.Max(0, yieldSpeed));
+
         if (cautious && me.Speed < 3 && me.Phase == BotPhase.Racing && _now - me.OvertakeSince < 0.3)
             vTarget = MathF.Min(vTarget, 0);
 
@@ -1407,10 +1578,15 @@ public sealed partial class RaceWorld
         }
     }
 
+    public int DiagNoRoomEdge, DiagNoRoomLane, DiagNoRoomAll;
+    public readonly Dictionary<string, int> DiagCounts = new();
+    internal void Diag(string key) => DiagCounts[key] = DiagCounts.GetValueOrDefault(key) + 1;
+
     private bool TryChooseOvertakeSide(RaceBot me, Neighbor a, float gap, float latClear, float minOff, float maxOff, out float side)
     {
         float myS = Line.WrapS((float)me.Distance);
-        float span = gap + (me.Car.Length + a.Length) / 2 + 40;
+        // the lane has to be free alongside the target and a little beyond (to pull ahead and back in), not for half a straight
+        float span = gap + (me.Car.Length + a.Length) / 2 + 12 + 20 * (1 - AttackOf(me));
         var (roomMinus, roomPlus) = Line.MinRoom(myS, span);
         float half = me.Car.Width / 2;
         float lo = MathF.Max(minOff, -roomMinus + half + Settings.EdgeMargin);
@@ -1418,17 +1594,19 @@ public sealed partial class RaceWorld
 
         float plus = a.Offset + latClear + 0.2f;
         float minus = a.Offset - latClear - 0.2f;
-        bool plusOk = plus <= hi && LaneFree(me, plus, myS, -(me.Car.Length + 3), span, a.Id);
-        bool minusOk = minus >= lo && LaneFree(me, minus, myS, -(me.Car.Length + 3), span, a.Id);
+        bool plusOk = plus <= hi && LaneFree(me, plus, myS, -(me.Car.Length + 3), span, a.Id, ignoreFasterAhead: true);
+        bool minusOk = minus >= lo && LaneFree(me, minus, myS, -(me.Car.Length + 3), span, a.Id, ignoreFasterAhead: true);
 
         side = 0;
+        if (!(plus <= hi) && !(minus >= lo)) DiagNoRoomEdge++;
+        else if (!plusOk && !minusOk) DiagNoRoomLane++;
         float cornerAhead = NextCornerSign(myS, 250);
         if (me.Driver.Personality.InsideLine >= 0.5f && cornerAhead != 0)
         {
             // dive-bombers only go down the inside
             if (cornerAhead > 0) minusOk = false; else plusOk = false;
         }
-        if (!plusOk && !minusOk) return false;
+        if (!plusOk && !minusOk) { DiagNoRoomAll++; return false; }
         if (plusOk && !minusOk) { side = plus; return true; }
         if (minusOk && !plusOk) { side = minus; return true; }
 
@@ -1451,7 +1629,7 @@ public sealed partial class RaceWorld
         return 0;
     }
 
-    private bool LaneFree(RaceBot me, float offset, float myS, float from, float to, int ignoreId = int.MinValue)
+    private bool LaneFree(RaceBot me, float offset, float myS, float from, float to, int ignoreId = int.MinValue, bool ignoreFasterAhead = false)
     {
         foreach (var o in _neighbors)
         {
@@ -1459,13 +1637,35 @@ public sealed partial class RaceWorld
             if (o.Id == ignoreId) continue;
             float ds = Line.Delta(myS, o.S);
             if (ds < from - o.Length / 2 || ds > to + o.Length / 2) continue;
-            float latClear = (me.Car.Width + o.Width) / 2 + SideMarginFor(o);
+            // a car further ahead that is at least as fast moves away: it doesn't block the lane
+            if (ignoreFasterAhead && ds > (me.Car.Length + o.Length) / 2 + 6 && o.Speed >= me.Speed - 0.5f) continue;
+            float latClear = (me.Car.Width + o.Width) / 2 + SideMarginFor(me, o);
             if (MathF.Abs(o.Offset - offset) < latClear) return false;
         }
         return true;
     }
 
-    private float SideMarginFor(in Neighbor o) => o.IsBot ? Settings.SideMargin : MathF.Max(Settings.SideMargin, Settings.PlayerSideMargin);
+    /// <summary>Distance kept to the track edge: drivers who use all of the track go onto the kerbs, careful ones stay clear.</summary>
+    private float EdgeMarginFor(RaceBot me)
+    {
+        if (me.Clone != null) return Settings.EdgeMargin;
+        float use = me.Driver.Personality.TrackUse;
+        return Settings.EdgeMargin - (use > 0 ? 0.55f : 0.35f) * use;
+    }
+
+    /// <summary>How far past the edge (of the width data) the car may physically be without a mistake: kerbs for those who use them.</summary>
+    private float KerbAllowance(RaceBot me)
+        => me.Clone != null ? me.Car.Width / 2 - CloneProfile.KerbLimit + 0.2f : MathF.Max(0, -EdgeMarginFor(me)) + 0.05f;
+
+    /// <summary>Room left to a car alongside: the personality's (careful drivers leave more, aggressive ones squeeze), never less to players.</summary>
+    private float SideMarginFor(RaceBot me, in Neighbor o)
+    {
+        float room = me.Clone != null ? 0 : me.Driver.Personality.Room;
+        return o.IsBot ? MathF.Max(0.05f, Settings.SideMargin + room) : MathF.Max(Settings.SideMargin, Settings.PlayerSideMargin) + MathF.Max(0, room) * 0.5f;
+    }
+
+    private float AttackOf(RaceBot me) => me.Clone != null ? 0.5f : Math.Clamp(me.Driver.Personality.Attack, 0, 1);
+    private float DefendOf(RaceBot me) => me.Clone != null ? 0.3f : Math.Clamp(me.Driver.Personality.Defend, 0, 1);
 
     private double NextGaussian()
     {
@@ -1483,13 +1683,15 @@ public sealed partial class RaceWorld
     private void Integrate(RaceBot me, float dt)
     {
         float phys = Settings.GripFactor * me.CarGrip;
-        float skill = me.Driver.Pace + me.PaceNoise;
+        float skill = me.Driver.Pace + me.PaceNoise + me.PaceBoost;
         float pace = DriverProfile.CornerSkill(skill) * phys;
         float v = me.Speed;
         float target = me.TargetSpeed;
 
-        if (_now < me.CautiousUntil && me.Speed < 1 && me.LapsCompleted == 0 && _now - me.LapStartTime < 1.5)
+        if (!double.IsNaN(me.LaunchAt) && _now < me.LaunchAt && me.Speed < 1 && me.LapsCompleted == 0)
             target = 0; // reaction time at the start
+        else if (_now < me.CautiousUntil && me.Speed < 1 && me.LapsCompleted == 0 && _now - me.LapStartTime < 1.5)
+            target = 0;
         if (Settings.FuelRate > 0 && me.Fuel <= 0)
             target = MathF.Min(target, 25 / 3.6f); // out of fuel: rolling to the pits on the last drops
 
@@ -1525,6 +1727,9 @@ public sealed partial class RaceWorld
         {
             me.Brake = MathF.Max(0, me.Brake - dt / 0.25f);
             float full = me.Car.AccelAt(v, throttlePace) / me.MassRatio + (me.Draft - (DamageDrag(me) - 1)) * me.Car.DragCoefficient * v * v;
+            // in a fight the attacker gets on the power earlier and harder out of the corner
+            if (me.OvertakeTargetId >= 0) full *= 1.02f + 0.04f * AttackOf(me);
+            full *= LaunchTraction(me);
             // a clone accelerates like the player did here: our engine model is only an estimate of the real car
             if (me.Clone is { } cl && me.Phase == BotPhase.Racing && !me.InPitLane)
             {
@@ -1546,19 +1751,22 @@ public sealed partial class RaceWorld
         me.Accel = accel;
         me.Speed = MathF.Max(0, v);
         if (MistakeIntegrate(me, dt, pace * 1.04f)) return;
+        float launchSlip = LaunchSlipSpeed(me);
+        if (launchSlip > 0) me.RearSlip = MathF.Max(me.RearSlip, 1 + launchSlip / MathF.Max(me.Speed, 1.5f));
 
         // lateral movement: smooth, limited lateral speed and acceleration (not while running wide, the car can't turn tighter)
         if (!me.Overspeed)
         {
             float desiredLat, latAcc = 5f;
-            if (me.OnCloneLine && me.Clone is { } cl && !me.Weaving)
+            if (me.OnOwnLine && !me.Weaving)
             {
-                // a clone on the player's line drives along it like along its own racing line: the sideways speed comes from the
-                // line's slope (feed-forward), a small correction pulls it back onto it. No chasing a point ahead, no snapping.
+                // on its own line (a clone: the player's, a bot: its personal one) it drives along it like along the racing line:
+                // the sideways speed comes from the line's slope (feed-forward), a small correction pulls it back onto it.
+                // No chasing a point ahead, no snapping.
                 float sHere = Line.WrapS((float)me.Distance);
-                float onLine = CloneLineOffset(me, cl, sHere);
+                float onLine = me.Clone is { } cl ? CloneLineOffset(me, cl, sHere) : me.TargetOffset;
                 // slope of the line as driven (inside the track): from the same function, so the two always agree
-                float slope = (CloneLineOffset(me, cl, sHere + 2) - CloneLineOffset(me, cl, sHere - 2)) / 4f;
+                float slope = (OwnLineOffset(me, sHere + 2) - OwnLineOffset(me, sHere - 2)) / 4f;
                 desiredLat = me.Speed * slope + Math.Clamp((onLine - me.Offset) * 2f, -1.5f, 1.5f);
                 desiredLat = Math.Clamp(desiredLat, -8f, 8f);
                 latAcc = 12f; // it's the path's own curvature, not a steering correction
@@ -1648,6 +1856,86 @@ public sealed partial class RaceWorld
         }
     }
 
+    /// <summary>Apex moved along the track (m) at ApexStyle 1.</summary>
+    private const float ApexShiftPerStyle = 7f;
+
+    private float[]? _center;
+
+    /// <summary>Offset of the middle of the track from the AI line (+ = the middle is on the + side), smoothed over ±8 m.</summary>
+    internal float TrackCenter(float s)
+    {
+        if (_center == null)
+        {
+            var c = new float[Line.Count];
+            int r = Math.Max(1, (int)MathF.Round(8f / Line.Spacing));
+            for (int i = 0; i < c.Length; i++)
+            {
+                float sum = 0;
+                for (int k = -r; k <= r; k++)
+                {
+                    int j = ((i + k) % c.Length + c.Length) % c.Length;
+                    sum += (Line.RoomPlus[j] - Line.RoomMinus[j]) / 2;
+                }
+                c[i] = sum / (2 * r + 1);
+            }
+            _center = c;
+        }
+        Line.Interp(s, out var a, out var b, out var t);
+        return _center[a] + (_center[b] - _center[a]) * t;
+    }
+
+    /// <summary>
+    /// A bot's personal line at <paramref name="s"/>, built from the AI line's way across the track:
+    /// - apex earlier or later (<see cref="RaceBot.ApexShift"/> m): the line's pattern moved along the track. Later: stays outside
+    ///   longer, turns in later and sharper, apex later, straighter exit ("V"). Earlier: turns in early, round line, runs wide ("U").
+    /// - track use (<see cref="RaceBot.LineScale"/> m): where the line touches an edge (entry, apex, exit) it goes further out onto the
+    ///   kerbs, or stays that far clear of the edge.
+    /// Depends on the personality and the driver; kept on the track softly, so the line has no kinks.
+    /// </summary>
+    internal float PersonalLineOffset(RaceBot me, float s)
+    {
+        EnsureStyle(me);
+        if (me.LineScale == 0 && me.ApexShift == 0) return 0;
+        float c = TrackCenter(s);
+        float off = me.ApexShift != 0 ? c - TrackCenter(s - me.ApexShift) : 0;
+        // the line is near an edge where the middle of the track is far away: push towards that edge (or away from it)
+        off -= me.LineScale * MathF.Tanh(c / 1.5f);
+        float half = me.Car.Width / 2, edge = EdgeMarginFor(me);
+        float lo = -Line.RoomMinusAt(s) + half + edge, hi = Line.RoomPlusAt(s) - half - edge;
+        return SoftClamp(off, MathF.Min(lo, 0), MathF.Max(hi, 0), 0.25f);
+    }
+
+    /// <summary>Unchanged inside [lo, hi]; beyond, the overshoot is squeezed smoothly into at most <paramref name="w"/> (no kink).</summary>
+    private static float SoftClamp(float x, float lo, float hi, float w)
+    {
+        if (x > hi) return hi + w * (1 - MathF.Exp(-(x - hi) / w));
+        if (x < lo) return lo - w * (1 - MathF.Exp(-(lo - x) / w));
+        return x;
+    }
+
+    /// <summary>The line the bot drives when nobody is in the way.</summary>
+    internal float OwnLineOffset(RaceBot me, float s) => me.Clone is { } cl ? CloneLineOffset(me, cl, s) : PersonalLineOffset(me, s);
+
+    /// <summary>The bot's line is rolled again (personality changed, personal lines switched on or off).</summary>
+    public void ResetStyle(RaceBot me) => me.StyleRolled = false;
+
+    /// <summary>Rolls the driver's own version of his personality once.</summary>
+    private void EnsureStyle(RaceBot me)
+    {
+        if (me.StyleRolled) return;
+        me.StyleRolled = true;
+        me.StyleScale = 0.6f + 0.8f * _rng.NextSingle();
+        me.StyleBias = (float)NextGaussian() * 0.2f;
+        if (!Settings.PersonalLines) return;
+        var p = me.Driver.Personality;
+        // track use: +0.4 m onto the kerbs .. -0.6 m clear of the edges
+        float use = Math.Clamp(p.TrackUse * me.StyleScale + me.StyleBias, -1.3f, 1.3f);
+        me.LineScale = use > 0 ? 0.4f * use : 0.6f * use;
+        // apex: up to ±5 m later / earlier along the track
+        float apex = Math.Clamp(p.ApexStyle * me.StyleScale + (float)NextGaussian() * 0.2f, -1.3f, 1.3f);
+        me.ApexShift = ApexShiftPerStyle * apex;
+    }
+
     /// <summary>The clone's line at <paramref name="s"/>: the player's own line, a little to the side as much as his laps differ.</summary>
     private float CloneLineOffset(RaceBot me, CloneProfile cl, float s)
     {
@@ -1660,7 +1948,7 @@ public sealed partial class RaceWorld
     {
         float s = Line.WrapS((float)bot.Distance);
         float half = bot.Car.Width / 2;
-        float allow = MathF.Max(Settings.GrassMoments ? bot.EdgeAllowance : 0, bot.Clone != null ? half - CloneProfile.KerbLimit + 0.2f : 0);
+        float allow = MathF.Max(Settings.GrassMoments ? bot.EdgeAllowance : 0, KerbAllowance(bot));
         return Math.Clamp(offset, -Line.RoomMinusAt(s) + half - allow, Line.RoomPlusAt(s) - half + allow);
     }
 
@@ -1745,6 +2033,13 @@ public sealed partial class RaceWorld
         wheel = Math.Clamp(wheel + bot.SteerExtraDeg, -32, 32);
 
         var (gear, rpm) = GearAndRpm(bot);
+        // launch: revs held up by the slipping clutch (and the spinning wheels), or dropping when it bogs down
+        if (Settings.RealisticStart && !double.IsNaN(bot.LaunchAt) && bot.LapsCompleted == 0 && bot.Speed < 25 && _now - bot.LaunchAt < 3 && _now >= bot.LaunchAt)
+        {
+            float tl = (float)(_now - bot.LaunchAt);
+            float share = bot.Launch switch { LaunchKind.Wheelspin => 0.88f, LaunchKind.Bog => tl < 0.6f ? 0.35f : 0.6f, _ => 0.68f };
+            rpm = Math.Max(rpm, (int)(bot.Car.MaxRpm * share));
+        }
         float full = bot.Car.AccelAt(bot.Speed, bot.Driver.Pace);
         byte throttle = (byte)Math.Clamp(bot.Throttle * 255f, 0, 255);
         _ = full;

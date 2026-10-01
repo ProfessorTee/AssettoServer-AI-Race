@@ -111,6 +111,7 @@ public sealed partial class RaceAiService
                     d["tyreTemp"] = new[] { MathF.Round(b.TyreTempFront), MathF.Round(b.TyreTempRear) };
                     d["clone"] = b.Clone?.PlayerName;
                     d["duel"] = slot == _duelSlot;
+                    d["boost"] = MathF.Round(b.PaceBoost * 1000) / 10; // rubber band, % pace
                     d["takeover"] = slot.TakeoverGuid != null;
                     d["damage"] = MathF.Round(RaceWorld.BodyDamagePercent(b));
                     d["suspension"] = MathF.Round(b.Suspension * 100);
@@ -169,6 +170,7 @@ public sealed partial class RaceAiService
                     strength = _config.AiStrength,
                     spread = _config.AiStrengthSpread,
                     aggression = _config.AiAggression,
+                    rubber = _config.RubberBanding,
                     gridOrder = _config.BotGridOrder.ToString(),
                     features = FeatureStates(),
                     personalities = _personalities.Select(p => p.Personality.Name).DefaultIfEmpty("Balanced").ToList()
@@ -263,6 +265,8 @@ public sealed partial class RaceAiService
             ["realweather"] = _config.RealWeather,
             ["yellowchat"] = _config.YellowFlagChat,
             ["overtakechat"] = _config.AnnounceOvertakes,
+            ["personallines"] = s?.PersonalLines ?? _config.PersonalLines,
+            ["realstart"] = s?.RealisticStart ?? _config.RealisticStart,
         };
     }
 
@@ -310,7 +314,7 @@ public sealed partial class RaceAiService
             {
                 if (_personalities.Count == 0) PickPersonality(null);
                 var p = _personalities.FirstOrDefault(x => x.Personality.Name.Equals(personality, StringComparison.OrdinalIgnoreCase)).Personality;
-                if (p != null) bot.Driver.Personality = p;
+                if (p != null) { bot.Driver.Personality = p; _world?.ResetStyle(bot); }
             }
             if (pit) _world.RequestPitStop(bot, "admin");
             Serilog.Log.Information("Race AI: dashboard changed {Name}: strength {Strength:F1} %, aggression {Aggression:F0}, {Personality}{Pit}",

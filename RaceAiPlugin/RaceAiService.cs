@@ -182,7 +182,14 @@ public sealed partial class RaceAiService : IHostedService
             DamageRate = _serverConfig.Server.MechanicalDamageRate * _config.BotDamageFactor,
             RainGripLoss = _config.RainGripLoss,
             ServerRainReduction = (float)_serverConfig.Extra.RainTrackGripReductionPercent,
-            RainCaution = _config.RainCaution
+            RainCaution = _config.RainCaution,
+            PersonalLines = _config.PersonalLines,
+            RealisticStart = _config.RealisticStart,
+            RubberBand = Math.Clamp(_config.RubberBanding / 100f, 0, 1),
+            RubberBandAhead = Math.Clamp(_config.RubberBandingAhead / 100f, 0, 0.2f),
+            RubberBandBehind = Math.Clamp(_config.RubberBandingBehind / 100f, 0, 0.2f),
+            RubberBandDistance = MathF.Max(10, _config.RubberBandingDistance),
+            RubberBandTime = MathF.Max(0, _config.RubberBandingTime)
         };
         Log.Information("Race AI: human errors {Errors} (below {Below} %), spins {Spins}, grass {Grass}, contacts {Contacts}, damage {Damage} ({Rate:P0})",
             settings.HumanErrors ? "on" : "off", _config.HumanErrorsBelow, settings.Spins ? "on" : "off", settings.GrassMoments ? "on" : "off",
@@ -1316,9 +1323,31 @@ public sealed partial class RaceAiService : IHostedService
                 case "raincaution": _config.RainCaution = on; s.RainCaution = on; _configWriter.Set("RainCaution", on); break;
                 case "realweather": _config.RealWeather = on; _configWriter.Set("RealWeather", on); break;
                 case "highbeams": _config.HighBeams = on; _configWriter.Set("HighBeams", on); break;
+                case "realstart": _config.RealisticStart = on; s.RealisticStart = on; _configWriter.Set("RealisticStart", on); break;
+                case "personallines":
+                    _config.PersonalLines = on;
+                    s.PersonalLines = on;
+                    _configWriter.Set("PersonalLines", on);
+                    foreach (var slot in _slots) _world!.ResetStyle(slot.Bot);
+                    break;
                 default: return false;
             }
             return true;
+        }
+    }
+
+    /// <summary>Rubber band strength 0-100 % (0 = off), saved in the configuration.</summary>
+    public string SetRubberBand(float percent)
+    {
+        lock (_lock)
+        {
+            percent = Math.Clamp(percent, 0, 100);
+            _config.RubberBanding = percent;
+            _configWriter.Set("RubberBanding", percent);
+            if (_world != null) _world.Settings.RubberBand = percent / 100f;
+            return percent <= 0 ? T("Rubber band off.", "Gummiband aus.")
+                : T($"Rubber band {percent:F0} %: bots ahead of you up to {_config.RubberBandingAhead * percent / 100:F1} % slower, behind you up to {_config.RubberBandingBehind * percent / 100:F1} % faster.",
+                    $"Gummiband {percent:F0} %: Bots vor dir bis {_config.RubberBandingAhead * percent / 100:F1} % langsamer, hinter dir bis {_config.RubberBandingBehind * percent / 100:F1} % schneller.");
         }
     }
 

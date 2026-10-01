@@ -127,6 +127,12 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
         <div class="row"><button class="btn primary" id="aiApply">Auf alle Bots anwenden</button><span class="muted">verteilt die Stärken neu</span></div>
       </div>
       <div class="card">
+        <h3>Gummiband</h3>
+        <div class="row"><label>Stärke</label><input type="range" id="aiRubber" min="0" max="100" step="5"><span class="val" id="aiRubberV"></span></div>
+        <div class="row"><span class="muted">Bots vor dem nächsten Spieler werden etwas langsamer, Bots dahinter etwas schneller (wie das Rubberbanding von CSP).
+          Wirkt langsam (volle Stärke nach ~1 min und ab ~200 m Abstand). 0 = aus.</span></div>
+      </div>
+      <div class="card">
         <h3>Startaufstellung der Bots</h3>
         <div class="row"><label>Reihenfolge</label><select id="gridOrder">
           <option value="Qualifying">Nach Qualifying (wie echt)</option>
@@ -478,6 +484,7 @@ function statusTags(c) {
     else if (c.clone) t.push(`<span class="tag info">Klon</span>`);
     if (c.weaving) t.push(`<span class="tag">pendelt</span>`);
     if (c.pressure > 0.3) t.push(`<span class="tag warn">unter Druck</span>`);
+    if (c.boost && Math.abs(c.boost) >= 0.5) t.push(`<span class="tag" title="Gummiband: Tempo-Anpassung">${c.boost > 0 ? "+" : ""}${c.boost} %</span>`);
     if (c.damage >= 5) t.push(`<span class="tag warn">Schaden ${c.damage} %</span>`);
   }
   return t.join("");
@@ -570,13 +577,18 @@ function renderLegend() {
 // ---------------------------------------------------------------- AI tab
 const FEATURES = { errors: "Menschliche Fehler", lines: "Linienfehler", spins: "Dreher", grass: "Gras", contacts: "Berührungen", damage: "Schaden",
   blueflags: "Blaue Flagge", yellowflags: "Gelbe Flagge", flash: "Lichthupe", highbeams: "Fernlicht", raincaution: "Vorsicht bei Regen",
-  realweather: "Echtes Wetter", takeover: "Klon übernimmt bei Verbindungsabbruch", yellowchat: "Gelbe Fahne im Chat", overtakechat: "Überholungen im Chat" };
+  realweather: "Echtes Wetter", takeover: "Klon übernimmt bei Verbindungsabbruch", yellowchat: "Gelbe Fahne im Chat", overtakechat: "Überholungen im Chat",
+  personallines: "Eigene Linie je Fahrer", realstart: "Realistischer Start (Reaktion, Durchdrehen)" };
 let aiInit = false;
 function syncAi() {
   const a = state.ai;
   if (!aiInit) {
     aiInit = true;
     $("aiStrength").value = a.strength; $("aiSpread").value = a.spread; $("aiAggr").value = a.aggression;
+    $("aiRubber").value = a.rubber || 0;
+    const rv = () => $("aiRubberV").textContent = +$("aiRubber").value ? $("aiRubber").value + " %" : "aus";
+    $("aiRubber").oninput = rv; rv();
+    $("aiRubber").onchange = () => act("/raceai/api/ai", { rubber: +$("aiRubber").value }, "Gummiband " + (+$("aiRubber").value ? $("aiRubber").value + " %" : "aus"));
     ["aiStrength", "aiSpread", "aiAggr"].forEach(id => { $(id).oninput = () => upd(); }); upd();
     function upd() { $("aiStrengthV").textContent = $("aiStrength").value + " %"; $("aiSpreadV").textContent = "± " + $("aiSpread").value; $("aiAggrV").textContent = $("aiAggr").value; }
     $("features").innerHTML = Object.entries(FEATURES).map(([k, n]) => `<label class="switch"><span>${n}</span><input type="checkbox" data-f="${k}"></label>`).join("");
@@ -623,7 +635,7 @@ const COMMANDS = [
   ["setrain 0.5 0.5 0.1", "Regen, Nässe, Wasser (0–1)"], ["setgrip 0.95", "Grip der Strecke (0–1)"],
   ["say Nachricht", "Nachricht als CONSOLE an alle"], ["set KEY WERT", "Konfigurationswert ändern (z. B. Server.SleepTime)"],
   ["raceai", "Bots mit Stärke, Sprit, Reifen …"], ["raceai_strength 90 5", "Stärke ± Streuung"], ["raceai_aggression 60", "Aggressivität"],
-  ["raceai_set spins off", "KI-Funktion an/aus"], ["raceai_grid SlowestFirst", "Startaufstellung: Qualifying / SlowestFirst / Random"], ["raceai_lighttest", "Licht-Test"]
+  ["raceai_set spins off", "KI-Funktion an/aus"], ["raceai_rubber 50", "Gummiband 0–100 % (0 = aus)"], ["raceai_grid SlowestFirst", "Startaufstellung: Qualifying / SlowestFirst / Random"], ["raceai_lighttest", "Licht-Test"]
 ];
 $("cmdTpl").innerHTML = COMMANDS.map(([c, d]) => `<option value="${esc(c)}">${c ? esc(c) + "  –  " : ""}${esc(d)}</option>`).join("");
 $("cmdTpl").onchange = () => { $("cmdText").value = $("cmdTpl").value; $("cmdText").focus(); };

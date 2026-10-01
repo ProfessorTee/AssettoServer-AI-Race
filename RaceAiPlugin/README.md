@@ -63,14 +63,26 @@ Das Plugin besteht aus zwei Teilen:
   (Standzeit aus `car.ini`) und fahren wieder raus. Die Strategie rechnet: Reicht der Sprit bis ins Ziel? Kosten die alten Reifen
   bis zum Ende mehr Zeit als ein Stopp? Die Pflicht-Boxenstopp-Fenster `RACE_PIT_WINDOW_START/END` werden eingehalten.
 - **Fahrerpersönlichkeiten** (`Personalities`, frei konfigurierbar in der YAML):
-  - `DiveBomber`: bremst spät, greift nur innen an, verschleißt die Reifen stärker
-  - `Chill`: fährt reifenschonend und ruhig
-  - `FuelSaver`: Lift and Coast, spart Sprit
+  - `DiveBomber`: bremst spät, greift nur innen an, späte Apex-Linie („V“) über die Randsteine, früh am Gas (rutscht dabei ab und zu
+    mit ein, zwei Rädern ins Gras), lässt im Zweikampf wenig Platz, verteidigt hart, startet mit viel Gas (öfter durchdrehende Räder)
+  - `Chill`: reifenschonend und ruhig, runde frühe Linie („U“) mit Abstand zum Rand, lässt viel Platz, gibt im Zweikampf früh nach
+    und lässt deutlich schnellere Autos vorbei, vorsichtiger Start
+  - `FuelSaver`: Lift and Coast, spart Sprit, eher runde Linie
   - `Balanced`: normal
 
   Werte pro Persönlichkeit (alle in der cfg erklärt): `Aggression`, `BrakeBehavior` (-1 sanft und vorsichtig bis 1 extrem spät,
   „in die Eisen“), `InsideLine`, `Smoothness`, `Composure`, `Weaving`, `Patience` (Geduld hinter Langsameren, Lichthupe),
   `Mistakes`, `LineErrors`, `TyreWear`, `TyreChangeAt` (ab wie viel % Grip neue Reifen), `FuelUse`. Das alte `LateBraking` wird noch als `BrakeBehavior` gelesen.
+  Dazu Linie, Zweikampf und Start: `ApexStyle` (-1 runde frühe bis 1 späte Linie), `TrackUse` (-1 Abstand zum Rand bis 1 Randsteine),
+  `ExitGreed` (früh am Gas, ab und zu zu früh), `Room` (Platz neben anderen Autos in m, negativ = drückt), `Attack`, `Defend`, `Launch`.
+  Fehlen sie in einer älteren cfg, gelten die Werte der gleichnamigen eingebauten Persönlichkeit.
+- **Eigene Linie je Fahrer** (`PersonalLines`): jeder Bot fährt seine Version der Linie seiner Persönlichkeit (Apex früher oder
+  später, mehr oder weniger Strecke), jeder Fahrer etwas anders. Kostet keine Rundenzeit (gemessen: alle Persönlichkeiten innerhalb 0,7 %).
+- **Start** (`RealisticStart`): Reaktionszeit 0,2–0,8 s, Kupplung, manchmal durchdrehende Räder (Drehzahl hoch, Hinterräder drehen)
+  oder ein verschluckter Start.
+- **Gummiband** (`RubberBanding` 0–100 %, Dashboard „KI“ oder `/raceai_rubber 50`): Bots vor dem nächsten Spieler werden langsamer
+  (bis `RubberBandingAhead` %), Bots dahinter schneller (bis `RubberBandingBehind` %), voll ab `RubberBandingDistance` m und nach
+  `RubberBandingTime` s, wie das Rubberbanding von CSP.
   Die Zuteilung ist zufällig nach `Share` oder fest pro Fahrer (`Drivers[].Personality`).
 - **Druck von hinten:** Sitzt ein Spieler oder Bot lange im Windschatten, wird der Vordermann nervös und macht etwas mehr Fehler,
   abhängig von `Composure`. Der Verfolger fängt auf der Geraden nach einer Weile an zu pendeln, um ihn zu verunsichern (`Weaving`).

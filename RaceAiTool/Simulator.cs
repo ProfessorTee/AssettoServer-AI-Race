@@ -106,6 +106,8 @@ public static class Simulator
                 var defs = Personality.Defaults();
                 float r = (float)rng.NextDouble() * defs.Sum(d => d.Share);
                 foreach (var d in defs) { r -= d.Share; if (r <= 0) { bot.Driver.Personality = d.Personality; break; } }
+                if (o.Get("personality") is { } forced) bot.Driver.Personality = Personality.BuiltIn(forced) ?? bot.Driver.Personality;
+                if (o.Get("personalities") is { } cycle) { var names = cycle.Split(','); bot.Driver.Personality = Personality.BuiltIn(names[i % names.Length]) ?? bot.Driver.Personality; }
                 bot.Driver.Aggression = Math.Clamp(bot.Driver.Aggression + bot.Driver.Personality.Aggression, 0, 1);
             }
             bot.Driver.Errors = settings.HumanErrors ? DriverProfile.ErrorsFor(strengths[i], errorsBelow, errorsFull) : 0;
@@ -170,7 +172,7 @@ public static class Simulator
 
         world.TraceBotId = o.Int("trace", -1);
         world.Trace = Console.WriteLine;
-        var stats = new SimStats(world);
+        var stats = new SimStats(world) { Behaviour = o.Has("style") };
         var trace = hotlap ? new SpeedTrace(line, info) : null;
         var cloneCmp = new SortedDictionary<int, (float V, float O, int N)>();
         float dt = 1f / tickHz;
@@ -259,6 +261,7 @@ public static class Simulator
             }
         }
         stats.Print(laps);
+        if (stats.Behaviour) stats.PrintBehaviour(now);
         net?.Print();
         if (world.MeasureJumps)
         {
@@ -459,12 +462,101 @@ public static class Simulator
         private readonly Dictionary<int, float> _planApex = new();
         private readonly int[] _lineKinds = new int[4];
         private float _maxShift;
+        // ---- behaviour report (--style): lines per personality, fights, start
+        private readonly Dictionary<string, (double[] Sum, int[] N)> _lineByPers = new();
+        private readonly Dictionary<int, double> _t100 = new();
+        private readonly Dictionary<int, MistakeKind> _lastMistake = new();
+        private readonly Dictionary<string, int> _grass = new(), _slides = new();
+        private readonly Dictionary<string, (double Sum, int N)> _sideGap = new();
+        private double _raceStart = double.NaN;
+        private int _changesFirst30;
 
         public SimStats(RaceWorld w) => _w = w;
+
+        private void SampleBehaviour(double now)
+        {
+            var line = _w.Line;
+            int bins = (int)(line.Length / 10) + 1;
+            if (double.IsNaN(_raceStart) && _w.Bots.Any(b => b.Phase == BotPhase.Racing)) _raceStart = now;
+            foreach (var b in _w.Bots)
+            {
+                if (b.Phase != BotPhase.Racing || b.InPitLane) continue;
+                string p = b.Driver.Personality.Name;
+                if (!_t100.ContainsKey(b.Id) && b.Speed >= 100 / 3.6f && !double.IsNaN(_raceStart)) _t100[b.Id] = now - _raceStart;
+                var m = b.Mistake;
+                if (_lastMistake.TryGetValue(b.Id, out var lm) && lm != m)
+                {
+                    if (m == MistakeKind.Grass) _grass[p] = _grass.GetValueOrDefault(p) + 1;
+                    if (m == MistakeKind.Slide) _slides[p] = _slides.GetValueOrDefault(p) + 1;
+                }
+                _lastMistake[b.Id] = m;
+                if (b.LapsCompleted < 1) continue; // lap 1 is traffic
+                // the line: only driving alone (nobody within 60 m), no mistake
+                float sb = line.WrapS((float)b.Distance);
+                bool alone = !_w.Bots.Any(o => o != b && o.OnTrack && MathF.Abs(line.Delta(sb, line.WrapS((float)o.Distance))) < 60);
+                if (alone && b.Mistake == MistakeKind.None && b.OvertakeTargetId < 0)
+                {
+                    if (!_lineByPers.TryGetValue(p, out var acc)) _lineByPers[p] = acc = (new double[bins], new int[bins]);
+                    int i = Math.Min(bins - 1, (int)(sb / 10));
+                    acc.Sum[i] += b.Offset; acc.N[i]++;
+                }
+                // room left to a car alongside
+                foreach (var o in _w.Bots)
+                {
+                    if (o == b || !o.OnTrack || o.InPitLane) continue;
+                    float ds = MathF.Abs(line.Delta(sb, line.WrapS((float)o.Distance)));
+                    if (ds > (b.Car.Length + o.Car.Length) / 2) continue;
+                    float gap = MathF.Abs(b.Offset - o.Offset) - (b.Car.Width + o.Car.Width) / 2;
+                    if (gap > 3) continue;
+                    var g = _sideGap.GetValueOrDefault(p);
+                    _sideGap[p] = (g.Sum + gap, g.N + 1);
+                }
+            }
+        }
+
+        public void PrintBehaviour(double simTime)
+        {
+            var line = _w.Line;
+            Console.WriteLine("Behaviour:");
+            double laps = _w.Bots.Average(b => b.LapsCompleted);
+            foreach (var g in _w.Bots.GroupBy(b => b.Driver.Personality.Name).OrderBy(g => g.Key))
+            {
+                string p = g.Key;
+                var gs = _sideGap.GetValueOrDefault(p);
+                var t = g.Where(b => _t100.ContainsKey(b.Id)).Select(b => _t100[b.Id]).ToList();
+                Console.WriteLine($"  {p,-11} bots {g.Count(),2}  attempts {g.Sum(b => b.OvertakeAttempts),4} overtakes {g.Sum(b => b.Overtakes),3} noroom-steps {g.Sum(b => b.OvertakeNoRoom),6} giveups {g.Sum(b => b.OvertakeGiveUps),3}" +
+                                  $"  defends {g.Sum(b => b.Defends),3} letby {g.Sum(b => b.LetBy),2}  contacts {g.Sum(b => b.ContactCount),3}  grass {_grass.GetValueOrDefault(p),2} (greedy {g.Sum(b => b.GreedyExits)}) slides {_slides.GetValueOrDefault(p),2}" +
+                                  $"  side gap {(gs.N > 0 ? gs.Sum / gs.N : double.NaN):F2} m  0-100 {(t.Count > 0 ? t.Average() : double.NaN):F2} s");
+            }
+            Console.WriteLine("  " + string.Join(", ", _w.DiagCounts.OrderBy(k => k.Key).Select(k => $"{k.Key} {k.Value}")));
+            Console.WriteLine($"  no room for an attack: track too narrow {_w.DiagNoRoomEdge}, lane taken {_w.DiagNoRoomLane}, total {_w.DiagNoRoomAll}");
+            var t100 = _t100.Values.ToList();
+            if (t100.Count > 0) Console.WriteLine($"  start: 0-100 km/h {t100.Min():F2} .. {t100.Max():F2} s (avg {t100.Average():F2}), launches: " +
+                string.Join(", ", _w.Bots.GroupBy(b => b.Launch).Select(g => $"{g.Key} {g.Count()}")));
+            // line differences between personalities in corners (bins where both have data)
+            var names = _lineByPers.Keys.OrderBy(x => x).ToList();
+            for (int a = 0; a < names.Count; a++)
+                for (int b = a + 1; b < names.Count; b++)
+                {
+                    var A = _lineByPers[names[a]]; var B = _lineByPers[names[b]];
+                    double sum = 0, max = 0; int n = 0;
+                    for (int i = 0; i < A.N.Length; i++)
+                    {
+                        if (A.N[i] < 3 || B.N[i] < 3) continue;
+                        if (MathF.Abs(line.CurvatureAt(i * 10 + 5)) < 1 / 300f) continue;
+                        double d = Math.Abs(A.Sum[i] / A.N[i] - B.Sum[i] / B.N[i]);
+                        sum += d; max = Math.Max(max, d); n++;
+                    }
+                    if (n > 0) Console.WriteLine($"  line {names[a]} vs {names[b]}: corners avg {sum / n:F2} m apart, max {max:F2} m ({n} samples)");
+                }
+        }
+
+        public bool Behaviour;
 
         public void Sample(double now)
         {
             _frames++;
+            if (Behaviour && _frames % 3 == 0) SampleBehaviour(now);
             var line = _w.Line;
             var bots = _w.Bots.Where(b => b.OnTrack).ToList();
             for (int i = 0; i < bots.Count; i++)

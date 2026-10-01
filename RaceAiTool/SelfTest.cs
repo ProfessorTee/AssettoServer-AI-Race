@@ -276,8 +276,11 @@ public static class SelfTest
         hb.StartRace(0);
         hb.Advance(0);
         for (double x = 0.05; x < 8; x += 0.05) hb.Advance(x);
-        Check($"high beams: leader on ({hb.GetPose(lead).HighBeam}), car right behind dipped ({hb.GetPose(follow).HighBeam})",
-            hb.GetPose(lead).HighBeam && !hb.GetPose(follow).HighBeam);
+        // the start is random now (reaction, wheelspin): whoever is in front
+        var first = lead.Distance >= follow.Distance ? lead : follow;
+        var second = first == lead ? follow : lead;
+        Check($"high beams: leader on ({hb.GetPose(first).HighBeam}), car right behind dipped ({hb.GetPose(second).HighBeam})",
+            hb.GetPose(first).HighBeam && !hb.GetPose(second).HighBeam);
     }
 
     private static void StuckTest(RacingLine line)

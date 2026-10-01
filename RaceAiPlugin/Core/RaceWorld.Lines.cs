@@ -19,6 +19,8 @@ public enum CornerLineKind
 public sealed partial class RaceWorld
 {
     private const float CornerMinCurvature = 1 / 220f;
+    /// <summary>Longest move of the line along a corner (m) at style 1.</summary>
+
 
     /// <summary>0..1: how imprecise the driver is right now (same inputs as the mistakes, so the strength calibration covers it).</summary>
     private float Imprecision(RaceBot me)
@@ -94,10 +96,12 @@ public sealed partial class RaceWorld
         }
 
         // every driver below the limit: brakes a bit too early here, waits a moment before full throttle there
-        float skill = me.Driver.Pace + me.PaceNoise;
+        float skill = me.Driver.Pace + me.PaceNoise + me.PaceBoost;
         me.PlanBrakeMargin = DriverProfile.BrakeMargin(skill) * (0.3f + 1.4f * _rng.NextSingle())
                              + 6f * MathF.Max(0, -me.Driver.Personality.BrakeBehavior) * _rng.NextSingle();
         me.PlanExitDelay = DriverProfile.ExitHesitation(skill) * (0.2f + 1.6f * _rng.NextSingle());
+        // greedy drivers are on the throttle earlier (and sometimes too early, see the corner exit mistakes)
+        me.PlanExitDelay *= 1.3f - 0.8f * Math.Clamp(me.Driver.Personality.ExitGreed, 0, 1);
 
         float ip = Imprecision(me);
         if (ip <= 0.001f || !MistakesAllowed(me)) return;

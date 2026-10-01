@@ -108,6 +108,7 @@ public sealed partial class RaceWorld
         me.MistakeCount++;
         me.CornerSeen = false;
         me.LockStart = double.NaN;
+        if (me.OvertakeTargetId >= 0) Diag("end:mistake");
         me.OvertakeTargetId = -1;
         if (Settings.GrassMoments)
             me.EdgeAllowance = MathF.Max(me.EdgeAllowance, kind == MistakeKind.Spin ? Settings.GrassAllowance + 0.5f : Settings.GrassAllowance);
@@ -130,7 +131,9 @@ public sealed partial class RaceWorld
         if (!MistakesAllowed(me)) return;
         float e = ErrorLevel(me);
         double r = _rng.NextDouble();
-        if (r < 0.07 * e * (1 + 0.5 * me.Driver.Personality.BrakeBehavior))
+        // diving down the inside: more often too late
+        float attacking = me.OvertakeTargetId >= 0 ? 1 + AttackOf(me) : 1;
+        if (r < 0.07 * e * (1 + 0.5 * me.Driver.Personality.BrakeBehavior) * attacking + (me.OvertakeTargetId >= 0 ? 0.03 * AttackOf(me) : 0))
         {
             // braked too late: the plan assumes more braking than the car has
             StartMistake(me, MistakeKind.LateBrake, 0, 0.4f + 0.6f * _rng.NextSingle(), 6f);
@@ -159,7 +162,8 @@ public sealed partial class RaceWorld
         }
         if (!me.InCorner || me.CornerExitRolled || load < 0.4f || me.TargetSpeed < me.Speed + 0.3f) return;
         me.CornerExitRolled = true;
-        if (!MistakesAllowed(me)) return;
+        Diag("exit rolls");
+        if (!MistakesAllowed(me)) { Diag("exit: not allowed"); return; }
 
         float e = ErrorLevel(me);
         float turn = MathF.Sign(kEff);
@@ -182,8 +186,20 @@ public sealed partial class RaceWorld
             // the rear steps out: the car drifts to the outside a little
             me.MistakeTargetOffset = me.Offset - turn * (0.4f + 1.0f * sev);
         }
-        else if (r < pSlide + pGrass)
+        else if (r < pSlide + pGrass + GreedyExitChance(me))
         {
+            if (r >= pSlide + pGrass)
+            {
+                // too much throttle too early: the car runs wide past the exit kerb, one or two wheels on the grass (costs time)
+                float outerG = -turn;
+                float sG = Line.WrapS((float)me.Distance);
+                float halfG = me.Car.Width / 2;
+                float edgeG = outerG > 0 ? Line.RoomPlusAt(sG) - halfG : -Line.RoomMinusAt(sG) + halfG;
+                StartMistake(me, MistakeKind.Grass, outerG, 0.2f + 0.6f * _rng.NextSingle(), 1.1f + 0.7f * _rng.NextSingle());
+                me.MistakeTargetOffset = edgeG + outerG * (KerbAllowance(me) + 0.3f + 0.7f * me.MistakeSeverity);
+                me.GreedyExits++;
+                return;
+            }
             float outer = -turn;
             int i = Line.IndexAt(Line.WrapS((float)me.Distance));
             float half = me.Car.Width / 2;
@@ -192,6 +208,30 @@ public sealed partial class RaceWorld
             // two wheels over the edge
             me.MistakeTargetOffset = edge + outer * (0.4f + 0.5f * me.MistakeSeverity + half * 0.3f);
         }
+    }
+
+    /// <summary>
+    /// Chance (per corner exit) that a greedy driver is on the throttle too early and runs wide: independent of the strength (fast
+    /// aggressive drivers do it too), more when attacking or impatient. Only where the exit runs out to the edge.
+    /// </summary>
+    private float GreedyExitChance(RaceBot me)
+    {
+        if (!Settings.GrassMoments || me.Clone != null) return 0;
+        float greed = Math.Clamp(me.Driver.Personality.ExitGreed, 0, 1) * (0.5f + me.Driver.Aggression);
+        greed *= 1 + me.Impatience + (me.OvertakeTargetId >= 0 ? 0.8f : 0) + me.Pressure;
+        // the exit must lead towards an edge: the driver's line comes close to the outer edge within the next 60 m
+        float s = Line.WrapS((float)me.Distance);
+        float outer = -MathF.Sign(Line.CurvatureAt(s));
+        float half = me.Car.Width / 2;
+        float edgeRoom = float.MaxValue;
+        for (float d = 10; d <= 60; d += 5)
+        {
+            float sa = s + d, lo = OwnLineOffset(me, sa);
+            edgeRoom = MathF.Min(edgeRoom, outer > 0 ? Line.RoomPlusAt(sa) - half - lo : lo + Line.RoomMinusAt(sa) - half);
+        }
+        Diag(edgeRoom > 1.2f ? "greedy:no edge" : "greedy:eligible");
+        if (edgeRoom > 1.2f) return 0;
+        return 0.045f * greed;
     }
 
     /// <summary>Overrides of the target speed / lane while a mistake is going on (end of Think).</summary>
@@ -295,8 +335,9 @@ public sealed partial class RaceWorld
     {
         int i = Line.IndexAt(Line.WrapS((float)me.Distance));
         float half = me.Car.Width / 2;
-        float beyond = MathF.Max(me.Offset - (Line.RoomPlus[i] - half), -Line.RoomMinus[i] + half - me.Offset);
-        if (beyond > 0.05f)
+        // kerbs are part of the track for drivers who use them; grass starts behind them
+        float beyond = MathF.Max(me.Offset - (Line.RoomPlus[i] - half), -Line.RoomMinus[i] + half - me.Offset) - MathF.Max(0.05f, KerbAllowance(me));
+        if (beyond > 0)
             me.Speed = MathF.Max(0, me.Speed - (1.2f + 2.5f * MathF.Min(1, beyond)) * dt);
     }
 
@@ -394,7 +435,7 @@ public sealed partial class RaceWorld
         float s = Line.WrapS((float)me.Distance);
         float half = me.Car.Width / 2;
         // a clone may use the kerbs like the player did (its line stays KerbLimit from the edge of the width data)
-        float allow = MathF.Max(Settings.GrassMoments ? me.EdgeAllowance : 0, me.Clone != null ? half - CloneProfile.KerbLimit + 0.2f : 0);
+        float allow = MathF.Max(Settings.GrassMoments ? me.EdgeAllowance : 0, KerbAllowance(me));
         float before = me.Offset;
         me.Offset = Math.Clamp(me.Offset, -Line.RoomMinusAt(s) + half - allow, Line.RoomPlusAt(s) - half + allow);
         if (MathF.Abs(before - me.Offset) > 0.01f) me.ClampedAt = _now;
@@ -465,6 +506,7 @@ public sealed partial class RaceWorld
             Wobble(other, Math.Clamp(impact / 40f, 0.15f, 0.5f));
         }
         me.CautiousUntil = _now + 2;
+        if (me.OvertakeTargetId >= 0) Diag("end:contact");
         me.OvertakeTargetId = -1;
     }
 

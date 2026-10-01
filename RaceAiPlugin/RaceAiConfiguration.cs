@@ -111,20 +111,43 @@ public class PersonalityConfiguration
     public float LineErrors { get; set; } = 1;
     [YamlMember(Description = "0..1: patience behind a slower car. 0 = flashes after a few seconds, 1 = waits long and hardly flashes")]
     public float Patience { get; set; } = 0.5f;
+    [YamlMember(Description = "-1..1: line through the corners. 1 = late apex (V: stays outside, turns in late and sharp, straight exit), -1 = round (U: earlier, softer, wide exit). Empty = default of this personality")]
+    public float? ApexStyle { get; set; }
+    [YamlMember(Description = "-1..1: 1 uses every centimetre including the kerbs, -1 stays well clear of the edges")]
+    public float? TrackUse { get; set; }
+    [YamlMember(Description = "0..1: early and hard on the throttle out of corners; now and then too early: runs wide, wheels on the grass")]
+    public float? ExitGreed { get; set; }
+    [YamlMember(Description = "Extra room (m) left to a car alongside: positive gives room and backs out early, negative squeezes and holds on")]
+    public float? Room { get; set; }
+    [YamlMember(Description = "0..1: how readily overtakes are tried (from further back, with less speed advantage, in tighter gaps)")]
+    public float? Attack { get; set; }
+    [YamlMember(Description = "0..1: how hard a position is defended; low values let a clearly faster car by")]
+    public float? Defend { get; set; }
+    [YamlMember(Description = "-1..1: the start. 1 quick reaction and aggressive launch (often wheelspin), -1 slow and careful")]
+    public float? Launch { get; set; }
 
-    public Personality ToPersonality() => new()
+    public Personality ToPersonality()
     {
-        Name = Name, Aggression = Aggression / 100f, BrakeBehavior = Math.Clamp(BrakeBehavior, -1, 1), InsideLine = InsideLine, TyreWear = TyreWear, TyreChangeAt = TyreChangeAt,
-        FuelUse = FuelUse, Smoothness = Smoothness, Composure = Composure, Weaving = Weaving, Mistakes = Mistakes, LineErrors = LineErrors,
-        Patience = Math.Clamp(Patience, 0, 1)
-    };
+        // values not in the configuration (older files): from the built-in personality of the same name
+        var d = Personality.BuiltIn(Name) ?? new Personality();
+        return new()
+        {
+            Name = Name, Aggression = Aggression / 100f, BrakeBehavior = Math.Clamp(BrakeBehavior, -1, 1), InsideLine = InsideLine, TyreWear = TyreWear, TyreChangeAt = TyreChangeAt,
+            FuelUse = FuelUse, Smoothness = Smoothness, Composure = Composure, Weaving = Weaving, Mistakes = Mistakes, LineErrors = LineErrors,
+            Patience = Math.Clamp(Patience, 0, 1),
+            ApexStyle = Math.Clamp(ApexStyle ?? d.ApexStyle, -1, 1), TrackUse = Math.Clamp(TrackUse ?? d.TrackUse, -1, 1),
+            ExitGreed = Math.Clamp(ExitGreed ?? d.ExitGreed, 0, 1), Room = Math.Clamp(Room ?? d.Room, -0.3f, 2f),
+            Attack = Math.Clamp(Attack ?? d.Attack, 0, 1), Defend = Math.Clamp(Defend ?? d.Defend, 0, 1), Launch = Math.Clamp(Launch ?? d.Launch, -1, 1)
+        };
+    }
 
     public static List<PersonalityConfiguration> Defaults() => Personality.Defaults().Select(d => new PersonalityConfiguration
     {
         Name = d.Personality.Name, Share = d.Share, Aggression = d.Personality.Aggression * 100, BrakeBehavior = d.Personality.BrakeBehavior,
         InsideLine = d.Personality.InsideLine, TyreWear = d.Personality.TyreWear, TyreChangeAt = d.Personality.TyreChangeAt, FuelUse = d.Personality.FuelUse,
         Smoothness = d.Personality.Smoothness, Composure = d.Personality.Composure, Weaving = d.Personality.Weaving, Mistakes = d.Personality.Mistakes,
-        LineErrors = d.Personality.LineErrors, Patience = d.Personality.Patience
+        LineErrors = d.Personality.LineErrors, Patience = d.Personality.Patience, ApexStyle = d.Personality.ApexStyle, TrackUse = d.Personality.TrackUse,
+        ExitGreed = d.Personality.ExitGreed, Room = d.Personality.Room, Attack = d.Personality.Attack, Defend = d.Personality.Defend, Launch = d.Personality.Launch
     }).ToList();
 }
 
@@ -350,6 +373,20 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     [YamlMember(Description = "Height correction for bots parked in their pit box (m, + = higher, - = lower)")]
     public float ParkHeightAdjust { get; set; } = 0;
 
+    [YamlMember(Description = "Every bot drives its own line through the corners (by personality and driver: late or early apex, on the kerbs or clear of the edges) instead of all on the AI line")]
+    public bool PersonalLines { get; set; } = true;
+    [YamlMember(Description = "Realistic starts: reaction times, clutch, now and then wheelspin or a bogged launch, instead of a perfect launch for everybody")]
+    public bool RealisticStart { get; set; } = true;
+    [YamlMember(Description = "Rubber band to the players, 0-100 % (0 = off): bots ahead of the nearest player get slower, bots behind faster (like CSP's AI rubberbanding)")]
+    public float RubberBanding { get; set; }
+    [YamlMember(Description = "Rubber band at 100 %: at most this much slower (%) for bots ahead of the players")]
+    public float RubberBandingAhead { get; set; } = 3;
+    [YamlMember(Description = "Rubber band at 100 %: at most this much faster (%) for bots behind the players")]
+    public float RubberBandingBehind { get; set; } = 6;
+    [YamlMember(Description = "Rubber band: full effect from this distance to the nearest player (m)")]
+    public float RubberBandingDistance { get; set; } = 200;
+    [YamlMember(Description = "Rubber band: seconds until the full effect")]
+    public float RubberBandingTime { get; set; } = 60;
     [YamlMember(Description = "Driver personalities: every bot gets one (random by Share, or Drivers[].Personality). false = everybody Balanced")]
     public bool UsePersonalities { get; set; } = true;
 

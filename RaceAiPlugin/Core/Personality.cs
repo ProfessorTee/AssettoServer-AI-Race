@@ -38,17 +38,43 @@ public sealed class Personality
     /// <summary>0..1: patience behind a slower car. 0 = flashes the lights after a few seconds, 1 = waits a long time and hardly ever flashes.</summary>
     public float Patience { get; set; } = 0.5f;
 
-    public static Personality Balanced => new();
+    // ---- line, fights and start (each bot of a personality varies a little around these)
+
+    /// <summary>
+    /// -1..1: the line through the corners. +1 = late apex / "V": brakes in a straight line, stays outside longer, turns in late and
+    /// sharp, kerb on the apex, straight exit. -1 = round "U": turns in earlier and softer, earlier apex, wide flowing exit. 0 = AI line.
+    /// </summary>
+    public float ApexStyle { get; set; }
+    /// <summary>-1..1: +1 uses every centimetre including the kerbs, -1 stays well clear of the edges.</summary>
+    public float TrackUse { get; set; }
+    /// <summary>0..1: early and hard on the throttle out of corners; now and then too early: runs wide, one or two wheels on the grass.</summary>
+    public float ExitGreed { get; set; } = 0.35f;
+    /// <summary>Extra room (m) left to a car alongside: positive = gives room and backs out early, negative = squeezes and holds on.</summary>
+    public float Room { get; set; } = 0.15f;
+    /// <summary>0..1: how readily an overtake is tried (from further back, with less speed advantage, in tighter gaps).</summary>
+    public float Attack { get; set; } = 0.55f;
+    /// <summary>0..1: how hard a position is defended (covering the inside); low values let a clearly faster car by.</summary>
+    public float Defend { get; set; } = 0.5f;
+    /// <summary>-1..1: the start. +1 = quick reaction and an aggressive launch (often wheelspin), -1 = slow and careful.</summary>
+    public float Launch { get; set; }
+
+    public static Personality Balanced => new() { ApexStyle = 0.15f, TrackUse = 0.2f };
 
     /// <summary>The built-in set (used when the configuration lists none).</summary>
     public static List<(Personality Personality, float Share)> Defaults() =>
     [
-        (new Personality { Name = "Balanced", TyreChangeAt = 93 }, 40),
+        (new Personality { Name = "Balanced", TyreChangeAt = 93, ApexStyle = 0.15f, TrackUse = 0.2f }, 40),
         (new Personality { Name = "DiveBomber", Aggression = 0.25f, BrakeBehavior = 1f, InsideLine = 1f, TyreWear = 1.25f, FuelUse = 1.05f,
-            Composure = 0.4f, Weaving = 0.9f, Mistakes = 1.2f, LineErrors = 1.1f, Patience = 0.1f, TyreChangeAt = 95 }, 20),
+            Composure = 0.4f, Weaving = 0.9f, Mistakes = 1.2f, LineErrors = 1.1f, Patience = 0.1f, TyreChangeAt = 95,
+            ApexStyle = 0.9f, TrackUse = 0.9f, ExitGreed = 0.9f, Room = -0.2f, Attack = 1f, Defend = 0.9f, Launch = 0.8f }, 20),
         (new Personality { Name = "Chill", Aggression = -0.2f, BrakeBehavior = -0.6f, TyreWear = 0.75f, FuelUse = 0.97f, Smoothness = 0.5f,
-            Composure = 0.9f, Weaving = 0.1f, Mistakes = 0.8f, LineErrors = 0.8f, Patience = 0.9f, TyreChangeAt = 90 }, 20),
+            Composure = 0.9f, Weaving = 0.1f, Mistakes = 0.8f, LineErrors = 0.8f, Patience = 0.9f, TyreChangeAt = 90,
+            ApexStyle = -0.8f, TrackUse = -0.6f, ExitGreed = 0.05f, Room = 0.75f, Attack = 0.3f, Defend = 0.15f, Launch = -0.5f }, 20),
         (new Personality { Name = "FuelSaver", Aggression = -0.1f, BrakeBehavior = -0.4f, TyreWear = 0.9f, FuelUse = 0.85f, Smoothness = 0.7f,
-            Composure = 0.7f, Weaving = 0.2f, LineErrors = 0.9f, Patience = 0.7f, TyreChangeAt = 91 }, 20)
+            Composure = 0.7f, Weaving = 0.2f, LineErrors = 0.9f, Patience = 0.7f, TyreChangeAt = 91,
+            ApexStyle = -0.45f, TrackUse = -0.3f, ExitGreed = 0.1f, Room = 0.45f, Attack = 0.25f, Defend = 0.35f, Launch = -0.3f }, 20)
     ];
+
+    /// <summary>The built-in personality of that name (for values missing in an older configuration), or null.</summary>
+    public static Personality? BuiltIn(string name) => Defaults().Select(d => d.Personality).FirstOrDefault(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
 }

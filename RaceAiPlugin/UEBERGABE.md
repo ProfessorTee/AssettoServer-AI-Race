@@ -213,6 +213,21 @@
 - Trial Mountain, Tees BMW-Runden: im Schnitt 0,75 -> 0,26 m neben seiner Linie, max 4,4 -> 1,2-1,8 m,
   Sprünge der Seitengeschwindigkeit > 0,5 m/s pro Frame 2-3 -> 0.
 
+## Neu in Teil 20: Persönlichkeit im Fahrverhalten
+- Messwerkzeug: `RaceAiTool sim --style` (Linienabstand der Persönlichkeiten in Kurven, Angriffe/Überholungen/Verteidigungen,
+  Kontakte, Gras, Seitenabstand, 0-100 beim Start), `--personality X`, `--personalities A,B`.
+- Vorher: alle Persönlichkeiten in Kurven 0,01 m auseinander, Seitenabstand für alle gleich (~0,5 m).
+- Eigene Linie (`PersonalLineOffset`): Muster der KI-Linie quer über die Strecke entlang verschoben (Apex früher/später, bis ±7 m)
+  plus Rand-/Randsteinnutzung (+0,4 / -0,6 m an den Stellen, wo die Linie am Rand ist). Planer rechnet nur den Radiuseffekt
+  (die Eigenkrümmung der Linie zählt als Fahrstil), sonst wären Linien bis 10 % langsamer. Ergebnis: Chill vs DiveBomber im Schnitt
+  1,3 m auseinander (max 4 m), Rundenzeiten aller Persönlichkeiten innerhalb 0,7 %. Randsteine zählen für diese Fahrer nicht als Gras.
+- Zweikampf: `Room` (Seitenabstand, wer bei Gleichstand zurücksteckt), zurückstecken in Kurven mit leichtem Lupfen, Angriff
+  (`Attack`: Reichweite, nötiger Vorteil, kürzere Lückenprüfung, schnellere Autos vorne blockieren nicht, keine Zielwechsel
+  mittendrin, Seitenwechsel wenn zu, Zeitlimits in Sekunden), Commit beim Angriff (+2..6 % Pace, später bremsen, mehr Verbremser),
+  Verteidigen (`Defend`, eine Bewegung, nicht wenn der Angreifer schon innen ist, gegen Spieler nur mit Abstand), Chill lässt vorbei.
+- Start: Reaktionszeit, Kupplung, Wheelspin/Bog, Drehzahl beim Start; Gras nach zu frühem Gas (`GreedyExitChance`).
+- Gummiband nach CSP-Vorbild (`UpdateRubberBand`, `PaceBoost`).
+
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:
 1. Offizielles Release `assetto-server-linux-x64.tar.gz` (v0.0.55-pre42) laden. Es ist ein Single-File-Bundle mit .NET 11 RC,

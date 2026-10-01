@@ -34,6 +34,7 @@ public static class Program
                 "car" => Car(opts),
                 "selftest" => SelfTest.Run(opts),
                 "strength" => Strength(opts),
+                "width" => Width(opts),
                 _ => Usage()
             };
         }
@@ -164,6 +165,20 @@ public static class Program
         {
             var spec = CarDataLoader.Load(cars, model, log: Console.WriteLine);
             PrintSpec(spec);
+        }
+        return 0;
+    }
+
+    private static int Width(Options o)
+    {
+        var (trackRoot, layout, _) = ResolvePaths(o);
+        var line = new RacingLine(FastLaneFile.Read(FastLanePath(trackRoot, layout)));
+        float from = o.Float("from", 800), to = o.Float("to", 1000);
+        Console.WriteLine($"spacing {line.Spacing:F2} m, {line.Count} points");
+        for (float s = from; s < to; s += 2)
+        {
+            int i = line.IndexAt(s);
+            Console.WriteLine($"{s,6:F0} k {line.Curvature[i],8:F4}  +{line.RoomPlus[i],5:F2} -{line.RoomMinus[i],5:F2}  c {(line.RoomPlus[i] - line.RoomMinus[i]) / 2,6:F2}");
         }
         return 0;
     }
