@@ -174,13 +174,19 @@ public static class Program
         var line = new RacingLine(FastLaneFile.Read(FastLanePath(trackRoot, layout)));
         var info = TrackInfo.LoadLayoutData(LayoutDataDir(trackRoot, layout));
         line.ApplyHints(info.SpeedHints, info.MaxSpeedsKmh);
-        var settings = new RaceWorldSettings();
+        var settings = new RaceWorldSettings { HumanErrors = !o.Has("no-errors") };
+        int threads = o.Int("threads", 0);
         foreach (var model in (o.Get("models") ?? "ks_mercedes_amg_gt3").Split(','))
         {
             var spec = CarDataLoader.Load(cars, model);
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            var cal = StrengthCalibration.Measure(line, spec, settings);
-            Console.WriteLine($"{model}: best lap {Simulator.Fmt(cal.BestLap)} ({sw.ElapsedMilliseconds} ms), table {string.Join(" ", cal.LapTimes.Select(Simulator.Fmt))}");
+            int gc0 = GC.CollectionCount(0), gc2 = GC.CollectionCount(2);
+            long alloc = GC.GetTotalAllocatedBytes();
+            var cpu0 = System.Diagnostics.Process.GetCurrentProcess().TotalProcessorTime;
+            var cal = StrengthCalibration.Measure(line, spec, settings, threads: threads);
+            var cpu = System.Diagnostics.Process.GetCurrentProcess().TotalProcessorTime - cpu0;
+            Console.WriteLine($"{model}: best lap {Simulator.Fmt(cal.BestLap)} ({sw.ElapsedMilliseconds} ms wall, {cpu.TotalMilliseconds:F0} ms CPU, " +
+                              $"{(GC.GetTotalAllocatedBytes() - alloc) / 1048576} MB allocated, GC {GC.CollectionCount(0) - gc0}/{GC.CollectionCount(2) - gc2}), table {string.Join(" ", cal.LapTimes.Select(Simulator.Fmt))}");
             foreach (var pct in new[] { 100f, 97, 95, 94, 92, 90, 85, 80, 75, 70 })
                 Console.WriteLine($"   {pct,4:F0} % -> pace {cal.PaceFor(pct):F3}  target {Simulator.Fmt(cal.LapTimeFor(pct))}");
         }
