@@ -698,7 +698,12 @@ public sealed partial class RaceWorld
     private double _lastAdvance = double.NaN;
 
     /// <summary>Largest simulation step; longer frames are split into several steps.</summary>
-    public float MaxStep { get; set; } = 0.025f;
+    /// <summary>
+    /// Simulation step. 10 ms: bots touch less (overlaps resolved earlier), leave the track less and move more smoothly than with
+    /// 25 ms; the calibration uses the same step so the lap times match the strength setting.
+    /// </summary>
+    public const float DefaultStep = 0.01f;
+    public float MaxStep { get; set; } = DefaultStep;
 
     /// <summary>
     /// Advances the simulation to <paramref name="now"/> (seconds), splitting long frames into small steps.

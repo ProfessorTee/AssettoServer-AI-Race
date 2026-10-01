@@ -165,6 +165,14 @@
   nach dem Auseinanderschieben kein weiteres Hineinrutschen (das Zittern ineinander).
 - RaceAiTool `sim --player-pace 0.97 --player-aggression 0.9 --latency 0.04`: Netzmodell, misst Überlappungen aus Sicht des Spielers.
 
+## Neu in Teil 15: Server-Feinschliff (Rechenleistung ist da)
+- Messung: ein Server-Tick braucht 0,6 ms (p99 1,9 ms) von 33 ms, kaum GC; Ressourcen sind kein Engpass.
+- Simulationsschritt 25 ms -> 10 ms (`RaceWorld.DefaultStep`), Kalibrierung mit demselben Schritt. Im Simulator: Überlappungen
+  zwischen Bots 22 -> 2 Frames, neben der Strecke 1371 -> 827 Frames pro Runde. Kalibrierung dauert länger, läuft jetzt parallel
+  und wird gecacht (erster Start nach einem Update: bis ~1 min auf der Nordschleife).
+- Core: Autos außerhalb der Netzwerk-Blase (500 m) mit 10 statt 4 Updates/s.
+- Dashboard: Ping und Ping-Schwankung pro Spieler (`EntryCar.PingJitter`).
+
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:
 1. Offizielles Release `assetto-server-linux-x64.tar.gz` (v0.0.55-pre42) laden. Es ist ein Single-File-Bundle mit .NET 11 RC,

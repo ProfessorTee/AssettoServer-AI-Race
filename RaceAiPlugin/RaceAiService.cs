@@ -210,6 +210,32 @@ public sealed partial class RaceAiService : IHostedService
             _config.AiStrengthDistribution == StrengthDistribution.Random, _rng);
         int botIndex = 0;
 
+        // all cars first, calibrated in parallel (a few seconds per car, now one core each)
+        var toCalibrate = new List<(CarSpec Spec, string Variant)>();
+        foreach (var slotIndex in botSlots)
+        {
+            var ec = _entryCarManager.EntryCars[slotIndex];
+            var k = (ec.Model, ec.Ballast, ec.Restrictor);
+            if (specCache.ContainsKey(k)) continue;
+            var root = carRoots.FirstOrDefault(r => Directory.Exists(Path.Join(r, ec.Model))) ?? carRoots.FirstOrDefault() ?? "content/cars";
+            var sp = CarDataLoader.Load(root, ec.Model, ec.Ballast, ec.Restrictor, msg => Log.Warning("Race AI: {Message}", msg));
+            specCache[k] = sp;
+            toCalibrate.Add((sp, $"{ec.Ballast}/{ec.Restrictor}"));
+        }
+        var calSw = System.Diagnostics.Stopwatch.StartNew();
+        var done = new System.Collections.Concurrent.ConcurrentDictionary<CarSpec, StrengthCalibration>();
+        Parallel.ForEach(toCalibrate, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount) },
+            c => done[c.Spec] = CachedCalibration(c.Spec, settings, c.Variant));
+        foreach (var (sp, _) in toCalibrate)
+        {
+            var cal = done[sp];
+            _calibrations[sp] = cal;
+            Log.Information("Race AI: car {Model} ({Source}): top {Top:F0} km/h, grip {Grip:F2} g, 100 % = {Best}, {Fuel:F1} l/lap, tyres {Compound}, mistakes {Loss:F0} s/lap at most",
+                sp.Model, sp.Source, sp.TopSpeed * 3.6f, sp.LateralGrip, FormatLap(cal.BestLap), sp.CalibratedFuelPerLap, sp.TyreCompound, cal.ErrorLossFull);
+        }
+        if (toCalibrate.Count > 0)
+            Log.Information("Race AI: {Count} cars calibrated in {Seconds:F1} s", toCalibrate.Count, calSw.Elapsed.TotalSeconds);
+
         foreach (var slotIndex in botSlots)
         {
             var entryCar = _entryCarManager.EntryCars[slotIndex];

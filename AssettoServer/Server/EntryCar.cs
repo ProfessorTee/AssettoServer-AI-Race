@@ -28,6 +28,9 @@ public partial class EntryCar : IEntryCar<ACTcpClient>
     public long LastActiveTime { get; internal set; }
     public bool HasUpdateToSend { get; internal set; }
     public int TimeOffset { get; internal set; }
+    /// <summary>How much the ping varies from one measurement to the next (ms, smoothed). High values: shaky connection.</summary>
+    public float PingJitter { get; private set; }
+    private int _lastPing = -1;
     private double _clockOffset;
     private double _clockMinPing;
     private int _clockSamples;
@@ -40,6 +43,8 @@ public partial class EntryCar : IEntryCar<ACTcpClient>
     internal void UpdateClock(long serverNow, ushort ping, int clientTime)
     {
         double sample = serverNow - ping / 2.0 - clientTime;
+        if (_lastPing >= 0) PingJitter = PingJitter * 0.8f + Math.Abs(ping - _lastPing) * 0.2f;
+        _lastPing = ping;
         if (_clockSamples == 0 || Math.Abs(sample - _clockOffset) > 250)
         {
             _clockOffset = sample;
@@ -175,6 +180,8 @@ public partial class EntryCar : IEntryCar<ACTcpClient>
         HasUpdateToSend = false;
         TimeOffset = 0;
         _clockSamples = 0;
+        _lastPing = -1;
+        PingJitter = 0;
         LastRemoteTimestamp = 0;
         LastPingTime = 0;
         Ping = 0;

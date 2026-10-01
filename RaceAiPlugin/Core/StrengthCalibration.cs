@@ -165,7 +165,7 @@ public sealed class StrengthCalibration
             TyreWearScale = template.TyreWearScale,
             PitStops = false
         };
-        var world = new RaceWorld(line, settings) { MaxStep = 0.05f };
+        var world = new RaceWorld(line, settings) { MaxStep = RaceWorld.DefaultStep };
         var bot = new RaceBot
         {
             Id = 0,

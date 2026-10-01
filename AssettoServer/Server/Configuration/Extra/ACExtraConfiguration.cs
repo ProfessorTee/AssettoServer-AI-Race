@@ -41,7 +41,7 @@ public class ACExtraConfiguration
     [YamlMember(Description = "Distance for network optimizations. Players outside of this range will send less updates to reduce network traffic")]
     public float NetworkBubbleDistance { get; init; } = 500;
     [YamlMember(Description = "Refresh rate for players outside of the network bubble")]
-    public int OutsideNetworkBubbleRefreshRateHz { get; init; } = 4;
+    public int OutsideNetworkBubbleRefreshRateHz { get; init; } = 10;
     [YamlMember(Description = "Enable server details in CM. Required for server description")]
     public bool EnableServerDetails { get; set; } = true;
     [YamlMember(Description = "Server description shown in Content Manager. EnableServerDetails must be on")]

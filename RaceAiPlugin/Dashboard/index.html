@@ -443,6 +443,7 @@ async function poll() {
 function statusTags(c) {
   const t = [];
   if (!c.bot) t.push(`<span class="tag info">Spieler</span>`);
+  if (!c.bot && c.ping != null) t.push(`<span class="tag${c.ping > 150 || c.jitter > 15 ? " warn" : ""}" title="Ping und wie stark er schwankt">Ping ${c.ping} ±${c.jitter} ms</span>`);
   if (c.finished) t.push(`<span class="tag">🏁</span>`);
   if (c.bot) {
     if (c.pit === "InLane" || c.pit === "Stopped") t.push(`<span class="tag info">Box</span>`);

@@ -123,6 +123,8 @@ public sealed partial class RaceAiService
                 else
                 {
                     d["admin"] = client!.IsAdministrator;
+                    d["ping"] = car.Ping;
+                    d["jitter"] = MathF.Round(car.PingJitter);
                     d["guid"] = client.Guid.ToString();
                 }
                 cars.Add(d);

@@ -59,6 +59,7 @@ public static class Simulator
         float errorsBelow = o.Float("errors-below", 87), errorsFull = o.Float("errors-full", 75);
         if (info.StartFinish is { } sf) settings.StartLineS = line.Project(sf).S;
         var world = new RaceWorld(line, settings);
+        if (o.Get("step") != null) world.MaxStep = o.Float("step", 0.025f);
         var pitPath = Path.Join(Path.GetDirectoryName(Program.FastLanePath(trackRoot, layout))!, "pit_lane.ai");
         if (File.Exists(pitPath) && !o.Has("no-pits"))
         {
