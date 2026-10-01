@@ -20,6 +20,8 @@ public sealed class RecordedLap
 public sealed class CloneProfile
 {
     public const float BinSize = 4f;
+    /// <summary>How close to the track edge (of the AI line's width data) the clone's line may come: half a car minus some kerb.</summary>
+    public const float KerbLimit = 0.6f;
 
     public string PlayerGuid { get; init; } = "";
     public string PlayerName { get; init; } = "";
@@ -41,17 +43,23 @@ public sealed class CloneProfile
     /// <summary>Spread of the speed between laps (m/s): where the player isn't consistent.</summary>
     public required float[] SpeedSpread { get; init; }
 
-    private float At(float[] a, float s, float length)
+    /// <summary>Bins of equal length around the lap (about <see cref="BinSize"/>), so the line has no seam where the AI line starts.</summary>
+    public static int BinCount(float length) => Math.Max(8, (int)MathF.Round(length / BinSize));
+
+    private static float At(float[] a, float s, float length)
     {
-        float x = (s % length + length) % length / BinSize;
-        int i0 = (int)MathF.Floor(x) % a.Length;
+        float bin = length / a.Length;
+        float x = (s % length + length) % length / bin;
+        int i0 = Math.Min((int)x, a.Length - 1);
         int i1 = (i0 + 1) % a.Length;
-        float t = x - MathF.Floor(x);
+        float t = Math.Clamp(x - i0, 0, 1);
         return a[i0] + (a[i1] - a[i0]) * t;
     }
 
     public float SpeedAt(float s, float length) => At(Speed, s, length);
     public float OffsetAt(float s, float length) => At(Offset, s, length);
+    /// <summary>Slope of the line (offset change per metre): turns forward speed into the sideways speed that follows the line.</summary>
+    public float OffsetSlopeAt(float s, float length) => (At(Offset, s + 2, length) - At(Offset, s - 2, length)) / 4f;
     public float OffsetSpreadAt(float s, float length) => At(OffsetSpread, s, length);
     public float GasAt(float s, float length) => At(Gas, s, length);
     public float BrakeAt(float s, float length) => At(Brake, s, length);
@@ -67,7 +75,8 @@ public sealed class CloneProfile
         float best = clean.Min(l => l.LapTime);
         var used = clean.Where(l => l.LapTime <= best * 1.04f).OrderBy(l => l.LapTime).Take(12).ToList();
 
-        int bins = (int)MathF.Ceiling(line.Length / BinSize);
+        int bins = BinCount(line.Length);
+        float binLen = line.Length / bins;
         var perLapSpeed = new List<float[]>();
         var perLapOffset = new List<float[]>();
         var perLapGas = new List<float[]>();
@@ -83,7 +92,7 @@ public sealed class CloneProfile
                 var p = line.Project(smp.Position, hint);
                 hint = p.Index;
                 if (MathF.Abs(p.Offset) > 25) continue; // off in the pits or a glitch
-                int b = (int)(line.WrapS(p.S) / BinSize) % bins;
+                int b = Math.Min((int)(line.WrapS(p.S) / binLen), bins - 1);
                 sumV[b] += smp.Speed; sumO[b] += p.Offset; sumG[b] += smp.Gas; sumB[b] += smp.Brake;
                 n[b]++;
             }
@@ -103,7 +112,15 @@ public sealed class CloneProfile
         }
 
         var speed = Smooth(Mean(perLapSpeed), 1);
-        var offset = Smooth(Mean(perLapOffset), 3);
+        // the player's own line as a path of its own: kept inside the track (his car's half width plus a bit of kerb), then smoothed
+        // twice (a triangle over ±16 m), so it has no kinks: the bot drives along it, it doesn't jump from bin to bin
+        var offset = Mean(perLapOffset);
+        for (int i = 0; i < bins; i++)
+        {
+            float s = i * binLen;
+            offset[i] = Math.Clamp(offset[i], -line.RoomMinusAt(s) + KerbLimit, line.RoomPlusAt(s) - KerbLimit);
+        }
+        offset = Smooth(Smooth(offset, 2), 2);
         var times = used.Select(l => l.LapTime).ToList();
         float avg = times.Average();
         return new CloneProfile
@@ -119,7 +136,7 @@ public sealed class CloneProfile
             Speed = speed,
             SpeedSpread = Smooth(Spread(perLapSpeed, Mean(perLapSpeed)), 3),
             Offset = offset,
-            OffsetSpread = Smooth(Spread(perLapOffset, Mean(perLapOffset)), 3),
+            OffsetSpread = Smooth(Smooth(Spread(perLapOffset, Mean(perLapOffset)), 3), 3),
             Gas = Smooth(Mean(perLapGas), 1),
             Brake = Smooth(Mean(perLapBrake), 1)
         };

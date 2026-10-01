@@ -187,6 +187,7 @@ public static class Simulator
         playerWorld?.Advance(0);
         // network model (--latency seconds one way): the server sees the player's packets late, the player sees the bots' packets late
         // and extrapolates them with their velocity like AC does. Measured from the player's view: overlaps and jumps of cars near him.
+        float lastLat = float.NaN, maxLatChange = 0, devMax = 0; int twitches = 0, devN = 0; double devSum = 0;
         float latency = o.Float("latency", 0);
         var net = latency > 0 && playerWorld != null ? new NetModel(line, latency) : null;
         while (now < maxTime)
@@ -218,6 +219,20 @@ public static class Simulator
             if (cloneProfile != null && world.Bots[0].LapsCompleted >= 1)
             {
                 var cb = world.Bots[0];
+                // sideways twitches: change of the sideways speed from one frame to the next (what a viewer sees as a snap)
+                float dLat = float.IsNaN(lastLat) ? 0 : MathF.Abs(cb.LateralSpeed - lastLat);
+                lastLat = cb.LateralSpeed;
+                maxLatChange = MathF.Max(maxLatChange, dLat);
+                float sDbg = line.WrapS((float)cb.Distance);
+                if (o.Has("verbose-clone") && (sDbg < 8 || sDbg > line.Length - 12) && cb.LapsCompleted == 2)
+                    Console.WriteLine($"    L {line.Length:F1} s {sDbg:F1} off {cb.Offset:F2} lat {cb.LateralSpeed:F2} prof {cloneProfile.OffsetAt(sDbg, line.Length):F2} tgt {cb.TargetOffset:F2} room +{line.RoomPlusAt(sDbg):F2}/-{line.RoomMinusAt(sDbg):F2}");
+                if (dLat > 0.5f)
+                {
+                    twitches++;
+                    if (o.Has("verbose-clone")) Console.WriteLine($"  twitch {dLat:F2} m/s at {line.WrapS((float)cb.Distance):F0} m, off {cb.Offset:F2}, lat {cb.LateralSpeed:F2}, v {cb.Speed * 3.6f:F0}, mistake {cb.Mistake}, overtake {cb.OvertakeTargetId}");
+                }
+                float rawOff = cb.Offset - cloneProfile.OffsetAt(line.WrapS((float)cb.Distance), line.Length);
+                devSum += MathF.Abs(rawOff); devN++; devMax = MathF.Max(devMax, MathF.Abs(rawOff));
                 int bin = (int)(line.WrapS((float)cb.Distance) / 100f);
                 cloneCmp.TryGetValue(bin, out var acc);
                 cloneCmp[bin] = (acc.V + cb.Speed, acc.O + cb.Offset, acc.N + 1);
@@ -232,6 +247,8 @@ public static class Simulator
         if (trace != null) trace.Print();
         if (cloneProfile != null)
         {
+            Console.WriteLine($"Clone on the player's line: average {devSum / Math.Max(1, devN):F2} m off, at most {devMax:F2} m; " +
+                              $"sideways speed changes > 0.5 m/s per frame: {twitches}, largest {maxLatChange:F2} m/s");
             Console.WriteLine("Clone vs player every 100 m (laps 2+): speed km/h player/clone, line offset m player/clone");
             foreach (var (bin, acc) in cloneCmp)
             {

@@ -202,6 +202,17 @@
   weiter (statt eine Abfrage hinterher zu sein), Log nur noch neue Zeilen (statt ~50 KB alle 2 s), Server-Zustand im Kopf
   (Takt, CPU, Kerne, RAM), Kalibrierungs-Hinweis, Tag „Duell“, Handy-Ansicht aufgeräumt.
 
+## Neu in Teil 19: Klon fährt die eigene Linie des Spielers
+- Vorher: Klon zielte auf einen Punkt 0,55 s voraus auf der Spielerlinie (Versatz zur KI-Linie), Regler mit Verstärkung 2,5,
+  Ziel auf die KI-Breite beschnitten, Zufallsversatz sprang pro Kurve. Ergebnis: im Schnitt 0,75 m neben der Spielerlinie,
+  bis 4 m, Zucken.
+- Jetzt (`CloneLineOffset`, `OnCloneLine`): Spielerlinie als eigener Pfad, beim Bauen bis 0,6 m an die Breitendaten heran
+  begrenzt (Randsteine) und doppelt geglättet; gleich lange Abschnitte rund um die Runde (vorher Naht am Anfang der KI-Linie).
+  Gefahren mit Vorsteuerung: Seitengeschwindigkeit = Tempo x Steigung der Linie + kleine Korrektur. Zufallsversatz gleitet,
+  höchstens 0,5 m. Klone dürfen die Randsteine nutzen wie der Spieler.
+- Trial Mountain, Tees BMW-Runden: im Schnitt 0,75 -> 0,26 m neben seiner Linie, max 4,4 -> 1,2-1,8 m,
+  Sprünge der Seitengeschwindigkeit > 0,5 m/s pro Frame 2-3 -> 0.
+
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:
 1. Offizielles Release `assetto-server-linux-x64.tar.gz` (v0.0.55-pre42) laden. Es ist ein Single-File-Bundle mit .NET 11 RC,

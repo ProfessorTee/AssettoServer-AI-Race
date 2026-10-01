@@ -258,6 +258,10 @@ public sealed class RaceBot
     public float ClonePace { get; set; } = 1f;
     /// <summary>This corner: how far from the player's average line (in standard deviations).</summary>
     internal float CloneZ;
+    /// <summary>The applied share of <see cref="CloneZ"/>: changes slowly, so a new corner doesn't make the line jump.</summary>
+    internal float CloneZNow;
+    /// <summary>The clone is on the player's line right now (not overtaking, defending, ...): follows it exactly.</summary>
+    internal bool OnCloneLine;
 
     // ---- how the current corner is driven (RaceWorld.Lines.cs)
     public bool PlanActive { get; internal set; }
@@ -1308,6 +1312,8 @@ public sealed partial class RaceWorld
         }
 
         // ---- choose lateral target
+        bool cloneLine = false;
+        if (me.Clone != null) me.CloneZNow += (me.CloneZ - me.CloneZNow) * MathF.Min(1, _stepDt / 2.5f);
         if (blueFlag)
         {
             me.TargetOffset = me.BlueSide * (Line.RightIsPlus ? 1 : -1) > 0 ? maxOff : minOff;
@@ -1325,12 +1331,17 @@ public sealed partial class RaceWorld
             {
                 // go back to the racing line when that lane is free
                 float lineOffset = me.Clone is { } cl
-                    ? Math.Clamp(cl.OffsetAt(myS + me.Speed * 0.55f, Line.Length) + me.CloneZ * cl.OffsetSpreadAt(myS, Line.Length), minOff, maxOff)
+                    ? CloneLineOffset(me, cl, myS)
                     : RainLineOffset(me, myS, minOff, maxOff);
                 if (LaneFree(me, lineOffset, myS, -(me.Car.Length + 2), 25))
+                {
                     me.TargetOffset = lineOffset;
+                    cloneLine = me.Clone != null;
+                }
             }
         }
+
+        me.OnCloneLine = cloneLine;
 
         // out-lap with cold tyres and nobody around: weave on the straights to get heat into them
         bool sc = Settings.SafetyCar && me.Phase == BotPhase.Racing && !me.InPitLane;
@@ -1539,12 +1550,27 @@ public sealed partial class RaceWorld
         // lateral movement: smooth, limited lateral speed and acceleration (not while running wide, the car can't turn tighter)
         if (!me.Overspeed)
         {
-            float err = me.TargetOffset - me.Offset;
-            // a clone follows the player's line more tightly (the line is his, not a lane change)
-            bool tight = me.Clone != null && me.OvertakeTargetId < 0;
-            float maxLat = MathF.Min(tight ? 5f : 3.5f, 0.5f + me.Speed * (tight ? 0.09f : 0.06f));
-            float desiredLat = Math.Clamp(err * (tight ? 2.5f : 1.4f), -maxLat, maxLat);
-            float latAcc = 5f;
+            float desiredLat, latAcc = 5f;
+            if (me.OnCloneLine && me.Clone is { } cl && !me.Weaving)
+            {
+                // a clone on the player's line drives along it like along its own racing line: the sideways speed comes from the
+                // line's slope (feed-forward), a small correction pulls it back onto it. No chasing a point ahead, no snapping.
+                float sHere = Line.WrapS((float)me.Distance);
+                float onLine = CloneLineOffset(me, cl, sHere);
+                // slope of the line as driven (inside the track): from the same function, so the two always agree
+                float slope = (CloneLineOffset(me, cl, sHere + 2) - CloneLineOffset(me, cl, sHere - 2)) / 4f;
+                desiredLat = me.Speed * slope + Math.Clamp((onLine - me.Offset) * 2f, -1.5f, 1.5f);
+                desiredLat = Math.Clamp(desiredLat, -8f, 8f);
+                latAcc = 12f; // it's the path's own curvature, not a steering correction
+            }
+            else
+            {
+                float err = me.TargetOffset - me.Offset;
+                // a clone follows the player's line more tightly (the line is his, not a lane change)
+                bool tight = me.Clone != null && me.OvertakeTargetId < 0;
+                float maxLat = MathF.Min(tight ? 5f : 3.5f, 0.5f + me.Speed * (tight ? 0.09f : 0.06f));
+                desiredLat = Math.Clamp(err * (tight ? 2.5f : 1.4f), -maxLat, maxLat);
+            }
             me.LateralSpeed += Math.Clamp(desiredLat - me.LateralSpeed, -latAcc * dt, latAcc * dt);
         }
         me.Offset += me.LateralSpeed * dt;
@@ -1622,11 +1648,19 @@ public sealed partial class RaceWorld
         }
     }
 
+    /// <summary>The clone's line at <paramref name="s"/>: the player's own line, a little to the side as much as his laps differ.</summary>
+    private float CloneLineOffset(RaceBot me, CloneProfile cl, float s)
+    {
+        // his laps differ a little: so does the clone's line, by at most half a metre (and smoothly)
+        float o = cl.OffsetAt(s, Line.Length) + Math.Clamp(me.CloneZNow * cl.OffsetSpreadAt(s, Line.Length), -0.5f, 0.5f);
+        return Math.Clamp(o, -Line.RoomMinusAt(s) + CloneProfile.KerbLimit, Line.RoomPlusAt(s) - CloneProfile.KerbLimit);
+    }
+
     private float ClampToRoad(RaceBot bot, float offset)
     {
         float s = Line.WrapS((float)bot.Distance);
         float half = bot.Car.Width / 2;
-        float allow = Settings.GrassMoments ? bot.EdgeAllowance : 0;
+        float allow = MathF.Max(Settings.GrassMoments ? bot.EdgeAllowance : 0, bot.Clone != null ? half - CloneProfile.KerbLimit + 0.2f : 0);
         return Math.Clamp(offset, -Line.RoomMinusAt(s) + half - allow, Line.RoomPlusAt(s) - half + allow);
     }
 

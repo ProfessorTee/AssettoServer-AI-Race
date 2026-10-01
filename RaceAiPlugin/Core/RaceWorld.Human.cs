@@ -393,7 +393,8 @@ public sealed partial class RaceWorld
     {
         float s = Line.WrapS((float)me.Distance);
         float half = me.Car.Width / 2;
-        float allow = Settings.GrassMoments ? me.EdgeAllowance : 0;
+        // a clone may use the kerbs like the player did (its line stays KerbLimit from the edge of the width data)
+        float allow = MathF.Max(Settings.GrassMoments ? me.EdgeAllowance : 0, me.Clone != null ? half - CloneProfile.KerbLimit + 0.2f : 0);
         float before = me.Offset;
         me.Offset = Math.Clamp(me.Offset, -Line.RoomMinusAt(s) + half - allow, Line.RoomPlusAt(s) - half + allow);
         if (MathF.Abs(before - me.Offset) > 0.01f) me.ClampedAt = _now;
