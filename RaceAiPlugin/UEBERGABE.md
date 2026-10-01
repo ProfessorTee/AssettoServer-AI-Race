@@ -228,6 +228,19 @@
 - Start: Reaktionszeit, Kupplung, Wheelspin/Bog, Drehzahl beim Start; Gras nach zu frühem Gas (`GreedyExitChance`).
 - Gummiband nach CSP-Vorbild (`UpdateRubberBand`, `PaceBoost`).
 
+## Neu in Teil 21: Fahrzeugklassen und Hybrid-Antrieb
+- `race-ai/classes/classes.json`: Klassen GT3 (12 Autos), GTE/GT2, LMP1, JDM mit Modellen und Skins.
+- `race-ai/set-class.py`: stellt `cfg/` oder ein Preset um (entry_list MODEL/SKIN, Spieler- und KI-Plätze getrennt reihum,
+  KI mit anderen Skins als die Spieler; CARS=, Klassenname in NAME/ServerDescription/welcome.txt). `--new-preset X --from Y`
+  kopiert ein Preset und biegt `GridFile` um; `--all` für cfg/ und alle Race-AI-Presets. Klassenwechsel = Rotationswechsel
+  (Server startet neu, Spieler treten über CM neu bei).
+- Hybrid: `CarDataLoader` liest `ers.ini` (KINETIC an der Kurbelwelle mit Gang × Achse, FRONT_MOTORS an der Vorderachse mit eigener
+  Traktion) und den Deploy-Controller (`ctrl_ers_<DEFAULT_CONTROLLER>.ini`: SPEED_KMH- und GEAR-Tabellen) zu `ErsGain`/`ErsPower`.
+  `CarSpec.SetTrack(länge)` (aus `RaceWorld.Step`) rechnet den Anteil, den MAX_KJ_PER_LAP auf der Strecke hergibt (Deploy über ~45 %
+  der Runde): TS040 100 % auf Trial Mountain, 27 % Nordschleife. `RaceAiTool car` zeigt das, `RaceAiTool acd --model X [--file a,b]`
+  listet/zeigt den Inhalt einer data.acd.
+- KI bei 100 % auf Trial Mountain: GT3 1:30,7–1:33,2, GTE 1:31,4–1:32,5, LMP1 1:19,9–1:22,0, JDM 1:46,3–1:52,5.
+
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:
 1. Offizielles Release `assetto-server-linux-x64.tar.gz` (v0.0.55-pre42) laden. Es ist ein Single-File-Bundle mit .NET 11 RC,

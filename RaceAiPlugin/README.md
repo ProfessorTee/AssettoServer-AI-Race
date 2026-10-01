@@ -292,6 +292,19 @@ Titles: { default: Nordschleife, trialmountain: Trial Mountain }
   auf die zuletzt gefahrene Strecke; „Server neu starten“ im Dashboard startet dann im selben Prozess neu.
 - `current-preset` merkt sich die laufende Strecke; `race-ai/server-supervisor.sh` startet nach einem Neustart dort weiter.
 
+## Fahrzeugklassen
+Fertige Klassen in `race-ai/classes/classes.json`: **GT3** (12 Autos), **GTE/GT2** (C7.R, 911 RSR 2017, 458 GT2, M3 GT2),
+**LMP1** (TS040, 919 Hybrid 2015/2016, R18 e-tron, mit Hybrid-Boost aus `ers.ini`), **JDM** (Supra MkIV, Skyline R34, RX-7 Spirit R, 370Z).
+
+```
+python3 race-ai/set-class.py --list
+python3 race-ai/set-class.py gte --server <Serverordner>                 # cfg/ umstellen
+python3 race-ai/set-class.py gte --server <Serverordner> --all           # cfg/ und alle Presets
+python3 race-ai/set-class.py lmp1 --server <Serverordner> --from default --new-preset nordschleife-lmp1 --name "Nordschleife LMP1 vs Race AI"
+```
+Neue Presets dann in `rotation.yml` unter `Tracks:` (und `Titles:`) eintragen; so wechseln Klassen mit der Rotation.
+Jedes Modell braucht auf dem Server `content/cars/<modell>/data.acd` (am besten auch `ui/ui_car.json`).
+
 ## Einrichtung
 
 1. `extra_cfg.yml`: `EnableAi: false` (die Traffic-KI darf nicht mitlaufen), `EnablePlugins: [RaceAiPlugin]`.

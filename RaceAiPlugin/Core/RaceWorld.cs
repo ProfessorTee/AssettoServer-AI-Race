@@ -893,6 +893,7 @@ public sealed partial class RaceWorld
     {
         _now = now;
         _stepDt = dt;
+        foreach (var b in Bots) b.Car.SetTrack(Line.Length);
         BuildNeighbors();
         FindIncidents();
         WatchStoppedCars();

@@ -17,6 +17,15 @@ public sealed class CarSpec
     public float Acceleration { get; set; } = 7.0f;
     /// <summary>Optional full-throttle acceleration per 1 m/s of speed (index = speed in m/s), computed from the real power curve and gearing.</summary>
     public float[]? AccelTable { get; set; }
+    /// <summary>Hybrids: extra acceleration with full electric deploy, per 1 m/s (ers.ini). Used with the share the energy per lap allows on this track.</summary>
+    public float[]? ErsGain { get; set; }
+    /// <summary>Hybrids: electric power (W) with full deploy, per 1 m/s.</summary>
+    public float[]? ErsPower { get; set; }
+    /// <summary>Hybrids: ers.ini MAX_KJ_PER_LAP.</summary>
+    public float ErsKjPerLap { get; set; }
+    /// <summary>Share of full deploy the energy per lap pays for on the current track (0..1), set by <see cref="SetTrack"/>.</summary>
+    public float ErsShare { get; private set; }
+    private float _ersLapLength;
     /// <summary>Mechanical grip coefficient (lateral, in g).</summary>
     public float LateralGrip { get; set; } = 1.55f;
     /// <summary>Mechanical braking grip (in g).</summary>
@@ -83,7 +92,14 @@ public sealed class CarSpec
             float x = Math.Clamp(v, 0, table.Length - 1.001f);
             int i = (int)x;
             float t = x - i;
-            return MathF.Max(0, table[i] + (table[i + 1] - table[i]) * t) * paceFactor;
+            float a = table[i] + (table[i + 1] - table[i]) * t;
+            if (ErsShare > 0 && ErsGain is { Length: > 1 } eg)
+            {
+                float xe = Math.Clamp(v, 0, eg.Length - 1.001f);
+                int j = (int)xe;
+                a += ErsShare * (eg[j] + (eg[j + 1] - eg[j]) * (xe - j));
+            }
+            return MathF.Max(0, a) * paceFactor;
         }
 
         float r = Math.Clamp(v / TopSpeed, 0, 1);
@@ -112,11 +128,34 @@ public sealed class CarSpec
         return MathF.Min(v, TopSpeed);
     }
 
+    /// <summary>
+    /// Hybrids spread the energy per lap (MAX_KJ_PER_LAP) over the lap: on a short track it pays for nearly full deploy on every
+    /// straight, on the Nordschleife only for a fraction. Estimate: deploy over ~45 % of the lap at ~80 % of the speed up to
+    /// which the motors push.
+    /// </summary>
+    public void SetTrack(float lapLength)
+    {
+        if (ErsGain == null || ErsPower == null || ErsKjPerLap <= 0 || lapLength <= 0 || MathF.Abs(lapLength - _ersLapLength) < 1) return;
+        _ersLapLength = lapLength;
+        int last = Array.FindLastIndex(ErsPower, p => p > 1000);
+        if (last < 10) { ErsShare = 0; return; }
+        float vMax = MathF.Min(last, TopSpeed);
+        float meanPower = 0;
+        int n = 0;
+        for (int v = 15; v <= last; v++) { meanPower += ErsPower[v]; n++; }
+        meanPower /= MathF.Max(1, n);
+        float deploySeconds = 0.45f * lapLength / MathF.Max(15, 0.8f * vMax);
+        float needKj = meanPower * deploySeconds / 1000;
+        ErsShare = needKj <= 0 ? 0 : Math.Clamp(ErsKjPerLap / needKj, 0, 1);
+    }
+
     public CarSpec Clone()
     {
         var c = (CarSpec)MemberwiseClone();
         c.GearTopSpeedsKmh = (float[])GearTopSpeedsKmh.Clone();
         c.AccelTable = (float[]?)AccelTable?.Clone();
+        c.ErsGain = (float[]?)ErsGain?.Clone();
+        c.ErsPower = (float[]?)ErsPower?.Clone();
         c.TyreWear = TyreWear;
         return c;
     }

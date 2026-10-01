@@ -192,18 +192,23 @@ public static partial class CarDataLoader
         const float efficiency = 0.85f;
         float torqueScale = (1 + boost) * restrictor;
 
+        var ers = ErsData.Read(files);
         var table = new List<float>();
+        var ersGain = new List<float>();
+        var ersPower = new List<float>();
         float topSpeed = 0;
         for (int v = 0; v < 130; v++)
         {
-            float best = 0;
-            foreach (var ratio in ratios)
+            float best = 0, bestRatio = 0;
+            int bestGear = 0;
+            for (int g = 0; g < ratios.Count; g++)
             {
+                float ratio = ratios[g];
                 float rpm = v / (2 * MathF.PI * driveRadius) * 60 * ratio * final;
                 if (rpm > limiter) continue;
                 rpm = MathF.Max(rpm, MathF.Min(limiter * 0.6f, 4500)); // launch: clutch slips at a useful rpm
                 float force = torque.At(rpm) * torqueScale * ratio * final * efficiency / driveRadius;
-                best = MathF.Max(best, force);
+                if (force > best) { best = force; bestRatio = ratio; bestGear = g + 1; }
             }
             float tractionLimit = spec.BrakeGrip * CarSpec.G * mass * drivenShare + clA * AirDensityHalf * v * v * spec.BrakeGrip * drivenShare * 0.9f;
             float drag = cdA * AirDensityHalf * v * v + 0.012f * mass * CarSpec.G;
@@ -215,8 +220,27 @@ public static partial class CarDataLoader
             }
             table.Add(a);
             topSpeed = v;
+
+            if (ers != null)
+            {
+                // hybrid: electric motors on top of the engine (front motors bring their own traction)
+                float wheelRpm = v / (2 * MathF.PI * frontRadius) * 60;
+                float engineRpm = v / (2 * MathF.PI * driveRadius) * 60 * bestRatio * final;
+                var (front, rear) = ers.Force(v * 3.6f, bestGear, wheelRpm, engineRpm, bestRatio * final * efficiency, frontRadius, driveRadius);
+                float frontTraction = spec.BrakeGrip * CarSpec.G * mass * cgFront + clA * AirDensityHalf * v * v * spec.BrakeGrip * cgFront * 0.9f;
+                float total = MathF.Min(best + rear, tractionLimit) + MathF.Min(front, frontTraction);
+                float aWith = (total - drag) / mass;
+                ersGain.Add(MathF.Max(0, aWith - a));
+                ersPower.Add(MathF.Max(0, aWith - a) * mass * v);
+            }
         }
         spec.AccelTable = table.ToArray();
+        if (ers != null && ersGain.Any(g => g > 0.05f))
+        {
+            spec.ErsGain = ersGain.ToArray();
+            spec.ErsPower = ersPower.ToArray();
+            spec.ErsKjPerLap = ers.KjPerLap;
+        }
         spec.Acceleration = table.Count > 5 ? table[5] : 7;
         spec.TopSpeed = MathF.Max(30, topSpeed);
 
@@ -297,4 +321,57 @@ public static partial class CarDataLoader
 
     [GeneratedRegex(@"\d+(\.\d+)?")]
     private static partial Regex NumberRegex();
+
+    /// <summary>ers.ini of a hybrid (AC: KINETIC motor on the engine shaft, FRONT_MOTORS on the front axle) with its default deploy controller.</summary>
+    private sealed class ErsData
+    {
+        public Lut? Rear, Front, Speed, Gear;
+        public float KjPerLap;
+
+        public static ErsData? Read(Dictionary<string, byte[]> files)
+        {
+            if (!files.ContainsKey("ers.ini")) return null;
+            var ini = Ini(files, "ers.ini");
+            var d = new ErsData
+            {
+                KjPerLap = ini.GetFloat("KINETIC", "MAX_KJ_PER_LAP", 0),
+                Rear = LutRef(files, ini.Get("KINETIC", "TORQUE_CURVE")),
+                Front = ini.HasSection("FRONT_MOTORS") ? LutRef(files, ini.Get("FRONT_MOTORS", "TORQUE_CURVE")) : null
+            };
+            if (d.KjPerLap <= 0) return null;
+            string ctrl = $"ctrl_ers_{ini.GetInt("KINETIC", "DEFAULT_CONTROLLER", 0)}.ini";
+            if (files.ContainsKey(ctrl))
+            {
+                var c = Ini(files, ctrl);
+                foreach (var sec in c.Sections.Where(x => x.StartsWith("CONTROLLER_", StringComparison.OrdinalIgnoreCase)))
+                {
+                    string input = (c.Get(sec, "INPUT") ?? "").ToUpperInvariant();
+                    if (input == "SPEED_KMH") d.Speed = LutRef(files, c.Get(sec, "LUT"));
+                    else if (input == "GEAR") d.Gear = LutRef(files, c.Get(sec, "LUT"));
+                }
+            }
+            return d;
+        }
+
+        /// <summary>Full-deploy push force (N) of the front motors and of the engine-shaft motor at this speed and gear.</summary>
+        public (float Front, float Rear) Force(float kmh, int gear, float wheelRpm, float engineRpm, float overallRatio, float frontRadius, float driveRadius)
+        {
+            float k = Speed is { X.Length: > 0 } sp ? Math.Clamp(sp.At(kmh), 0, 1) : 1;
+            if (Gear is { X.Length: > 0 } gl) k *= Math.Clamp(gl.At(gear), 0, 1);
+            if (k <= 0) return (0, 0);
+            float front = Front is { X.Length: > 0 } f ? MathF.Max(0, f.At(wheelRpm)) * k / frontRadius : 0;
+            float rear = Rear is { X.Length: > 0 } r ? MathF.Max(0, r.At(engineRpm)) * k * overallRatio / driveRadius : 0;
+            return (front, rear);
+        }
+
+        /// <summary>A file name or an inline table like (0=1|240=1|245=0).</summary>
+        private static Lut? LutRef(Dictionary<string, byte[]> files, string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return null;
+            name = name.Trim();
+            if (name.StartsWith('('))
+                return Lut.Parse(name.Trim('(', ')').Replace('|', '\n').Replace('=', '|'));
+            return files.TryGetValue(name, out var b) ? Lut.Parse(Encoding.UTF8.GetString(b)) : null;
+        }
+    }
 }

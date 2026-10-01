@@ -32,6 +32,7 @@ public static class Program
                 "grid" => Grid(opts),
                 "fuel" => Fuel(opts),
                 "car" => Car(opts),
+                "acd" => Acd(opts),
                 "selftest" => SelfTest.Run(opts),
                 "strength" => Strength(opts),
                 "width" => Width(opts),
@@ -169,6 +170,21 @@ public static class Program
         return 0;
     }
 
+    private static int Acd(Options o)
+    {
+        string cars = o.Get("cars") ?? Path.Join(o.Get("ac") ?? ".", "content", "cars");
+        string model = o.Get("model") ?? throw new ArgumentException("--model required");
+        var files = AcdReader.Read(Path.Join(cars, model, "data.acd"), model);
+        string? only = o.Get("file");
+        foreach (var (name, bytes) in files.OrderBy(f => f.Key))
+        {
+            if (only == null) Console.WriteLine($"{name,-32} {bytes.Length,8}");
+            else if (only.Split(',').Contains(name, StringComparer.OrdinalIgnoreCase))
+                Console.WriteLine($"==== {name}\n{System.Text.Encoding.UTF8.GetString(bytes)}");
+        }
+        return 0;
+    }
+
     private static int Width(Options o)
     {
         var (trackRoot, layout, _) = ResolvePaths(o);
@@ -225,6 +241,16 @@ public static class Program
             }
             t200 = t;
             Console.WriteLine($"    0-100 {t100:F1}s  0-200 {t200:F1}s");
+        }
+        if (s.ErsGain != null && s.ErsPower != null)
+        {
+            Console.WriteLine($"    hybrid: {s.ErsKjPerLap:F0} kJ/lap, full deploy {s.ErsPower.Max() / 1000:F0} kW max, +{s.ErsGain.Max():F2} m/s² max");
+            foreach (float km in new[] { 4.1f, 5.2f, 13.6f, 20.8f })
+            {
+                var c = s.Clone();
+                c.SetTrack(km * 1000);
+                Console.WriteLine($"      {km,5:F1} km lap: deploy share {c.ErsShare:P0}");
+            }
         }
     }
 }
