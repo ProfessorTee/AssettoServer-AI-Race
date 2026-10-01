@@ -391,10 +391,14 @@ public sealed partial class RaceWorld
 
     private void ClampOffsetWithAllowance(RaceBot me)
     {
-        int i = Line.IndexAt(Line.WrapS((float)me.Distance));
+        float s = Line.WrapS((float)me.Distance);
         float half = me.Car.Width / 2;
         float allow = Settings.GrassMoments ? me.EdgeAllowance : 0;
-        me.Offset = Math.Clamp(me.Offset, -Line.RoomMinus[i] + half - allow, Line.RoomPlus[i] - half + allow);
+        float before = me.Offset;
+        me.Offset = Math.Clamp(me.Offset, -Line.RoomMinusAt(s) + half - allow, Line.RoomPlusAt(s) - half + allow);
+        if (MathF.Abs(before - me.Offset) > 0.01f) me.ClampedAt = _now;
+        // at the edge: no more sideways speed towards it (else it's pushed back every step: the car jitters on the clients' screens)
+        if (before != me.Offset && (before - me.Offset) * me.LateralSpeed > 0) me.LateralSpeed = 0;
     }
 
 

@@ -179,6 +179,15 @@
 - Core: alle 5 min eine Hintergrund-GC (`ASSETTOSERVER_GC_INTERVAL`, Sekunden, 0 = aus). Test 25 min: verwalteter Speicher
   konstant 12 MB, Arbeitsspeicher pendelt 190-210 MB statt zu steigen.
 
+## Neu in Teil 17: Ruckeln der Bots am Streckenrand, robuster Uhrabgleich
+- Messung (`RaceAiTool sim --jumps`): Positionssprünge pro 10-ms-Schritt, die nicht zur gesendeten Geschwindigkeit passen.
+  97 % kamen vom Streckenrand: die Breite wurde punktweise (ohne Interpolation) begrenzt, ein Bot am Rand wurde jeden Schritt
+  ein Stück zurückgesetzt und rutschte wieder hinaus. Jetzt interpoliert (`RoomPlusAt/RoomMinusAt`), seitliche Geschwindigkeit
+  zum Rand wird beim Anschlag gestoppt. Nordschleife, 16 Bots, 1 Runde: 1183 -> 45 Sprünge, max 0,36 -> 0,06 m;
+  Überlappungs-Korrekturen 136 -> 19.
+- Core: Uhrabgleich übernimmt große Sprünge (> 250 ms) erst nach 3 Messungen in Folge (vorher reichte ein Lag-Spike).
+  Testclient unter Last: Streuung 36 -> 1,6 ms, größter Sprung 143 -> 3,4 ms, größter Positionssprung eines Bots 10,7 -> 0,8 m.
+
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:
 1. Offizielles Release `assetto-server-linux-x64.tar.gz` (v0.0.55-pre42) laden. Es ist ein Single-File-Bundle mit .NET 11 RC,

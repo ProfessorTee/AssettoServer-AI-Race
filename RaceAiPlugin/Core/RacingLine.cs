@@ -219,6 +219,19 @@ public sealed class RacingLine
         return Lerp(Camber[a], Camber[b], t);
     }
 
+    /// <summary>Room to each side at <paramref name="s"/>, interpolated between the points (no steps when a car drives along an edge).</summary>
+    public float RoomPlusAt(float s)
+    {
+        Interp(s, out var a, out var b, out var t);
+        return Lerp(RoomPlus[a], RoomPlus[b], t);
+    }
+
+    public float RoomMinusAt(float s)
+    {
+        Interp(s, out var a, out var b, out var t);
+        return Lerp(RoomMinus[a], RoomMinus[b], t);
+    }
+
     /// <summary>Smallest room on each side over [s, s+distance].</summary>
     public (float Minus, float Plus) MinRoom(float s, float distance)
     {

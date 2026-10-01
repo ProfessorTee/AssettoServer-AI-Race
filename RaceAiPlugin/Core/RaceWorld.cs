@@ -113,6 +113,7 @@ public sealed class RaceBot
     public float Offset { get; set; }
     public float Speed { get; set; }
     public float LateralSpeed { get; internal set; }
+    internal double ClampedAt = double.NaN;
     public float TargetOffset { get; set; }
     public float TargetSpeed { get; internal set; }
     public float Accel { get; internal set; }
@@ -732,6 +733,56 @@ public sealed partial class RaceWorld
 
     private float _stepDt = 0.02f;
 
+    // ---- diagnostics: where do cars jump (position change that doesn't match their velocity)? Used by RaceAiTool sim --jumps.
+    public bool MeasureJumps { get; set; }
+    public readonly Dictionary<string, (int Count, float Max, double Sum)> JumpStats = new();
+    private Vector3[] _jumpPos = [];
+    private Vector3[] _jumpVel = [];
+
+    private void JumpSnapshot()
+    {
+        if (_jumpPos.Length != Bots.Count) { _jumpPos = new Vector3[Bots.Count]; _jumpVel = new Vector3[Bots.Count]; }
+        for (int i = 0; i < Bots.Count; i++)
+        {
+            var p = GetPose(Bots[i]);
+            _jumpPos[i] = p.Position;
+            _jumpVel[i] = p.Velocity;
+        }
+    }
+
+    // the overlap phase is measured against the positions right after driving (no time passes in between)
+    private void JumpSnapshotAfterDrive(float dt)
+    {
+        for (int i = 0; i < Bots.Count; i++)
+        {
+            _jumpPos[i] = GetPose(Bots[i]).Position;
+            _jumpVel[i] = Vector3.Zero;
+        }
+    }
+
+    private void JumpCheck(string phase, float dt)
+    {
+        for (int i = 0; i < Bots.Count; i++)
+        {
+            var b = Bots[i];
+            if (b.Phase is not (BotPhase.Racing or BotPhase.CoolDown)) continue;
+            var p = GetPose(b);
+            var ev = p.Position - (_jumpPos[i] + _jumpVel[i] * dt);
+            float err = ev.Length();
+            if (err < 0.05f || err > 30) continue;
+            string cause = phase == "overlap" ? "overlap" : b.InPitLane ? "pit" : b.Mistake != MistakeKind.None ? "mistake-" + b.Mistake : "drive";
+            if (cause == "drive")
+            {
+                float sNow = Line.WrapS((float)b.Distance);
+                float along = MathF.Abs(Vector3.Dot(ev, Line.ForwardAt(sNow))), side = MathF.Abs(Vector3.Dot(ev, Line.LateralAt(sNow)));
+                cause = along > side ? (MathF.Abs(ev.Y) > along ? "drive-vertical" : "drive-along") : (MathF.Abs(ev.Y) > side ? "drive-vertical" : "drive-side");
+                if (cause == "drive-side") cause = b.ClampedAt == _now ? "drive-side-clamp" : MathF.Abs(b.Offset) < 1 ? "drive-side-off<1m" : MathF.Abs(b.Offset) < 3 ? "drive-side-off1-3m" : "drive-side-off>3m";
+            }
+            JumpStats.TryGetValue(cause, out var st);
+            JumpStats[cause] = (st.Count + 1, MathF.Max(st.Max, err), st.Sum + err);
+        }
+    }
+
     public void Step(float dt, double now)
     {
         _now = now;
@@ -739,6 +790,7 @@ public sealed partial class RaceWorld
         BuildNeighbors();
         FindIncidents();
         WatchStoppedCars();
+        if (MeasureJumps) JumpSnapshot();
 
         foreach (var bot in Bots)
         {
@@ -773,7 +825,9 @@ public sealed partial class RaceWorld
             }
         }
 
+        if (MeasureJumps) { JumpCheck("drive", dt); JumpSnapshotAfterDrive(dt); }
         ResolveOverlaps();
+        if (MeasureJumps) JumpCheck("overlap", 0);
 
         foreach (var bot in Bots)
         {
@@ -1570,10 +1624,10 @@ public sealed partial class RaceWorld
 
     private float ClampToRoad(RaceBot bot, float offset)
     {
-        int i = Line.IndexAt(Line.WrapS((float)bot.Distance));
+        float s = Line.WrapS((float)bot.Distance);
         float half = bot.Car.Width / 2;
         float allow = Settings.GrassMoments ? bot.EdgeAllowance : 0;
-        return Math.Clamp(offset, -Line.RoomMinus[i] + half - allow, Line.RoomPlus[i] - half + allow);
+        return Math.Clamp(offset, -Line.RoomMinusAt(s) + half - allow, Line.RoomPlusAt(s) - half + allow);
     }
 
     private void UpdateTiming(RaceBot bot)

@@ -60,6 +60,7 @@ public static class Simulator
         if (info.StartFinish is { } sf) settings.StartLineS = line.Project(sf).S;
         var world = new RaceWorld(line, settings);
         if (o.Get("step") != null) world.MaxStep = o.Float("step", 0.025f);
+        world.MeasureJumps = o.Has("jumps");
         var pitPath = Path.Join(Path.GetDirectoryName(Program.FastLanePath(trackRoot, layout))!, "pit_lane.ai");
         if (File.Exists(pitPath) && !o.Has("no-pits"))
         {
@@ -242,6 +243,12 @@ public static class Simulator
         }
         stats.Print(laps);
         net?.Print();
+        if (world.MeasureJumps)
+        {
+            Console.WriteLine("Jumps per step > 5 cm (position change not explained by the velocity):");
+            foreach (var (k, v) in world.JumpStats.OrderByDescending(x => x.Value.Count))
+                Console.WriteLine($"  {k,-20} {v.Count,6}x  max {v.Max:F2} m  avg {v.Sum / v.Count:F2} m");
+        }
         return 0;
     }
 

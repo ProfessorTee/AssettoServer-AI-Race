@@ -34,6 +34,7 @@ public partial class EntryCar : IEntryCar<ACTcpClient>
     private double _clockOffset;
     private double _clockMinPing;
     private int _clockSamples;
+    private int _clockOutliers;
 
     /// <summary>
     /// Clock sync from a ping response. One sample per second is noisy (half the ping jitter), and every jump of the offset moves all
@@ -45,11 +46,18 @@ public partial class EntryCar : IEntryCar<ACTcpClient>
         double sample = serverNow - ping / 2.0 - clientTime;
         if (_lastPing >= 0) PingJitter = PingJitter * 0.8f + Math.Abs(ping - _lastPing) * 0.2f;
         _lastPing = ping;
-        if (_clockSamples == 0 || Math.Abs(sample - _clockOffset) > 250)
+        if (_clockSamples > 0 && Math.Abs(sample - _clockOffset) > 250)
+        {
+            // a lag spike, or the client's clock really jumped (game paused, PC hiccup): only believe it when it lasts
+            if (++_clockOutliers < 3) return;
+        }
+        _clockOutliers = Math.Abs(sample - _clockOffset) > 250 ? _clockOutliers : 0;
+        if (_clockSamples == 0 || _clockOutliers >= 3)
         {
             _clockOffset = sample;
             _clockMinPing = ping;
             _clockSamples = 1;
+            _clockOutliers = 0;
         }
         else
         {
@@ -180,6 +188,7 @@ public partial class EntryCar : IEntryCar<ACTcpClient>
         HasUpdateToSend = false;
         TimeOffset = 0;
         _clockSamples = 0;
+        _clockOutliers = 0;
         _lastPing = -1;
         PingJitter = 0;
         LastRemoteTimestamp = 0;
