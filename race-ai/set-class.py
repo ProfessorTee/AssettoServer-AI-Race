@@ -138,13 +138,15 @@ def copy_preset(server, src, dst):
             shutil.copy2(p, os.path.join(d, f))
     rc = os.path.join(d, "plugin_race_ai_cfg.yml")
     if os.path.exists(rc):
+        # only the grid file: every other Race AI setting keeps coming from cfg/plugin_race_ai_cfg.yml,
+        # so a change in the dashboard (weather, overtakes ...) applies to all presets
         text, nl = read(rc)
-
-        def fix(m):
-            return "GridFile: " + "presets/" + dst + "/" + os.path.basename(m.group(1).strip().strip("'\""))
-        text = re.sub(r"(?m)^GridFile:\s*(\S.*)$", fix, text, count=1)
+        m = re.search(r"(?m)^GridFile:\s*(\S.*)$", text)
+        lines = [f"# {dst}: only what differs from cfg/plugin_race_ai_cfg.yml"]
+        if m:
+            lines.append("GridFile: presets/" + dst + "/" + os.path.basename(m.group(1).strip().strip("'\"")))
         with open(rc, "w", encoding="utf-8", newline="") as f:
-            f.write(text.replace("\n", nl))
+            f.write(nl.join(lines) + nl)
     return d
 
 
