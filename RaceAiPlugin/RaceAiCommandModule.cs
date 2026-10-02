@@ -92,6 +92,23 @@ public class RaceAiCommandModule : ACModuleBase
             : "No track rotation (rotation.yml)");
     }
 
+    /// <summary>/raceai_class (list), /raceai_class gte (change now), /raceai_class gte next (from the next track change on).</summary>
+    [Command("raceai_class", "class"), RequireAdmin]
+    public void Class(string? cls = null, string? when = null)
+    {
+        if (string.IsNullOrWhiteSpace(cls))
+        {
+            var running = ClassPresets.Info(_rotation.Current)?.Class;
+            Reply($"Class: {_rotation.ConfiguredClass?.Label ?? "-"} (running: {running?.Label ?? "?"}). " +
+                  string.Join(" | ", ClassCatalog.All.Select(c => c.Key + (c.MissingModels().Count > 0 ? " (cars missing)" : ""))) +
+                  ". /raceai_class <class> = now, /raceai_class <class> next = from the next track change");
+            return;
+        }
+        bool now = !string.Equals(when, "next", StringComparison.OrdinalIgnoreCase) && !string.Equals(when, "later", StringComparison.OrdinalIgnoreCase)
+                   && !string.Equals(when, "danach", StringComparison.OrdinalIgnoreCase);
+        Reply(_rotation.SetClass(cls, now));
+    }
+
     [Command("raceai_grid"), RequireAdmin]
     public void SetGrid(string order)
     {

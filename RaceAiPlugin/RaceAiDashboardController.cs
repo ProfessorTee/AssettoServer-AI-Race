@@ -284,6 +284,12 @@ public class RaceAiDashboardController : ControllerBase
             case "rotate":
                 if (!_rotation.Active) return BadRequest(new { error = "Keine Strecken-Rotation eingerichtet (rotation.yml)" });
                 return Ok(new { ok = _rotation.StartChange("dashboard", string.IsNullOrEmpty(req.Text) ? null : req.Text) });
+            case "class":
+            {
+                var parts = (req.Text ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length == 0) return BadRequest(new { error = "Klasse fehlt" });
+                return Ok(new { ok = true, message = _rotation.SetClass(parts[0], parts.Length < 2 || parts[1] != "next") });
+            }
             case "restartserver":
             {
                 // the start script (race-ai/server-supervisor.sh) starts the server again after it stopped; "update" pulls

@@ -33,6 +33,11 @@ public sealed class TrackRotationConfiguration
     public int FirstStartSeconds { get; set; } = 60;
     /// <summary>Names for the chat and the welcome message, e.g. default: Nordschleife.</summary>
     public Dictionary<string, string> Titles { get; set; } = new();
+    /// <summary>
+    /// Vehicle class (gt3, gte, lmp1, jdm ...): every track runs with the cars of this class. A track preset with other cars gets a
+    /// class preset (presets/&lt;track&gt;-&lt;class&gt;/, made automatically). Empty = the presets as they are. /raceai_class changes it.
+    /// </summary>
+    public string? Class { get; set; }
 }
 
 /// <summary>
@@ -50,6 +55,8 @@ public sealed class TrackRotation : BackgroundService
     private readonly RaceAiConfiguration _raceConfig;
     private TrackRotationConfiguration _cfg = new();
     private readonly string _current;
+    /// <summary>The rotation entry (Tracks) the running preset belongs to (a class preset belongs to the entry of its track).</summary>
+    private string _currentEntry;
     private int _racesDone;
     private DateTime _since = DateTime.UtcNow;
     private bool _changing;
@@ -63,6 +70,8 @@ public sealed class TrackRotation : BackgroundService
         /// <summary>Races already finished on <see cref="RacesTrack"/> (kept over a normal server restart).</summary>
         public string? RacesTrack { get; set; }
         public int RacesDone { get; set; }
+        /// <summary>The change was a class change on the same track: the race count goes on.</summary>
+        public bool KeepRaces { get; set; }
     }
 
     public TrackRotation(ACServerConfiguration serverConfig, SessionManager sessionManager, EntryCarManager entryCarManager,
@@ -73,8 +82,8 @@ public sealed class TrackRotation : BackgroundService
         {
             if (!Active) return;
             var left = RacesHere > 0 ? Math.Max(0, RacesHere - _racesDone) : 0;
-            args.Builder.Append(T($"\n\nTrack rotation: now {Title(_current)}, next {Title(NextTrack())}" + (left > 0 ? $" after {left} race(s)." : "."),
-                $"\n\nStrecken-Rotation: jetzt {Title(_current)}, danach {Title(NextTrack())}" + (left > 0 ? $" nach {left} Rennen." : ".")));
+            args.Builder.Append(T($"\n\nTrack rotation: now {Title(_currentEntry)}, next {Title(NextTrack())}" + (left > 0 ? $" after {left} race(s)." : "."),
+                $"\n\nStrecken-Rotation: jetzt {Title(_currentEntry)}, danach {Title(NextTrack())}" + (left > 0 ? $" nach {left} Rennen." : ".")));
         };
         _serverConfig = serverConfig;
         _sessionManager = sessionManager;
@@ -82,12 +91,13 @@ public sealed class TrackRotation : BackgroundService
         _service = service;
         _raceConfig = raceConfig;
         _current = string.IsNullOrEmpty(serverConfig.Preset) ? "default" : serverConfig.Preset;
+        _currentEntry = _current;
     }
 
     public bool Active => _cfg.Enabled && _cfg.Tracks.Count >= 2;
 
     /// <summary>Races on the current track before the change.</summary>
-    private int RacesHere => RacesFor(_current);
+    private int RacesHere => RacesFor(_currentEntry);
     public int RacesFor(string track) => _cfg.Races.TryGetValue(track, out var n) ? n : _cfg.RacesPerTrack;
     public string Current => _current;
 
@@ -115,27 +125,45 @@ public sealed class TrackRotation : BackgroundService
             Log.Error(ex, "Race AI: rotation.yml not readable, no track rotation");
             return;
         }
+        _currentEntry = EntryOf(_current);
+        var cls = ConfiguredClass;
+        if (!string.IsNullOrWhiteSpace(_cfg.Class) && cls == null)
+            Log.Warning("Race AI: unknown vehicle class {Class} in rotation.yml (known: {Known})", _cfg.Class, string.Join(", ", ClassCatalog.All.Select(c => c.Key)));
+
         // Without race-ai/server-supervisor.sh (e.g. at a game server host whose panel always starts the cfg/ track):
         // continue with the track that ran last
         string? last = null;
         try { if (File.Exists("current-preset")) last = File.ReadAllText("current-preset").Trim(); } catch { }
         last = string.IsNullOrEmpty(last) ? "default" : last;
-        if (Active && Environment.GetEnvironmentVariable("RACEAI_SUPERVISED") != "1" && last != _current && _cfg.Tracks.Contains(last)
-            && (last == "default" || Directory.Exists(Path.Join("presets", last))))
+        string start = _current;
+        if (Environment.GetEnvironmentVariable("RACEAI_SUPERVISED") != "1" && last != _current && PresetExists(last)
+            && ((Active && _cfg.Tracks.Contains(EntryOf(last))) || cls != null))
+            start = last;
+        // the configured vehicle class: the class preset of that track
+        if (cls != null)
         {
-            Log.Information("Race AI: the server was started with {Current}, continuing with {Last} (the track that ran last)", _current, last);
-            RestartInto(last == "default" ? null : last);
+            try { start = ClassPresets.Resolve(start, cls, create: true, refresh: true) ?? start; }
+            catch (Exception ex) { Log.Error(ex, "Race AI: no {Class} preset for {Preset}", cls.Label, start); }
+        }
+        if (start != _current)
+        {
+            Log.Information("Race AI: the server was started with {Current}, continuing with {Start}{Why}", _current, start,
+                cls != null ? $" (class {cls.Label})" : " (the track that ran last)");
+            File.WriteAllText("current-preset", start == "default" ? "" : start);
+            RestartInto(start == "default" ? null : start);
             return;
         }
         File.WriteAllText("current-preset", _current == "default" ? "" : _current);
+        if (cls != null) Log.Information("Race AI: vehicle class {Class} ({Preset})", cls.Label, _current);
         if (!Active) return;
         foreach (var t in _cfg.Tracks.Where(t => t != "default" && !Directory.Exists(Path.Join("presets", t))))
             Log.Warning("Race AI: rotation track {Track} has no folder presets/{Track}", t, t);
         var state = LoadState();
-        // a normal restart (not a track change) continues the race count of this track
-        if (state.SwitchTo != _current && state.RacesTrack == _current) _racesDone = state.RacesDone;
+        // a normal restart or a class change (not a track change) continues the race count of this track
+        if (state.SwitchTo != _current && state.RacesTrack == _currentEntry) _racesDone = state.RacesDone;
+        else if (state.SwitchTo == _current && state.KeepRaces && state.RacesTrack == _currentEntry) _racesDone = state.RacesDone;
         Log.Information("Race AI: track rotation {Tracks}, now {Current}; change after {Races} race(s){Minutes}{Done}",
-            string.Join(" → ", _cfg.Tracks), _current, RacesHere, _cfg.MinutesPerTrack > 0 ? $" or {_cfg.MinutesPerTrack} min" : "",
+            string.Join(" → ", _cfg.Tracks), _currentEntry, RacesHere, _cfg.MinutesPerTrack > 0 ? $" or {_cfg.MinutesPerTrack} min" : "",
             _racesDone > 0 ? $", {_racesDone} done" : "");
 
         _sessionManager.SessionChanged += OnSessionChanged;
@@ -171,7 +199,7 @@ public sealed class TrackRotation : BackgroundService
             try
             {
                 var st = LoadState();
-                st.RacesTrack = _current;
+                st.RacesTrack = _currentEntry;
                 st.RacesDone = _racesDone;
                 SaveState(st);
             }
@@ -184,25 +212,65 @@ public sealed class TrackRotation : BackgroundService
         if (Due()) StartChange(T("race over", "Rennen vorbei"));
     }
 
-    /// <summary>Display name of a rotation entry (Titles in rotation.yml, else the folder name).</summary>
-    public string Title(string track) => _cfg.Titles.TryGetValue(track, out var t) ? t : track;
+    /// <summary>Display name of a rotation entry (Titles in rotation.yml, else the folder name), with the class when one is set.</summary>
+    public string Title(string track)
+    {
+        string t = _cfg.Titles.TryGetValue(track, out var tt) ? tt : track;
+        return ConfiguredClass is { } c ? $"{t} ({c.Label})" : t;
+    }
+
+    public VehicleClass? ConfiguredClass => ClassCatalog.Get(_cfg.Class);
+
+    private static bool PresetExists(string preset) => preset == "default" || Directory.Exists(Path.Join("presets", preset));
+
+    /// <summary>The rotation entry of a preset: itself, or the entry on the same track (class presets).</summary>
+    private string EntryOf(string preset)
+    {
+        if (_cfg.Tracks.Contains(preset)) return preset;
+        try
+        {
+            var info = ClassPresets.Info(preset);
+            if (info == null) return preset;
+            foreach (var t in _cfg.Tracks)
+                if (ClassPresets.Info(t)?.TrackKey == info.TrackKey) return t;
+            if (info.Generated && info.Base != null) return info.Base;
+        }
+        catch { }
+        return preset;
+    }
+
+    /// <summary>The preset that runs for a rotation entry (its class preset when a class is set).</summary>
+    private string PresetFor(string entry, bool refresh = false)
+    {
+        if (ConfiguredClass is not { } cls) return entry;
+        try { return ClassPresets.Resolve(entry, cls, create: true, refresh) ?? entry; }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Race AI: no {Class} preset for {Entry}", cls.Label, entry);
+            return entry;
+        }
+    }
 
     public string NextTrack()
     {
         var list = _cfg.Tracks;
         if (_cfg.Random)
         {
-            var others = list.Where(t => t != _current).ToList();
+            var others = list.Where(t => t != _currentEntry).ToList();
             return others[System.Random.Shared.Next(others.Count)];
         }
-        int i = list.IndexOf(_current);
+        int i = list.IndexOf(_currentEntry);
         return list[(i + 1) % list.Count];
     }
 
     public object Info() => new
     {
         active = Active,
-        current = _current,
+        current = _currentEntry,
+        preset = _current,
+        cls = ConfiguredClass?.Key,
+        runningClass = SafeInfo(_current)?.Class?.Key,
+        classes = ClassCatalog.All.Select(c => new { key = c.Key, label = c.Label, description = c.Description, missing = c.MissingModels() }),
         next = Active ? NextTrack() : null,
         titles = _cfg.Titles,
         tracks = _cfg.Tracks,
@@ -221,20 +289,100 @@ public sealed class TrackRotation : BackgroundService
             HttpPort = _serverConfig.Server.HttpPort
         });
 
-    /// <summary>Announce, reconnect the players (CSP) and restart the server with the next preset.</summary>
+    private static ClassPresets.PresetInfo? SafeInfo(string preset)
+    {
+        try { return ClassPresets.Info(preset); } catch { return null; }
+    }
+
+    /// <summary>Announce, reconnect the players (CSP) and restart the server with the next track.</summary>
     public bool StartChange(string reason, string? to = null)
+    {
+        if (!Active) return false;
+        string next = to != null && _cfg.Tracks.Contains(to) && to != _currentEntry ? to : NextTrack();
+        return Change(PresetFor(next, refresh: true), next, reason, keepRaces: false,
+            T($"Track change to {Title(next)}", $"Streckenwechsel zu {Title(next)}"));
+    }
+
+    /// <summary>
+    /// Vehicle class: <paramref name="key"/> into rotation.yml (Class:), <paramref name="now"/> = change to it right away (the server restarts
+    /// with the class preset of this track), else from the next track change / server start on. Returns the answer for the admin.
+    /// </summary>
+    public string SetClass(string key, bool now)
+    {
+        var cls = ClassCatalog.Get(key);
+        if (cls == null)
+            return T($"Unknown class {key}. Classes: {string.Join(", ", ClassCatalog.All.Select(c => c.Key))}",
+                $"Unbekannte Klasse {key}. Klassen: {string.Join(", ", ClassCatalog.All.Select(c => c.Key))}");
+        var missing = cls.MissingModels();
+        if (missing.Count > 0)
+            return T($"{cls.Label}: the server has no data for {string.Join(", ", missing)} (content/cars/<model>/data.acd). Upload these car folders first.",
+                $"{cls.Label}: Auf dem Server fehlen die Daten von {string.Join(", ", missing)} (content/cars/<modell>/data.acd). Erst diese Auto-Ordner hochladen.");
+        try
+        {
+            WriteClass(cls.Key);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Race AI: rotation.yml not written");
+            return T("rotation.yml could not be written.", "rotation.yml konnte nicht geschrieben werden.");
+        }
+        _cfg.Class = cls.Key;
+        Log.Information("Race AI: vehicle class set to {Class} ({When})", cls.Label, now ? "now" : "next track change");
+
+        string entry = _currentEntry;
+        string preset;
+        try
+        {
+            preset = ClassPresets.Resolve(_current, cls, create: true, refresh: true) ?? _current;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Race AI: no {Class} preset for {Preset}", cls.Label, _current);
+            return T($"Class {cls.Label} saved, but no preset could be made for this track (see log).",
+                $"Klasse {cls.Label} gespeichert, aber für diese Strecke ließ sich kein Preset anlegen (siehe Log).");
+        }
+        if (preset == _current)
+            return T($"Class {cls.Label} set, this track already runs with it.", $"Klasse {cls.Label} eingestellt, diese Strecke fährt schon damit.");
+        if (!now)
+            return T($"Class {cls.Label} set: from the next track change{(Active ? "" : " or server restart")} on ({preset}).",
+                $"Klasse {cls.Label} eingestellt: ab dem nächsten {(Active ? "Streckenwechsel" : "Server-Neustart")} ({preset}).");
+        return Change(preset, entry, "class " + cls.Label, keepRaces: true, T($"Class change to {cls.Label}", $"Klassenwechsel zu {cls.Label}"))
+            ? T($"Class change to {cls.Label} started ({preset}).", $"Klassenwechsel zu {cls.Label} läuft ({preset}).")
+            : T("A change is already running.", "Es läuft schon ein Wechsel.");
+    }
+
+    /// <summary>Class: in rotation.yml (the line is replaced or added; the file is made when there is none).</summary>
+    private static void WriteClass(string key)
+    {
+        const string comment = "# Vehicle class for every track (gt3, gte, lmp1, jdm ...); /raceai_class <class> changes it. Empty = presets as they are\n";
+        if (!File.Exists("rotation.yml"))
+        {
+            File.WriteAllText("rotation.yml", "Enabled: false\n" + comment + $"Class: {key}\n");
+            return;
+        }
+        string text = File.ReadAllText("rotation.yml");
+        string nl = text.Contains("\r\n") ? "\r\n" : "\n";
+        if (System.Text.RegularExpressions.Regex.IsMatch(text, @"(?m)^Class:"))
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"(?m)^Class:[^\r\n]*", "Class: " + key);
+        else
+            text = (text.Length > 0 && !text.EndsWith('\n') ? text + nl : text) + comment.Replace("\n", nl) + $"Class: {key}" + nl;
+        File.WriteAllText("rotation.yml", text);
+    }
+
+    /// <summary>Announce, reconnect the players (CSP) and restart the server with <paramref name="preset"/>.</summary>
+    private bool Change(string preset, string entry, string reason, bool keepRaces, string what)
     {
         lock (_lock)
         {
-            if (_changing || !Active) return false;
+            if (_changing) return false;
             _changing = true;
         }
-        string next = to != null && _cfg.Tracks.Contains(to) && to != _current ? to : NextTrack();
-        string preset = next == "default" ? "" : next;
         var state = LoadState();
-        double start = state.StartSeconds.TryGetValue(next, out var s) ? s : _cfg.FirstStartSeconds;
+        double start = state.StartSeconds.TryGetValue(preset, out var s) ? s : _cfg.FirstStartSeconds;
         int wait = (int)Math.Clamp(start + 8, 12, 240); // reconnect a little after the new server is ready
-        Log.Information("Race AI: track change to {Next} ({Reason}), players reconnect after {Wait} s", next, reason, wait);
+        string title = Title(entry);
+        if (ConfiguredClass == null && SafeInfo(preset)?.Class is { } pc && entry != preset) title = $"{title} ({pc.Label})";
+        Log.Information("Race AI: change to {Preset} ({Reason}), players reconnect after {Wait} s", preset, reason, wait);
 
         _ = Task.Run(async () =>
         {
@@ -243,24 +391,33 @@ public sealed class TrackRotation : BackgroundService
                 int announce = Math.Max(0, _cfg.AnnounceSeconds);
                 if (_entryCarManager.ConnectedCars.Count > 0 && announce > 0)
                 {
-                    _entryCarManager.BroadcastChat(T($"Track change to {Title(next)} in {announce} s. The server restarts, please rejoin via Content Manager after about {wait} s.",
-                        $"Streckenwechsel zu {Title(next)} in {announce} s. Der Server startet neu, bitte nach etwa {wait} s über Content Manager neu beitreten."));
+                    _entryCarManager.BroadcastChat(T($"{what} in {announce} s. The server restarts, please rejoin via Content Manager after about {wait} s.",
+                        $"{what} in {announce} s. Der Server startet neu, bitte nach etwa {wait} s über Content Manager neu beitreten."));
                     await Task.Delay(announce * 1000);
                 }
                 foreach (var car in _entryCarManager.EntryCars.Where(c => c.Client != null))
-                    _service.SendTrackChange(car.Client!, Title(next), wait);
+                    _service.SendTrackChange(car.Client!, title, wait);
                 await Task.Delay(1500);
-                state.SwitchTo = next;
+                state.SwitchTo = preset;
                 state.SwitchAt = DateTime.UtcNow;
-                state.RacesTrack = next;
-                state.RacesDone = 0;
+                state.KeepRaces = keepRaces;
+                if (keepRaces)
+                {
+                    state.RacesTrack = entry;
+                    state.RacesDone = _racesDone;
+                }
+                else
+                {
+                    state.RacesTrack = entry;
+                    state.RacesDone = 0;
+                }
                 SaveState(state);
-                File.WriteAllText("current-preset", preset);
-                RestartInto(string.IsNullOrEmpty(preset) ? null : preset);
+                File.WriteAllText("current-preset", preset == "default" ? "" : preset);
+                RestartInto(preset == "default" ? null : preset);
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "Race AI: track change failed");
+                Log.Error(ex, "Race AI: change failed");
                 _changing = false;
             }
         });

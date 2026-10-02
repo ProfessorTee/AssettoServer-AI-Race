@@ -251,6 +251,18 @@
   `LivePageHtml`, `PlayerStats.Licence()`, `RaceWorld.ExternalInPitLane()`. Abstände über Zeitmesspunkte (Runde × ~20 m) mit
   Interpolation zwischen den Frames; Fortschritt monoton gemacht (Linie überquert, Runde noch nicht gezählt).
 
+## Neu in Teil 23: Klassenwechsel per Einstellung / Admin-Befehl
+- `ClassPresets.cs`: `ClassCatalog` (classes.json eingebettet, Überschreiben mit `classes.json` bzw. `cfg/classes.json`; Klasse eines
+  Presets = Mehrheit der Modelle), `ClassPresets.Scan/Info/Resolve/Generate` (Preset gleicher Strecke + Klasse suchen, eigene zuerst,
+  sonst `presets/<strecke>-<klasse>` als Overlay erzeugen, Marker `.raceai-class.json`, Port von set-class.py `AssignCars`).
+- `TrackRotation`: `Class:` in rotation.yml, `_currentEntry` (Rotations-Eintrag des laufenden Presets), `PresetFor`, `SetClass(key, now)`
+  (schreibt `Class:` in rotation.yml, legt rotation.yml an wenn keine da), `Change(...)` für Strecken- und Klassenwechsel (KeepRaces).
+  Beim Start ohne Supervisor: letzte Strecke + konfigurierte Klasse → ggf. Neustart ins Klassen-Preset. Vorkalibrierung nimmt die
+  Klassen-Presets der Rotation.
+- Befehl `/raceai_class` (`/class`), Dashboard-Karte „Fahrzeugklasse“, API `action: "class"`, `text: "gte"` oder `"gte next"`.
+- Lokal getestet: gte jetzt → nordschleife-gte erzeugt und gestartet, Rotation → trialmountain-gte, lmp1 next + Neustart (Panel-Start mit
+  cfg/) → trialmountain-lmp1, gt3 jetzt → zurück auf trialmountain.
+
 ## Wie gebaut wurde (ohne .NET 11 SDK)
 In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:
 1. Offizielles Release `assetto-server-linux-x64.tar.gz` (v0.0.55-pre42) laden. Es ist ein Single-File-Bundle mit .NET 11 RC,

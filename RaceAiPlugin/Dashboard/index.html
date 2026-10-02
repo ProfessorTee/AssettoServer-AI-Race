@@ -205,6 +205,13 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
           Die Spieler bekommen einen Countdown und treten danach über Content Manager neu bei.</span></div>
       </div>
       <div class="card">
+        <h3>Fahrzeugklasse</h3>
+        <div class="row"><span id="clsInfo" class="muted">–</span></div>
+        <div class="row"><select id="clsTarget"></select><button class="btn" id="clsNow">Jetzt wechseln</button><button class="btn" id="clsNext">Ab nächstem Streckenwechsel</button></div>
+        <div class="row"><span class="muted" id="clsMsg">Alle Strecken fahren mit den Autos dieser Klasse (<code>Class:</code> in <code>rotation.yml</code>, Chat: <code>/raceai_class gte</code>).
+          Fehlt einer Strecke die Klasse, legt der Server <code>presets/&lt;strecke&gt;-&lt;klasse&gt;</code> selbst an. „Jetzt“ startet den Server neu.</span></div>
+      </div>
+      <div class="card">
         <h3>Server</h3>
         <div class="row"><button class="btn" id="restartServer">Server neu starten</button><button class="btn" id="updateServer">Update holen &amp; neu starten</button></div>
         <div class="row"><span class="muted" id="restartInfo">Neustart dauert etwa eine Minute (Bots werden neu kalibriert). Alle Spieler werden getrennt und können danach wieder beitreten.</span></div>
@@ -649,6 +656,7 @@ $("cmdText").onkeydown = e => { if (e.key === "Enter") $("cmdRun").onclick(); };
 async function loadRotation() {
   try {
     const r = await api("/raceai/api/rotation");
+    showClasses(r);
     if (!r.active) { $("rotInfo").textContent = "Keine Rotation eingerichtet (rotation.yml mit Enabled: true und mindestens zwei Strecken)."; $("rotNow").disabled = true; return; }
     const left = r.racesPerTrack > 0 ? `${Math.max(0, r.racesPerTrack - r.racesDone)} Rennen` : "";
     const mins = r.minutesLeft != null ? `${Math.round(r.minutesLeft)} min` : "";
@@ -659,6 +667,24 @@ async function loadRotation() {
     if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
   } catch (e) {}
 }
+let clsLoaded = false;
+function showClasses(r) {
+  if (!r.classes) return;
+  const lab = k => (r.classes.find(c => c.key === k) || {}).label || k || "–";
+  $("clsInfo").textContent = `Läuft: ${lab(r.runningClass)} · eingestellt: ${r.cls ? lab(r.cls) : "keine (Presets wie sie sind)"}`;
+  if (clsLoaded) return;
+  clsLoaded = true;
+  $("clsTarget").innerHTML = r.classes.map(c => `<option value="${esc(c.key)}"${c.missing.length ? " disabled" : ""}${c.key === (r.cls || r.runningClass) ? " selected" : ""}>${esc(c.label)} – ${esc(c.description)}${c.missing.length ? " (Autos fehlen auf dem Server)" : ""}</option>`).join("");
+}
+async function setClass(next) {
+  const k = $("clsTarget").value;
+  if (!k) return;
+  if (!next && !confirm(`Jetzt auf ${$("clsTarget").selectedOptions[0].textContent} wechseln? Der Server startet neu.`)) return;
+  try { const r = await api("/raceai/api/server", { action: "class", text: next ? k + " next" : k }); $("clsMsg").textContent = r.message || "ok"; loadRotation(); }
+  catch (e) { $("clsMsg").textContent = "Fehler: " + e.message; }
+}
+$("clsNow").onclick = () => setClass(false);
+$("clsNext").onclick = () => setClass(true);
 loadRotation(); setInterval(loadRotation, 15000);
 $("rotNow").onclick = () => { if (confirm(`Jetzt zu ${$("rotTarget").value} wechseln? Der Server startet neu.`)) act("/raceai/api/server", { action: "rotate", text: $("rotTarget").value }, "Streckenwechsel läuft"); };
 async function loadJoin() {

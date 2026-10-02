@@ -192,7 +192,15 @@ public sealed partial class RaceAiService
         var mainIni = File.Exists(Path.Join("cfg", "server_cfg.ini")) ? IniFile.Load(Path.Join("cfg", "server_cfg.ini")) : null;
         var sw = Stopwatch.StartNew();
         int measured = 0;
-        foreach (var preset in cfg.Tracks.Distinct().Where(t => t != current))
+        // with a vehicle class: the class presets of the tracks (made now if missing)
+        var cls = ClassCatalog.Get(cfg.Class);
+        var presets = cfg.Tracks.Select(t =>
+        {
+            if (cls == null) return t;
+            try { return ClassPresets.Resolve(t, cls, create: true) ?? t; }
+            catch { return t; }
+        });
+        foreach (var preset in presets.Distinct().Where(t => t != current))
         {
             cancel.ThrowIfCancellationRequested();
             try

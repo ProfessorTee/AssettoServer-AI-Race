@@ -310,7 +310,15 @@ python3 race-ai/set-class.py gte --server <Serverordner>                 # cfg/ 
 python3 race-ai/set-class.py gte --server <Serverordner> --all           # cfg/ und alle Presets
 python3 race-ai/set-class.py lmp1 --server <Serverordner> --from default --new-preset nordschleife-lmp1 --name "Nordschleife LMP1 vs Race AI"
 ```
-Neue Presets dann in `rotation.yml` unter `Tracks:` (und `Titles:`) eintragen; so wechseln Klassen mit der Rotation.
+**Klasse per Einstellung / Admin-Befehl:** `Class: gte` in `rotation.yml` (oder im Chat `/raceai_class gte`, `/raceai_class gte next`,
+`/raceai_class` = Liste; oder im Dashboard unter Server → Fahrzeugklasse). Dann fährt jede Strecke der Rotation mit dieser Klasse:
+Der Server nimmt ein vorhandenes Preset derselben Strecke mit dieser Klasse (eigene zuerst) oder legt `presets/<strecke>-<klasse>/`
+selbst an – nur `entry_list.ini` (Autos/Skins), Name, Beschreibung, Begrüßung; alles andere kommt vom Strecken-Preset und `cfg/`.
+Selbst angelegte Presets haben eine `.raceai-class.json` und werden bei jedem Wechsel neu geschrieben. „Jetzt“ startet neu wie ein
+Streckenwechsel (Countdown, Neu-Verbinden), der Rennzähler der Strecke läuft weiter. Ohne `Class:` bleiben die Presets wie sie sind.
+Eigene Klassen: `classes.json` (Aufbau wie `race-ai/classes/classes.json`) in den Server-Ordner legen.
+
+Oder von Hand (set-class.py) und die Presets in `rotation.yml` unter `Tracks:` eintragen:
 Jedes Modell braucht auf dem Server `content/cars/<modell>/data.acd` (am besten auch `ui/ui_car.json`).
 
 ## Einrichtung
