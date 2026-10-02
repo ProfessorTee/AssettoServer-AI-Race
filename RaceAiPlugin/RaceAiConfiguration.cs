@@ -410,6 +410,10 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
                               "true = also from other computers, then the ADMIN_PASSWORD is required")]
     public bool DashboardRemoteAccess { get; set; } = false;
 
+    [YamlMember(Description = "Join page and dashboard also show the address in the local network (\"join in the same WiFi\"). " +
+                              "Only useful when the server runs at home; false for a rented server")]
+    public bool JoinShowLan { get; set; } = false;
+
     [YamlMember(Description = "Public live page http://<server>:<HTTP_PORT>/raceai/live: map, timing tower with gaps, telemetry of one car, " +
                               "for everybody (no admin data). false = off")]
     public bool LiveView { get; set; } = true;

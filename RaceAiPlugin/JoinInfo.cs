@@ -24,7 +24,7 @@ public sealed class JoinInfo
     {
         var s = _serverConfig.Server;
         string? publicHost = string.IsNullOrWhiteSpace(_config.PublicAddress) ? await PublicIpAsync() : _config.PublicAddress.Trim();
-        string? lan = LanIp();
+        string? lan = _config.JoinShowLan ? LanIp() : null;
         return new
         {
             name = s.Name,

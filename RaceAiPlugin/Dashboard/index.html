@@ -193,7 +193,7 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
           <a class="btn" href="/raceai/stats" target="_blank" rel="noopener">Bestzeiten &amp; Fahrer</a></div>
         <div class="row"><label>Adresse</label><code id="joinAddr">–</code><button class="btn" data-copy="joinAddr">Kopieren</button></div>
         <div class="row"><label>CM-Link</label><code id="joinLink" style="overflow-wrap:anywhere;flex:1">–</code><button class="btn" data-copy="joinLink">Kopieren</button></div>
-        <div class="row"><label>Im WLAN</label><code id="joinLan">–</code></div>
+        <div class="row" id="joinLanRow" hidden><label>Im WLAN</label><code id="joinLan">–</code></div>
         <div class="row"><span class="muted">Die „Seite für Freunde“ (<code>/raceai/join</code>) braucht kein Passwort: Content-Manager-Link, Adresse und eine Anleitung
           für den Original-Launcher (der Server lässt sich dort nicht per Link öffnen, nur über Online → Favoriten).</span></div>
       </div>
@@ -668,6 +668,7 @@ async function loadJoin() {
     $("joinLink").textContent = j.cmLink || "–";
     if (j.cmLink) $("joinCm").href = j.cmLink;
     $("joinLan").textContent = j.lanIp ? `${j.lanIp}:${j.httpPort}` : "–";
+    $("joinLanRow").hidden = !j.lanIp;
   } catch (e) {}
 }
 loadJoin();
