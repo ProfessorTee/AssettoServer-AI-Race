@@ -14,8 +14,17 @@ fi
 [ -d "$SRV/cfg" ] || { echo "No server found in $SRV"; exit 1; }
 EXAMPLE="$REPO/RaceAiPlugin/example/nordschleife-gt3/cfg"
 
-# patched AssettoServer core (only when it changed): rebuild the server binary from the official one
-if [ -f "$SRV/AssettoServer.official" ] && [ -f "$HERE/server-build/AssettoServer.dll" ]; then
+# patched AssettoServer core (only when it changed): the SDK build of race-ai/build.sh if there is one,
+# else rebuild the server binary from the official one with server-build/AssettoServer.dll
+OUT="$REPO/out-linux-x64"
+if [ -x "$OUT/AssettoServer" ]; then
+  NEW_SHA=$(sha256sum "$OUT/AssettoServer" | cut -d' ' -f1)
+  if [ "$(cat "$SRV/.core-bin.sha" 2>/dev/null)" != "$NEW_SHA" ]; then
+    cp -f "$OUT/AssettoServer" "$SRV/AssettoServer.new" && mv -f "$SRV/AssettoServer.new" "$SRV/AssettoServer" \
+      && echo "$NEW_SHA" > "$SRV/.core-bin.sha" && echo "AssettoServer core updated (SDK build)"
+  fi
+  cp -f "$OUT/plugins/RaceAiPlugin/RaceAiPlugin.dll" "$OUT/plugins/DriverRecorderPlugin/DriverRecorderPlugin.dll" "$HERE/server-build/"
+elif [ -f "$SRV/AssettoServer.official" ] && [ -f "$HERE/server-build/AssettoServer.dll" ]; then
   NEW_SHA=$(sha256sum "$HERE/server-build/AssettoServer.dll" | cut -d' ' -f1)
   if [ "$(cat "$SRV/.core-dll.sha" 2>/dev/null)" != "$NEW_SHA" ]; then
     python3 "$HERE/tools/rebundle.py" "$SRV/AssettoServer.official" "$SRV/AssettoServer.new" "AssettoServer.dll=$HERE/server-build/AssettoServer.dll" \

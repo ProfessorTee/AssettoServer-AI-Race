@@ -263,15 +263,18 @@
 - Lokal getestet: gte jetzt → nordschleife-gte erzeugt und gestartet, Rotation → trialmountain-gte, lmp1 next + Neustart (Panel-Start mit
   cfg/) → trialmountain-lmp1, gt3 jetzt → zurück auf trialmountain.
 
-## Wie gebaut wurde (ohne .NET 11 SDK)
-In der Cloud-Sitzung gab es kein NuGet und kein .NET 11 SDK. Der Trick:
-1. Offizielles Release `assetto-server-linux-x64.tar.gz` (v0.0.55-pre42) laden. Es ist ein Single-File-Bundle mit .NET 11 RC,
-   allen NuGet-DLLs und dem Runtime.
-2. Das Bundle entpacken (`sfextract.py`) und mit `csc` aus dem .NET 10 SDK gegen diese DLLs kompilieren:
-   den gepatchten AssettoServer (der CommunityToolkit-Generator wurde in `AiParams` durch normale Properties ersetzt, nur für den Check)
-   und danach das Plugin.
-3. `rebundle.py` tauscht `AssettoServer.dll` im Bundle aus. Das Ergebnis ist ein lauffähiger Test-Server.
-Die Skripte liegen in `tools/testbuild/` im Übergabe-Ordner auf dem Rechner.
+## Neu in Teil 24: Presets in Schichten, Aufräumen
+- Keine Kombi-Ordner mehr: `cfg/` → `presets/tracks/<strecke>/` → `presets/classes/<klasse>/`, Preset-Name `strecke+klasse`
+  (`+gte` = cfg-Strecke mit GTE). Jede Schicht enthält nur, was sich unterscheidet (`PresetOverlay.cs` im Core).
+- `{track}`/`{class}` in NAME, Willkommenstext und ServerDescription aus `[PRESET] TRACK_TITLE`/`CLASS_TITLE`.
+- Klassen = Ordner mit `entry_list.ini` (24 Plätze) + `server_cfg.ini`; `ClassCatalog` liest sie, `classes.json`/`set-class.py` entfallen.
+- Bestehende Server einmalig: `race-ai/migrate-presets.py <server> [--dry-run]` (Sicherung `presets.bak-<datum>`).
+- Bots drehen beim Querrutschen im Stand nicht mehr kurz um 90° (Richtung mit mindestens 4 m/s vorwärts).
+
+## Bauen
+Mit dem .NET 11 SDK (`~/.dotnet`): `race-ai/build.sh` → kompletter Server in `out-linux-x64/`, frische DLLs in `race-ai/server-build/`.
+`update-server.sh` installiert bevorzugt diesen Build; ohne SDK-Build tauscht `tools/rebundle.py` wie früher
+`server-build/AssettoServer.dll` ins offizielle Release-Bundle (v0.0.55-pre42).
 
 ## Dateien
 - `AssettoServer/…`: Core-Patch (`IExternalAiController`, `EntryCar`, `EntryCarAi`, `AiBehavior`, `SessionManager`, `ACTcpClient`)
