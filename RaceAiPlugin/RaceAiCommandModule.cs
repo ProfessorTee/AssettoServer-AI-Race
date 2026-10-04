@@ -1,3 +1,4 @@
+using AssettoServer.Server.Configuration;
 using System.Text;
 using AssettoServer.Commands;
 using AssettoServer.Commands.Attributes;
@@ -98,8 +99,8 @@ public class RaceAiCommandModule : ACModuleBase
     {
         if (string.IsNullOrWhiteSpace(cls))
         {
-            var running = ClassPresets.Info(_rotation.Current)?.Class;
-            Reply($"Class: {_rotation.ConfiguredClass?.Label ?? "-"} (running: {running?.Label ?? "?"}). " +
+            var running = ClassCatalog.Get(PresetOverlay.Split(_rotation.Current).Class);
+            Reply($"Class: {_rotation.ConfiguredClass?.Label ?? "-"} (running: {running?.Label ?? "cfg/"}). " +
                   string.Join(" | ", ClassCatalog.All.Select(c => c.Key + (c.MissingModels().Count > 0 ? " (cars missing)" : ""))) +
                   ". /raceai_class <class> = now, /raceai_class <class> next = from the next track change");
             return;

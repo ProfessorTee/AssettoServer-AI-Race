@@ -671,7 +671,7 @@ let clsLoaded = false;
 function showClasses(r) {
   if (!r.classes) return;
   const lab = k => (r.classes.find(c => c.key === k) || {}).label || k || "–";
-  $("clsInfo").textContent = `Läuft: ${lab(r.runningClass)} · eingestellt: ${r.cls ? lab(r.cls) : "keine (Presets wie sie sind)"}`;
+  $("clsInfo").textContent = `Läuft: ${lab(r.runningClass)} · eingestellt: ${r.cls ? lab(r.cls) : "keine (Autos aus cfg/)"}`;
   if (clsLoaded) return;
   clsLoaded = true;
   $("clsTarget").innerHTML = r.classes.map(c => `<option value="${esc(c.key)}"${c.missing.length ? " disabled" : ""}${c.key === (r.cls || r.runningClass) ? " selected" : ""}>${esc(c.label)} – ${esc(c.description)}${c.missing.length ? " (Autos fehlen auf dem Server)" : ""}</option>`).join("");

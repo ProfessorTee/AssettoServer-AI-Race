@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System.Collections.Generic;
+using System.IO;
 
 namespace AssettoServer.Server.Configuration;
 
@@ -12,40 +13,26 @@ public class ConfigurationLocations
     public required string CMContentJsonPath { get; init; }
     public required string CMWrapperParamsPath { get; init; }
 
+    /// <summary>Race AI patch: the folders the configuration is merged from, bottom to top (see PresetOverlay).</summary>
+    public required IReadOnlyList<string> Layers { get; init; }
+
     public static ConfigurationLocations FromOptions(string? preset, string? serverCfgPath, string? entryListPath)
     {
-        var baseFolder = string.IsNullOrEmpty(preset) ? "cfg" : Path.Join("presets", preset);
-
-        if (string.IsNullOrEmpty(entryListPath))
-        {
-            entryListPath = Path.Join(baseFolder, "entry_list.ini");
-        }
-
-        if (string.IsNullOrEmpty(serverCfgPath))
-        {
-            serverCfgPath = Path.Join(baseFolder, "server_cfg.ini");
-        }
-        else
-        {
-            baseFolder = Path.GetDirectoryName(serverCfgPath)!;
-        }
-
-        // Race AI patch: files a preset doesn't have come from cfg/ (extra_cfg.yml is merged, see PresetOverlay)
-        if (!File.Exists(entryListPath) && PresetOverlay.Applies(baseFolder) && File.Exists(PresetOverlay.MainPath("entry_list.ini")))
-            entryListPath = PresetOverlay.MainPath("entry_list.ini");
-        var extraCfgPath = Path.Join(baseFolder, "extra_cfg.yml");
-        if (!File.Exists(extraCfgPath) && PresetOverlay.Applies(baseFolder) && File.Exists(PresetOverlay.MainPath("extra_cfg.yml")))
-            extraCfgPath = PresetOverlay.MainPath("extra_cfg.yml");
+        // Race AI patch: cfg/ → presets/tracks/<track>/ → presets/classes/<class>/; a given server_cfg.ini path is used alone
+        var layers = string.IsNullOrEmpty(serverCfgPath) ? PresetOverlay.Layers(preset) : [Path.GetDirectoryName(serverCfgPath)!];
+        // the track's folder (where default configs are written), not the class's
+        var baseFolder = layers.Count > 1 && layers[^1].StartsWith(PresetOverlay.ClassesFolder) ? layers[^2] : layers[^1];
 
         return new ConfigurationLocations
         {
             BaseFolder = baseFolder,
-            ServerCfgPath = serverCfgPath,
-            EntryListPath = entryListPath,
-            ExtraCfgPath = extraCfgPath,
-            CSPExtraOptionsPath = PresetOverlay.Resolve(baseFolder, "csp_extra_options.ini"),
-            CMContentJsonPath = PresetOverlay.Resolve(baseFolder, Path.Join("cm_content", "content.json")),
-            CMWrapperParamsPath = PresetOverlay.Resolve(baseFolder, "cm_wrapper_params.json")
+            Layers = layers,
+            ServerCfgPath = string.IsNullOrEmpty(serverCfgPath) ? Path.Join(baseFolder, "server_cfg.ini") : serverCfgPath,
+            EntryListPath = string.IsNullOrEmpty(entryListPath) ? PresetOverlay.Resolve(layers, "entry_list.ini") : entryListPath,
+            ExtraCfgPath = PresetOverlay.Resolve(layers, "extra_cfg.yml"),
+            CSPExtraOptionsPath = PresetOverlay.Resolve(layers, "csp_extra_options.ini"),
+            CMContentJsonPath = PresetOverlay.Resolve(layers, Path.Join("cm_content", "content.json")),
+            CMWrapperParamsPath = PresetOverlay.Resolve(layers, "cm_wrapper_params.json")
         };
     }
 

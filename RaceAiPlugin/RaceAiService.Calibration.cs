@@ -189,36 +189,32 @@ public sealed partial class RaceAiService
         }
         if (!cfg.Enabled) return;
         string current = string.IsNullOrEmpty(_serverConfig.Preset) ? "default" : _serverConfig.Preset;
-        var mainIni = File.Exists(Path.Join("cfg", "server_cfg.ini")) ? IniFile.Load(Path.Join("cfg", "server_cfg.ini")) : null;
         var sw = Stopwatch.StartNew();
         int measured = 0;
-        // with a vehicle class: the class presets of the tracks (made now if missing)
-        var cls = ClassCatalog.Get(cfg.Class);
+        // every track with its class (own one in the list, else the configured one)
         var presets = cfg.Tracks.Select(t =>
         {
-            if (cls == null) return t;
-            try { return ClassPresets.Resolve(t, cls, create: true) ?? t; }
-            catch { return t; }
+            var (track, cls) = PresetOverlay.Split(t);
+            return PresetOverlay.Join(track == "" ? "default" : track, cls ?? ClassCatalog.Get(cfg.Class)?.Key);
         });
         foreach (var preset in presets.Distinct().Where(t => t != current))
         {
             cancel.ThrowIfCancellationRequested();
             try
             {
-                string dir = preset == "default" ? "cfg" : Path.Join("presets", preset);
-                string? Read(string file) => File.Exists(Path.Join(dir, file)) ? Path.Join(dir, file)
-                    : File.Exists(Path.Join("cfg", file)) ? Path.Join("cfg", file) : null;
-                var ini = Read("server_cfg.ini") is { } sp ? IniFile.Load(sp) : null;
-                string? track = ini?.Get("SERVER", "TRACK") ?? mainIni?.Get("SERVER", "TRACK");
-                string layout = ini?.Get("SERVER", "CONFIG_TRACK") ?? (ini?.Get("SERVER", "TRACK") != null ? "" : mainIni?.Get("SERVER", "CONFIG_TRACK") ?? "");
+                var layers = PresetOverlay.Layers(preset == "default" ? null : preset);
+                var ini = PresetOverlay.MergeServerCfg(preset == "default" ? null : preset);
+                string? track = ini["SERVER"]["TRACK"];
+                string layout = ini["SERVER"]["CONFIG_TRACK"] ?? "";
                 if (string.IsNullOrEmpty(track)) continue;
                 track = CSPTrackOptions.Parse(track).Track;
                 var td = TrackData.Load(track, layout, _config);
                 string trackKey = TrackKeyFor(track, layout);
                 var settings = CopySettings(_calibrationSettings, td.StartLineS);
 
-                var entries = Read("entry_list.ini") is { } ep ? IniFile.Load(ep) : null;
-                if (entries == null) continue;
+                var ep = PresetOverlay.Resolve(layers, "entry_list.ini");
+                if (!File.Exists(ep)) continue;
+                var entries = IniFile.Load(ep);
                 var cars = entries.Sections.Where(s => s.StartsWith("CAR_", StringComparison.OrdinalIgnoreCase))
                     .Select(s => (Model: entries.Get(s, "MODEL") ?? "", Ballast: entries.GetFloat(s, "BALLAST", 0), Restrictor: (int)entries.GetFloat(s, "RESTRICTOR", 0)))
                     .Where(c => c.Model != "").Distinct().ToList();

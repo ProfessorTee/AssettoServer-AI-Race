@@ -51,6 +51,9 @@ public partial class ACServerConfiguration
     public string ServerVersion { get; }
     [YamlIgnore] public string? CSPExtraOptions { get; }
     [YamlIgnore] public string BaseFolder { get; }
+    /// <summary>Race AI patch: the folders the configuration is merged from, bottom to top (see PresetOverlay).</summary>
+    [YamlIgnore] public IReadOnlyList<string> Layers { get; }
+    private IniParser.Model.IniData? _mergedServerCfg;
     [YamlIgnore] public bool LoadPluginsFromWorkdir { get; }
     [YamlIgnore] public bool GeneratePluginConfigs { get; }
     [YamlIgnore] public int RandomSeed { get; } = Random.Shared.Next();
@@ -76,6 +79,7 @@ public partial class ACServerConfiguration
     {
         Preset = preset;
         BaseFolder = locations.BaseFolder;
+        Layers = locations.Layers;
         LoadPluginsFromWorkdir = loadPluginsFromWorkdir;
         GeneratePluginConfigs = generatePluginConfigs;
         Server = LoadServerConfiguration(locations.ServerCfgPath, portOverrides);
@@ -131,7 +135,7 @@ public partial class ACServerConfiguration
         Log.Debug("Loading server_cfg.ini from {Path}", path);
         try
         {
-            if (!File.Exists(path))
+            if (Layers.Count == 1 && !File.Exists(path))
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                 using var serverCfg = Assembly.GetExecutingAssembly()
@@ -140,21 +144,21 @@ public partial class ACServerConfiguration
                 serverCfg.CopyTo(outFile);
             }
 
-            // Race AI patch: a preset's server_cfg.ini only needs what differs from cfg/server_cfg.ini
-            var presetFolder = Path.GetDirectoryName(path) ?? "";
-            var config = PresetOverlay.Applies(presetFolder) && File.Exists(PresetOverlay.MainPath("server_cfg.ini"))
-                ? PresetOverlay.MergeServerCfg(presetFolder, path).DeserializeObject<ServerConfiguration>()
-                : ServerConfiguration.FromFile(path);
-
-            // Race AI patch: a preset (track rotation) without its own ADMIN_PASSWORD uses the one from cfg/server_cfg.ini,
-            // so the admin password is only set in one place
-            var mainCfg = Path.Join("cfg", "server_cfg.ini");
-            if (string.IsNullOrWhiteSpace(config.AdminPassword) && File.Exists(mainCfg)
-                && Path.GetFullPath(path) != Path.GetFullPath(mainCfg))
+            // Race AI patch: every layer's server_cfg.ini only has what differs from the one below
+            ServerConfiguration config;
+            if (Layers.Count > 1)
             {
-                try { config.AdminPassword = ServerConfiguration.FromFile(mainCfg).AdminPassword; }
-                catch { /* ignored */ }
+                _mergedServerCfg = PresetOverlay.MergeServerCfg(Preset);
+                config = _mergedServerCfg.DeserializeObject<ServerConfiguration>();
+                // an empty ADMIN_PASSWORD= in a layer doesn't clear the one from cfg/ (the admin password is set in one place)
+                var mainCfg = Path.Join(PresetOverlay.MainFolder, "server_cfg.ini");
+                if (string.IsNullOrWhiteSpace(config.AdminPassword) && File.Exists(mainCfg))
+                {
+                    try { config.AdminPassword = ServerConfiguration.FromFile(mainCfg).AdminPassword; }
+                    catch { /* ignored */ }
+                }
             }
+            else config = ServerConfiguration.FromFile(path);
 
             if (portOverrides != null)
             {
@@ -232,10 +236,12 @@ public partial class ACServerConfiguration
     private string LoadWelcomeMessage()
     {
         var welcomeMessage = "";
-        var welcomeMessagePath = string.IsNullOrEmpty(Preset) ? Server.WelcomeMessagePath : Path.Join(BaseFolder, Server.WelcomeMessagePath);
+        // Race AI patch: with layers the path is already relative to the server folder (PresetOverlay.MergeServerCfg)
+        var welcomeMessagePath = Layers.Count > 1 || string.IsNullOrEmpty(Preset) ? Server.WelcomeMessagePath : Path.Join(BaseFolder, Server.WelcomeMessagePath);
         if (File.Exists(welcomeMessagePath))
         {
             welcomeMessage = File.ReadAllText(welcomeMessagePath);
+            if (_mergedServerCfg != null) welcomeMessage = PresetOverlay.Fill(welcomeMessage, _mergedServerCfg);
         }
         else if(!string.IsNullOrEmpty(welcomeMessagePath))
         {
@@ -360,8 +366,8 @@ public partial class ACServerConfiguration
                 ReferenceConfigurationHelper.WriteReferenceConfiguration(plugin.ReferenceConfigurationFileName,
                     schemaPath, plugin.ReferenceConfiguration, plugin.Name);
                 
-                // Race AI patch: in a preset, cfg/<plugin cfg> with the preset's file on top (or cfg/'s alone)
-                var configText = PresetOverlay.ReadYaml(BaseFolder, plugin.ConfigurationFileName);
+                // Race AI patch: the plugin's config of all layers
+                var configText = PresetOverlay.ReadYaml(Layers, plugin.ConfigurationFileName);
                 if (configText != null && builder != null)
                 {
                     var deserializer = new DeserializerBuilder().Build();
@@ -425,16 +431,18 @@ public partial class ACServerConfiguration
 
         try
         {
-            if (!File.Exists(path))
+            if (Layers.Count == 1 && !File.Exists(path))
             {
                 using var file = File.CreateText(path);
                 ConfigurationSchemaGenerator.WriteModeLine(file, BaseFolder, schemaPath);
                 new ACExtraConfiguration().ToStream(file);
             }
 
-            // Race AI patch: in a preset, cfg/extra_cfg.yml with the preset's file on top
-            var extraText = PresetOverlay.Applies(BaseFolder) ? PresetOverlay.ReadYaml(BaseFolder, Path.GetFileName(path)) : null;
+            // Race AI patch: extra_cfg.yml of all layers
+            var extraText = PresetOverlay.ReadYaml(Layers, Path.GetFileName(path));
             Extra = extraText != null ? ACExtraConfiguration.FromText(extraText) : ACExtraConfiguration.FromFile(path);
+            if (_mergedServerCfg != null && Extra.ServerDescription != null)
+                Extra.ServerDescription = PresetOverlay.Fill(Extra.ServerDescription, _mergedServerCfg);
         }
         catch (Exception ex)
         {

@@ -4,7 +4,6 @@
 
     <ItemGroup>
         <EmbeddedResource Include="Dashboard\index.html" LogicalName="RaceAiPlugin.Dashboard.index.html" />
-        <EmbeddedResource Include="..\race-ai\classes\classes.json" LogicalName="RaceAiPlugin.classes.json" />
         <EmbeddedResource Include="Dashboard\driverswap.lua" LogicalName="RaceAiPlugin.Dashboard.driverswap.lua" />
     </ItemGroup>
 

@@ -7,8 +7,8 @@ namespace RaceAiPlugin;
 
 /// <summary>
 /// Writes settings changed in the dashboard (or by admin commands) back into plugin_race_ai_cfg.yml, so they survive a restart.
-/// Top-level keys only, the line is replaced in place (comments stay). With a preset (track rotation) the key goes into the
-/// preset's file when it's set there, otherwise into cfg/ (valid for all tracks).
+/// Top-level keys only, the line is replaced in place (comments stay). The key goes into the top layer (class, track) that sets it,
+/// otherwise into cfg/ (valid for all tracks and classes).
 /// </summary>
 public sealed class ConfigWriter
 {
@@ -32,12 +32,10 @@ public sealed class ConfigWriter
         {
             try
             {
-                var main = Path.Join("cfg", FileName);
-                var own = Path.Join(_serverConfig.BaseFolder, FileName);
                 var pattern = new Regex($"^{Regex.Escape(key)}:.*$", RegexOptions.Multiline);
-                string path = main;
-                if (Path.GetFullPath(own) != Path.GetFullPath(main) && File.Exists(own) && pattern.IsMatch(File.ReadAllText(own))) path = own;
-                if (!File.Exists(path)) path = own;
+                // the top layer (class, track, cfg/) that sets the key, else cfg/
+                string path = _serverConfig.Layers.Reverse().Select(l => Path.Join(l, FileName))
+                    .FirstOrDefault(f => File.Exists(f) && pattern.IsMatch(File.ReadAllText(f))) ?? Path.Join(_serverConfig.Layers[0], FileName);
                 string content = File.Exists(path) ? File.ReadAllText(path) : "";
                 string line = $"{key}: {text}";
                 content = pattern.IsMatch(content)

@@ -34,6 +34,10 @@ for f in "$EXAMPLE"/cfg/*; do
   [ -e "$SRV/cfg/$(basename "$f")" ] || cp "$f" "$SRV/cfg/"
 done
 sed -i "s|^AssettoCorsaPath:.*|AssettoCorsaPath: $AC|" "$SRV/cfg/plugin_race_ai_cfg.yml"
+# vehicle classes (presets/classes/<class>/): new ones are added, your own changes are kept
+for d in "$REPO/race-ai/presets/classes"/*/; do
+  [ -e "$SRV/presets/classes/$(basename "$d")" ] || { mkdir -p "$SRV/presets/classes"; cp -r "$d" "$SRV/presets/classes/"; }
+done
 
 bash "$EXAMPLE/prepare-content.sh" "$AC" "$SRV"
 echo

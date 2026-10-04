@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using IniParser;
@@ -8,76 +9,115 @@ using YamlDotNet.RepresentationModel;
 namespace AssettoServer.Server.Configuration;
 
 /// <summary>
-/// Race AI patch: a preset (presets/&lt;name&gt;/) only needs the settings that differ from cfg/. The files in cfg/ are loaded first,
-/// the preset's files on top (server_cfg.ini key by key, [WEATHER_x] as a whole block; yml files key by key). A file the preset
-/// doesn't have is taken from cfg/ as it is.
+/// Race AI patch: the configuration is made of layers, each only with what differs from the one below:
+/// cfg/ → presets/tracks/&lt;track&gt;/ → presets/classes/&lt;class&gt;/. Preset name "nordschleife+gte" = track + vehicle class,
+/// "nordschleife" = track only (cars from cfg/), "+gte" = class on the track of cfg/. An old flat presets/&lt;name&gt;/ still works as track layer.
+/// server_cfg.ini is merged key by key ([WEATHER_x] as a whole block), yml files key by key, any other file is taken from the top layer that has it.
+/// {track} and {class} in NAME, the welcome message and ServerDescription are replaced with [PRESET] TRACK_TITLE / CLASS_TITLE.
 /// </summary>
 public static class PresetOverlay
 {
     public const string MainFolder = "cfg";
+    public const char ClassSeparator = '+';
+    public static readonly string TracksFolder = Path.Join("presets", "tracks");
+    public static readonly string ClassesFolder = Path.Join("presets", "classes");
 
-    /// <summary>True when <paramref name="baseFolder"/> is a preset folder and cfg/ exists.</summary>
-    public static bool Applies(string baseFolder)
-        => Directory.Exists(MainFolder)
-           && Path.GetFullPath(baseFolder).TrimEnd(Path.DirectorySeparatorChar) != Path.GetFullPath(MainFolder).TrimEnd(Path.DirectorySeparatorChar);
-
-    public static string MainPath(string fileName) => Path.Join(MainFolder, fileName);
-
-    /// <summary>The file to read: the preset's own, or the one in cfg/ when the preset doesn't have it.</summary>
-    public static string Resolve(string baseFolder, string fileName)
+    public static (string Track, string? Class) Split(string? preset)
     {
-        var own = Path.Join(baseFolder, fileName);
-        if (File.Exists(own) || !Applies(baseFolder)) return own;
-        var main = MainPath(fileName);
-        return File.Exists(main) ? main : own;
+        if (string.IsNullOrEmpty(preset)) return ("", null);
+        int i = preset.IndexOf(ClassSeparator);
+        return i < 0 ? (preset, null) : (preset[..i], preset[(i + 1)..] is { Length: > 0 } c ? c : null);
     }
 
-    /// <summary>cfg/server_cfg.ini with the preset's server_cfg.ini on top.</summary>
-    public static IniData MergeServerCfg(string presetFolder, string presetPath)
+    public static string Join(string track, string? cls)
+        => string.IsNullOrEmpty(cls) ? track : $"{(track == "default" ? "" : track)}{ClassSeparator}{cls}";
+
+    public static string TrackFolder(string track)
+        => Directory.Exists(Path.Join(TracksFolder, track)) ? Path.Join(TracksFolder, track) : Path.Join("presets", track);
+
+    public static string ClassFolder(string cls) => Path.Join(ClassesFolder, cls);
+
+    /// <summary>The folders of a preset, bottom (cfg/) to top.</summary>
+    public static List<string> Layers(string? preset)
     {
+        var layers = new List<string> { MainFolder };
+        var (track, cls) = Split(preset);
+        if (track is not ("" or "default")) layers.Add(TrackFolder(track));
+        if (cls != null) layers.Add(ClassFolder(cls));
+        return layers;
+    }
+
+    /// <summary>The file from the top layer that has it, else the path in the top layer.</summary>
+    public static string Resolve(IReadOnlyList<string> layers, string fileName)
+        => layers.Reverse().Select(l => Path.Join(l, fileName)).FirstOrDefault(File.Exists) ?? Path.Join(layers[^1], fileName);
+
+    /// <summary>server_cfg.ini of all layers of <paramref name="preset"/>, each on top of the one below.</summary>
+    public static IniData MergeServerCfg(string? preset)
+    {
+        var layers = Layers(preset);
         var parser = new FileIniDataParser();
-        var main = parser.ReadFile(MainPath("server_cfg.ini"));
-        var preset = parser.ReadFile(presetPath);
-
-        // weather: the preset's [WEATHER_x] replace all of cfg/ (otherwise leftover weathers from cfg/ would mix in)
-        if (preset.Sections.Any(s => s.SectionName.StartsWith("WEATHER_", StringComparison.OrdinalIgnoreCase)))
+        IniData? merged = null;
+        foreach (var layer in layers)
         {
-            foreach (var name in main.Sections.Select(s => s.SectionName)
-                         .Where(n => n.StartsWith("WEATHER_", StringComparison.OrdinalIgnoreCase)).ToList())
-                main.Sections.RemoveSection(name);
+            var path = Path.Join(layer, "server_cfg.ini");
+            if (!File.Exists(path)) continue;
+            var data = parser.ReadFile(path);
+            // WELCOME_MESSAGE: relative to the server folder in cfg/, to the layer's folder elsewhere
+            var welcome = data["SERVER"]["WELCOME_MESSAGE"];
+            if (layer != MainFolder && !string.IsNullOrWhiteSpace(welcome) && !Path.IsPathRooted(welcome))
+                data["SERVER"]["WELCOME_MESSAGE"] = Path.Join(layer, welcome).Replace('\\', '/');
+            if (merged == null)
+            {
+                merged = data;
+                continue;
+            }
+
+            // weather: the layer's [WEATHER_x] replace all below (otherwise leftover weathers would mix in)
+            if (data.Sections.Any(s => s.SectionName.StartsWith("WEATHER_", StringComparison.OrdinalIgnoreCase)))
+            {
+                foreach (var name in merged.Sections.Select(s => s.SectionName)
+                             .Where(n => n.StartsWith("WEATHER_", StringComparison.OrdinalIgnoreCase)).ToList())
+                    merged.Sections.RemoveSection(name);
+            }
+
+            foreach (var section in data.Sections)
+            {
+                if (!merged.Sections.ContainsSection(section.SectionName)) merged.Sections.AddSection(section.SectionName);
+                foreach (var key in section.Keys)
+                    merged[section.SectionName][key.KeyName] = key.Value;
+            }
         }
 
-        // WELCOME_MESSAGE of cfg/ is relative to the server folder, a preset's one relative to the preset folder
-        var welcome = main["SERVER"]["WELCOME_MESSAGE"];
-        if (!string.IsNullOrWhiteSpace(welcome) && !preset["SERVER"].ContainsKey("WELCOME_MESSAGE"))
-            main["SERVER"]["WELCOME_MESSAGE"] = Path.GetRelativePath(presetFolder, welcome).Replace('\\', '/');
-
-        foreach (var section in preset.Sections)
-        {
-            if (!main.Sections.ContainsSection(section.SectionName)) main.Sections.AddSection(section.SectionName);
-            foreach (var key in section.Keys)
-                main[section.SectionName][key.KeyName] = key.Value;
-        }
-        return main;
+        if (merged == null) throw new FileNotFoundException("no server_cfg.ini in " + string.Join(", ", layers));
+        var (track, cls) = Split(preset);
+        if (string.IsNullOrEmpty(merged["PRESET"]["TRACK_TITLE"]) && track is not ("" or "default")) merged["PRESET"]["TRACK_TITLE"] = track;
+        if (string.IsNullOrEmpty(merged["PRESET"]["CLASS_TITLE"]) && cls != null) merged["PRESET"]["CLASS_TITLE"] = cls.ToUpperInvariant();
+        merged["SERVER"]["NAME"] = Fill(merged["SERVER"]["NAME"], merged);
+        return merged;
     }
 
-    /// <summary>Text of a yml file: the preset's on top of the one in cfg/ (or just one of them). Null if neither exists.</summary>
-    public static string? ReadYaml(string baseFolder, string fileName)
+    /// <summary>{track} and {class} replaced with the titles of the merged server_cfg.ini.</summary>
+    public static string Fill(string? text, IniData merged)
+        => (text ?? "").Replace("{track}", merged["PRESET"]["TRACK_TITLE"] ?? "").Replace("{class}", merged["PRESET"]["CLASS_TITLE"] ?? "").Trim();
+
+    /// <summary>Text of a yml file, every layer's on top of the one below. Null if no layer has it.</summary>
+    public static string? ReadYaml(IReadOnlyList<string> layers, string fileName)
     {
-        var own = Path.Join(baseFolder, fileName);
-        var main = MainPath(fileName);
-        bool hasOwn = File.Exists(own), hasMain = Applies(baseFolder) && File.Exists(main);
-        if (!hasOwn && !hasMain) return null;
-        if (!hasMain) return File.ReadAllText(own);
-        if (!hasOwn) return File.ReadAllText(main);
+        var files = layers.Select(l => Path.Join(l, fileName)).Where(File.Exists).ToList();
+        if (files.Count == 0) return null;
+        if (files.Count == 1) return File.ReadAllText(files[0]);
 
-        var mainDoc = Load(main);
-        var ownDoc = Load(own);
-        if (mainDoc == null) return File.ReadAllText(own);
-        if (ownDoc == null) return File.ReadAllText(main);
-        Merge(mainDoc, ownDoc);
+        YamlMappingNode? merged = null;
+        foreach (var f in files)
+        {
+            var doc = Load(f);
+            if (doc == null) continue;
+            if (merged == null) merged = doc;
+            else Merge(merged, doc);
+        }
+        if (merged == null) return File.ReadAllText(files[^1]);
 
-        var stream = new YamlStream(new YamlDocument(mainDoc));
+        var stream = new YamlStream(new YamlDocument(merged));
         using var writer = new StringWriter();
         stream.Save(writer, assignAnchors: false);
         return writer.ToString();

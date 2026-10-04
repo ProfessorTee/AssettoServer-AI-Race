@@ -235,42 +235,74 @@ Die Lobby bekommt einen neuen Namen spätestens nach einer Minute; im Spiel selb
 
 ## Strecken-Rotation
 
-Der Server kann nach einer Anzahl Rennen (oder Minuten) die Strecke wechseln. Er startet sich dabei selbst mit dem nächsten
-**Preset** neu (`presets/<name>/` mit eigener `server_cfg.ini`, `entry_list.ini`, `extra_cfg.yml` und Plugin-Konfigurationen,
-„default“ ist der Ordner `cfg/`). Spieler mit **CSP** bekommen ein Banner mit Countdown, danach treten sie über Content Manager neu bei. (Ein automatisches Neu-Verbinden
+Der Server kann nach einer Anzahl Rennen (oder Minuten) die Strecke wechseln. Er startet sich dabei selbst mit der nächsten
+Strecke neu. Spieler mit **CSP** bekommen ein Banner mit Countdown, danach treten sie über Content Manager neu bei. (Ein automatisches Neu-Verbinden
 geht nicht: CSP behält dabei die geladene Strecke, das Spiel stürzt mit der neuen ab.)
 Gewechselt wird nur zwischen zwei Sessions, nie mitten im Rennen.
 
-**Presets enthalten nur, was anders ist.** Der Server lädt zuerst `cfg/` und legt das Preset darüber: in `server_cfg.ini` Wert für
-Wert (die `[WEATHER_x]`-Blöcke des Presets ersetzen die aus `cfg/` ganz), `.yml`-Dateien ebenfalls Wert für Wert. Fehlt eine Datei
-im Preset, gilt die aus `cfg/`. Passwörter, Sessions, Plugins, Willkommenstext usw. stehen also nur einmal in `cfg/`. Beispiel:
+### Aufbau: Basis, Strecke, Klasse
+
+Strecke und Fahrzeugklasse sind getrennt und werden beim Start übereinandergelegt. Jede Schicht enthält nur, was anders ist:
+
+```
+cfg/                              Basis: Passwörter, Sessions, Plugins, KI-Einstellungen, Begrüßung, Beschreibung
+presets/tracks/<strecke>/         TRACK, CONFIG_TRACK, Wetter, MAX_CLIENTS (Boxen), GridFile, Titel
+presets/classes/<klasse>/         entry_list.ini (Autos, Skins, Spieler- und Bot-Plätze), CARS=, Titel
+```
+
+Preset-Name `nordschleife+gte` = `cfg/` → `presets/tracks/nordschleife/` → `presets/classes/gte/`. Ohne Klasse (`nordschleife`)
+kommen die Autos aus `cfg/entry_list.ini`. `server_cfg.ini` wird Wert für Wert zusammengelegt (die `[WEATHER_x]`-Blöcke einer Schicht
+ersetzen die darunter ganz), `.yml`-Dateien ebenfalls. Jede andere Datei kommt aus der obersten Schicht, die sie hat.
+
+Die Entry List einer Klasse hat 24 Plätze. Hat eine Strecke weniger Boxen, setzt ihr `MAX_CLIENTS` die Grenze: Die hinteren Bot-Plätze fallen weg.
+
+`{track}` und `{class}` in `NAME`, im Begrüßungstext und in `ServerDescription` werden durch die Titel ersetzt
+(`[PRESET] TRACK_TITLE` der Strecke, `[PRESET] CLASS_TITLE` der Klasse). Beispiel:
 
 ```ini
-; presets/trialmountain/server_cfg.ini
+; cfg/server_cfg.ini
+[SERVER]
+NAME={track} {class} vs Race AI
+
+; presets/tracks/trialmountain/server_cfg.ini
 [SERVER]
 TRACK=trialmountain
 CONFIG_TRACK=forward
+MAX_CLIENTS=20
 
 [WEATHER_0]
 GRAPHICS=3_clear
-BASE_TEMPERATURE_AMBIENT=22
-BASE_TEMPERATURE_ROAD=20
+
+[PRESET]
+TRACK_TITLE=Trial Mountain
+
+; presets/classes/gte/server_cfg.ini
+[SERVER]
+CARS=ks_corvette_c7r;ks_porsche_911_rsr_2017;ferrari_458_gt2;bmw_m3_gt2
+
+[PRESET]
+CLASS_TITLE=GTE
 ```
 
-Dazu `entry_list.ini` (nicht mehr Autos als die Strecke Boxen hat; `MAX_CLIENTS` wird automatisch darauf begrenzt) und
-`plugin_race_ai_cfg.yml` mit nur `GridFile: …`.
-
-Neue Strecke hinzufügen (legt so ein Preset an, kopiert die nötigen Streckendateien und trägt sie in `rotation.yml` ein):
+Neue Strecke hinzufügen (legt `presets/tracks/<name>/` an, kopiert die nötigen Streckendateien und trägt sie in `rotation.yml` ein):
 
 ```
 race-ai/add-track-preset.sh <AC-Ordner> trialmountain forward
+```
+
+Alten Server (mit `presets/<strecke>-<klasse>/`-Ordnern) einmalig umstellen; das alte `presets/` bleibt als `presets.bak-<datum>/` erhalten:
+
+```
+python3 race-ai/migrate-presets.py <Serverordner> --dry-run   # nur anzeigen
+python3 race-ai/migrate-presets.py <Serverordner>
 ```
 
 `rotation.yml` im Server-Ordner:
 
 ```yaml
 Enabled: true
-Tracks: [default, trialmountain]   # Reihenfolge; default = cfg/
+Tracks: [nordschleife, trialmountain]   # Reihenfolge; "nordschleife+lmp1" = diese Strecke immer mit LMP1
+Class: gte                         # Klasse für alle Strecken (leer = Autos aus cfg/entry_list.ini)
 RacesPerTrack: 3                   # wechseln nach so vielen Rennen (0 = nur nach Zeit)
 Races: { trialmountain: 5 }        # einzelne Strecken mit eigener Anzahl (optional)
 MinutesPerTrack: 0                 # oder nach so vielen Minuten (0 = aus)
@@ -278,19 +310,18 @@ Random: false                      # zufällige Reihenfolge
 ChangeWhenEmpty: true              # niemand online und fällig: sofort wechseln
 AnnounceSeconds: 20                # Chat-Hinweis vorher
 FirstStartSeconds: 60              # Wartezeit beim ersten Start einer Strecke (danach gemessen)
-Titles: { default: Nordschleife, trialmountain: Trial Mountain }
 ```
 
 - Dashboard, Reiter Server: Karte „Strecken-Rotation“ (jetzt, als Nächstes, sofort wechseln). Admin im Chat: `/raceai_nexttrack [preset]`.
 - Die Willkommensnachricht bekommt automatisch eine Zeile „Strecken-Rotation: jetzt …, danach …“.
-- `WELCOME_MESSAGE` ist ein **Dateipfad** (in `cfg/` relativ zum Server-Ordner, z. B. `cfg/welcome.txt`; in einem Preset relativ zum
-  Preset-Ordner, z. B. `welcome.txt`). Die Kurzbeschreibung in Content Manager kommt aus `ServerDescription` in `extra_cfg.yml`.
+- `WELCOME_MESSAGE` ist ein **Dateipfad** (in `cfg/` relativ zum Server-Ordner, z. B. `cfg/welcome.txt`; in einer Strecke oder Klasse
+  relativ zu deren Ordner, z. B. `welcome.txt`). Die Kurzbeschreibung in Content Manager kommt aus `ServerDescription` in `extra_cfg.yml`.
 - Strecken, die kein Kunos-Inhalt sind (Mods), müssen die Spieler installiert haben, oder man trägt Download-Links ein
   (`[DATA]` in `cfg/cm_content/content.json` bzw. über die Content-Manager-Server-Einstellungen).
 - Die Zahl der gefahrenen Rennen bleibt bei einem normalen Neustart erhalten (`rotation.state`).
 - Ohne `server-supervisor.sh` (z. B. beim Hoster, dessen Panel immer mit `cfg/` startet) wechselt der Server beim Start selbst
   auf die zuletzt gefahrene Strecke; „Server neu starten“ im Dashboard startet dann im selben Prozess neu.
-- `current-preset` merkt sich die laufende Strecke; `race-ai/server-supervisor.sh` startet nach einem Neustart dort weiter.
+- `current-preset` merkt sich die laufende Strecke mit Klasse (`trialmountain+gte`); `race-ai/server-supervisor.sh` startet nach einem Neustart dort weiter.
 
 ## Live-Timing (öffentlich)
 `http://<server>:<HTTP_PORT>/raceai/live`: Streckenkarte (ganze Strecke oder einem Auto folgen), Zeitenturm mit Abstand/Intervall
@@ -301,24 +332,17 @@ werden nur berechnet solange jemand zuschaut, einmal pro Takt für alle Zuschaue
 Seite `/raceai/api/live/state` jede Sekunde ab. Keine Admin-Daten (keine Steam-IDs, keine KI-Interna). `LiveView: false` schaltet ab.
 
 ## Fahrzeugklassen
-Fertige Klassen in `race-ai/classes/classes.json`: **GT3** (12 Autos), **GTE/GT2** (C7.R, 911 RSR 2017, 458 GT2, M3 GT2),
+Mitgeliefert in `race-ai/presets/classes/` (werden von `setup-testserver.sh` und `update-server.sh` nach `presets/classes/` kopiert,
+eigene Änderungen bleiben): **GT3** (12 Autos), **GTE/GT2** (C7.R, 911 RSR 2017, 458 GT2, M3 GT2),
 **LMP1** (TS040, 919 Hybrid 2015/2016, R18 e-tron, mit Hybrid-Boost aus `ers.ini`), **JDM** (Supra MkIV, Skyline R34, RX-7 Spirit R, 370Z).
 
-```
-python3 race-ai/set-class.py --list
-python3 race-ai/set-class.py gte --server <Serverordner>                 # cfg/ umstellen
-python3 race-ai/set-class.py gte --server <Serverordner> --all           # cfg/ und alle Presets
-python3 race-ai/set-class.py lmp1 --server <Serverordner> --from default --new-preset nordschleife-lmp1 --name "Nordschleife LMP1 vs Race AI"
-```
-**Klasse per Einstellung / Admin-Befehl:** `Class: gte` in `rotation.yml` (oder im Chat `/raceai_class gte`, `/raceai_class gte next`,
-`/raceai_class` = Liste; oder im Dashboard unter Server → Fahrzeugklasse). Dann fährt jede Strecke der Rotation mit dieser Klasse:
-Der Server nimmt ein vorhandenes Preset derselben Strecke mit dieser Klasse (eigene zuerst) oder legt `presets/<strecke>-<klasse>/`
-selbst an – nur `entry_list.ini` (Autos/Skins), Name, Beschreibung, Begrüßung; alles andere kommt vom Strecken-Preset und `cfg/`.
-Selbst angelegte Presets haben eine `.raceai-class.json` und werden bei jedem Wechsel neu geschrieben. „Jetzt“ startet neu wie ein
-Streckenwechsel (Countdown, Neu-Verbinden), der Rennzähler der Strecke läuft weiter. Ohne `Class:` bleiben die Presets wie sie sind.
-Eigene Klassen: `classes.json` (Aufbau wie `race-ai/classes/classes.json`) in den Server-Ordner legen.
+**Klasse wählen:** `Class: gte` in `rotation.yml`, im Chat `/raceai_class gte` (sofort), `/raceai_class gte next` (ab dem nächsten
+Streckenwechsel), `/raceai_class` = Liste; oder im Dashboard unter Server → Fahrzeugklasse. „Sofort“ startet neu wie ein Streckenwechsel
+(Countdown, Neu-Verbinden), der Rennzähler der Strecke läuft weiter.
 
-Oder von Hand (set-class.py) und die Presets in `rotation.yml` unter `Tracks:` eintragen:
+**Eigene Klasse:** einen Ordner `presets/classes/<name>/` mit `entry_list.ini` (Spieler-Plätze oben, Bots mit `AI=fixed`) und
+`server_cfg.ini` (`[SERVER] CARS=…`, `[PRESET] CLASS_TITLE=…`, optional `DESCRIPTION=…`) anlegen, am einfachsten als Kopie einer
+vorhandenen. Optional eine `plugin_race_ai_cfg.yml` mit Einstellungen nur für diese Klasse.
 Jedes Modell braucht auf dem Server `content/cars/<modell>/data.acd` (am besten auch `ui/ui_car.json`).
 
 ## Einrichtung

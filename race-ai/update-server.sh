@@ -24,6 +24,11 @@ if [ -f "$SRV/AssettoServer.official" ] && [ -f "$HERE/server-build/AssettoServe
   fi
 fi
 
+# vehicle classes (presets/classes/<class>/): new ones are added, your own changes are kept
+for d in "$REPO/race-ai/presets/classes"/*/; do
+  [ -e "$SRV/presets/classes/$(basename "$d")" ] || { mkdir -p "$SRV/presets/classes"; cp -r "$d" "$SRV/presets/classes/"; }
+done
+
 mkdir -p "$SRV/plugins/RaceAiPlugin"
 cp -f "$HERE/server-build/RaceAiPlugin.dll" "$SRV/plugins/RaceAiPlugin/RaceAiPlugin.dll.new"
 mv -f "$SRV/plugins/RaceAiPlugin/RaceAiPlugin.dll.new" "$SRV/plugins/RaceAiPlugin/RaceAiPlugin.dll"

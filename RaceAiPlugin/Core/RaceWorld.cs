@@ -2024,7 +2024,9 @@ public sealed partial class RaceWorld
         var fwd = Line.ForwardAt(s);
         var lat = Line.LateralAt(s);
         var vel = fwd * bot.Speed + lat * bot.LateralSpeed;
-        var dir = bot.Speed > 0.5f || bot.LateralSpeed * bot.LateralSpeed > 0.25f ? Vector3.Normalize(vel) : fwd;
+        // heading from the velocity, but with at least 4 m/s forward: sliding sideways at a standstill (lining up after the
+        // start, a contact) would otherwise turn the car 90° for a moment
+        var dir = Vector3.Normalize(fwd * MathF.Max(bot.Speed, 4f) + lat * bot.LateralSpeed);
         dir = Rotate(dir, lat, bot.Yaw);
 
         var rotation = new Vector3(
