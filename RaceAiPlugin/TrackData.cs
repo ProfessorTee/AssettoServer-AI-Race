@@ -13,8 +13,10 @@ public sealed class TrackData
     public float StartLineS { get; init; }
     public PitLane? PitLane { get; init; }
 
-    public static TrackData Load(string track, string layout, RaceAiConfiguration config)
+    /// <param name="gridFile">Grid file of another preset than the running one (null = <paramref name="config"/>'s).</param>
+    public static TrackData Load(string track, string layout, RaceAiConfiguration config, string? gridFile = null)
     {
+        gridFile ??= config.GridFile;
         var roots = ContentRoots(config);
 
         string? fastLane = null;
@@ -57,10 +59,10 @@ public sealed class TrackData
             line.ApplyHints(info.SpeedHints, info.MaxSpeedsKmh);
 
         // grid, pit boxes, start line
-        if (!string.IsNullOrEmpty(config.GridFile) && File.Exists(config.GridFile))
+        if (!string.IsNullOrEmpty(gridFile) && File.Exists(gridFile))
         {
-            LoadGridFile(info, config.GridFile);
-            Log.Information("Race AI: grid loaded from {GridFile}", config.GridFile);
+            LoadGridFile(info, gridFile);
+            Log.Information("Race AI: grid loaded from {GridFile}", gridFile);
         }
         else
         {

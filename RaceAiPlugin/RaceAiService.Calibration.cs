@@ -208,7 +208,10 @@ public sealed partial class RaceAiService
                 string layout = ini["SERVER"]["CONFIG_TRACK"] ?? "";
                 if (string.IsNullOrEmpty(track)) continue;
                 track = CSPTrackOptions.Parse(track).Track;
-                var td = TrackData.Load(track, layout, _config);
+                // that preset's grid file (start line, pit boxes), not the running one's
+                var yml = PresetOverlay.ReadYaml(layers, "plugin_race_ai_cfg.yml") ?? "";
+                var grid = System.Text.RegularExpressions.Regex.Match(yml, @"(?m)^GridFile:[ \t]*['""]?([^'""\r\n]*)");
+                var td = TrackData.Load(track, layout, _config, grid.Success ? grid.Groups[1].Value.Trim() : "");
                 string trackKey = TrackKeyFor(track, layout);
                 var settings = CopySettings(_calibrationSettings, td.StartLineS);
 

@@ -8,7 +8,7 @@
 - presets/<track>/ become presets/tracks/<track>/ with only what differs from cfg/ (no cars, no name, no copies of cfg/ files)
 - presets/classes/<class>/ come from race-ai/presets/classes/ (entry_list.ini with the cars, CARS= and the title)
 - the track of cfg/ gets presets/tracks/<track>/ too, so rotation.yml lists real tracks ("default" -> its name)
-- cfg/: NAME, welcome.txt and ServerDescription get {track} / {class} instead of the class and track name
+- cfg/: NAME, welcome.txt and ServerDescription get {class} instead of the class name (a NAME without one gets " [{class}]")
 - rotation.yml: "default" -> the track of cfg/, Titles: -> [PRESET] TRACK_TITLE of the tracks; current-preset "a-gte" -> "a+gte"
 """
 import datetime
@@ -172,7 +172,11 @@ def main():
 
     # cfg/: placeholders
     sc = read("cfg/server_cfg.ini")
-    sc = set_key(sc, "SERVER", "NAME", "{track} {class} vs Race AI")
+    # the server's own name stays: a class label in it becomes {class}, else " [{class}]" is added (like the old class presets did)
+    name = cfg["SERVER"].get("NAME", "")
+    if "{class}" not in name:
+        name = re.sub(LABELS, "{class}", name) if re.search(LABELS, name) else (name + " [{class}]" if name else "{track} {class} vs Race AI")
+    sc = set_key(sc, "SERVER", "NAME", name)
     sc = set_key(sc, "PRESET", "TRACK_TITLE", titles.get("default", main_name))
     m = re.search(LABELS, read("cfg/entry_list.ini") + cfg["SERVER"].get("NAME", "")) or re.search(LABELS, read("cfg/welcome.txt") if os.path.exists("cfg/welcome.txt") else "")
     sc = set_key(sc, "PRESET", "CLASS_TITLE", m.group(1) if m else "GT3")
