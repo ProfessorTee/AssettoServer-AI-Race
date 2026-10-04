@@ -74,7 +74,9 @@ Das Plugin besteht aus zwei Teilen:
   „in die Eisen“), `InsideLine`, `Smoothness`, `Composure`, `Weaving`, `Patience` (Geduld hinter Langsameren, Lichthupe),
   `Mistakes`, `LineErrors`, `TyreWear`, `TyreChangeAt` (ab wie viel % Grip neue Reifen), `FuelUse`. Das alte `LateBraking` wird noch als `BrakeBehavior` gelesen.
   Dazu Linie, Zweikampf und Start: `ApexStyle` (-1 runde frühe bis 1 späte Linie), `TrackUse` (-1 Abstand zum Rand bis 1 Randsteine),
-  `ExitGreed` (früh am Gas, ab und zu zu früh), `Room` (Platz neben anderen Autos in m, negativ = drückt), `Attack`, `Defend`, `Launch`.
+  `ExitGreed` (früh am Gas, ab und zu zu früh), `Room` (Platz neben anderen Autos in m, negativ = drückt), `Attack`, `Defend`, `Launch`,
+  `GrassPass` (0..1: überholt mit zwei Rädern im Gras, auch mitten in der Kurve; DiveBomber 1),
+  `CornerPass` (0..1: 1 überall, 0 nur auf der Geraden aus dem Windschatten, in Kurven nur an Autos neben der Ideallinie; Chill 0, FuelSaver 0.3).
   Fehlen sie in einer älteren cfg, gelten die Werte der gleichnamigen eingebauten Persönlichkeit.
 - **Eigene Linie je Fahrer** (`PersonalLines`): jeder Bot fährt seine Version der Linie seiner Persönlichkeit (Apex früher oder
   später, mehr oder weniger Strecke), jeder Fahrer etwas anders. Kostet keine Rundenzeit (gemessen: alle Persönlichkeiten innerhalb 0,7 %).

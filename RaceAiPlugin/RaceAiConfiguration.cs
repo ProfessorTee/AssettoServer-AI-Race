@@ -125,6 +125,10 @@ public class PersonalityConfiguration
     public float? Defend { get; set; }
     [YamlMember(Description = "-1..1: the start. 1 quick reaction and aggressive launch (often wheelspin), -1 slow and careful")]
     public float? Launch { get; set; }
+    [YamlMember(Description = "0..1: how far over the track edge an overtake may go: 1 = two wheels on the grass, also mid-corner")]
+    public float? GrassPass { get; set; }
+    [YamlMember(Description = "0..1: where overtakes are tried. 1 = anywhere, 0 = on the straights, in a corner only past a car off its line")]
+    public float? CornerPass { get; set; }
 
     public Personality ToPersonality()
     {
@@ -137,7 +141,8 @@ public class PersonalityConfiguration
             Patience = Math.Clamp(Patience, 0, 1),
             ApexStyle = Math.Clamp(ApexStyle ?? d.ApexStyle, -1, 1), TrackUse = Math.Clamp(TrackUse ?? d.TrackUse, -1, 1),
             ExitGreed = Math.Clamp(ExitGreed ?? d.ExitGreed, 0, 1), Room = Math.Clamp(Room ?? d.Room, -0.3f, 2f),
-            Attack = Math.Clamp(Attack ?? d.Attack, 0, 1), Defend = Math.Clamp(Defend ?? d.Defend, 0, 1), Launch = Math.Clamp(Launch ?? d.Launch, -1, 1)
+            Attack = Math.Clamp(Attack ?? d.Attack, 0, 1), Defend = Math.Clamp(Defend ?? d.Defend, 0, 1), Launch = Math.Clamp(Launch ?? d.Launch, -1, 1),
+            GrassPass = Math.Clamp(GrassPass ?? d.GrassPass, 0, 1), CornerPass = Math.Clamp(CornerPass ?? d.CornerPass, 0, 1)
         };
     }
 
@@ -147,7 +152,8 @@ public class PersonalityConfiguration
         InsideLine = d.Personality.InsideLine, TyreWear = d.Personality.TyreWear, TyreChangeAt = d.Personality.TyreChangeAt, FuelUse = d.Personality.FuelUse,
         Smoothness = d.Personality.Smoothness, Composure = d.Personality.Composure, Weaving = d.Personality.Weaving, Mistakes = d.Personality.Mistakes,
         LineErrors = d.Personality.LineErrors, Patience = d.Personality.Patience, ApexStyle = d.Personality.ApexStyle, TrackUse = d.Personality.TrackUse,
-        ExitGreed = d.Personality.ExitGreed, Room = d.Personality.Room, Attack = d.Personality.Attack, Defend = d.Personality.Defend, Launch = d.Personality.Launch
+        ExitGreed = d.Personality.ExitGreed, Room = d.Personality.Room, Attack = d.Personality.Attack, Defend = d.Personality.Defend, Launch = d.Personality.Launch,
+        GrassPass = d.Personality.GrassPass, CornerPass = d.Personality.CornerPass
     }).ToList();
 }
 

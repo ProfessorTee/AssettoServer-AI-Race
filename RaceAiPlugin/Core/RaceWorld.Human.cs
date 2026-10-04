@@ -436,6 +436,8 @@ public sealed partial class RaceWorld
         float half = me.Car.Width / 2;
         // a clone may use the kerbs like the player did (its line stays KerbLimit from the edge of the width data)
         float allow = MathF.Max(Settings.GrassMoments ? me.EdgeAllowance : 0, KerbAllowance(me));
+        // an overtake with two wheels on the grass (GrassPass)
+        if (me.OvertakeTargetId >= 0) allow = MathF.Max(allow, GrassPassRoom(me) + EdgeMarginFor(me));
         float before = me.Offset;
         me.Offset = Math.Clamp(me.Offset, -Line.RoomMinusAt(s) + half - allow, Line.RoomPlusAt(s) - half + allow);
         if (MathF.Abs(before - me.Offset) > 0.01f) me.ClampedAt = _now;

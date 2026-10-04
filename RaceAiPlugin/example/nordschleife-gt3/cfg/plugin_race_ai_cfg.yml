@@ -116,6 +116,7 @@ Personalities:
     Patience: 0.1
     Mistakes: 1.2
     LineErrors: 1.1
+    GrassPass: 1         # overtakes with two wheels on the grass, also mid-corner
   - Name: Chill           # smooth and patient, keeps the tyres in the green
     Share: 20
     TyreChangeAt: 90
@@ -129,6 +130,7 @@ Personalities:
     Patience: 0.9
     Mistakes: 0.8
     LineErrors: 0.8
+    CornerPass: 0        # passes on the straights (slipstream), in corners only past a car off its line
   - Name: FuelSaver       # lift and coast, careful on the brakes
     Share: 20
     TyreChangeAt: 91
@@ -141,6 +143,7 @@ Personalities:
     Weaving: 0.2
     Patience: 0.7
     LineErrors: 0.9
+    CornerPass: 0.3
 # Chat messages (de or en), yellow flag message when a car spins, crashes or stops on the track
 ChatLanguage: en
 YellowFlagChat: true

@@ -1113,6 +1113,8 @@ public sealed partial class RaceWorld
         float minOff = -roomMinus + half + edge;
         float maxOff = roomPlus - half - edge;
         if (minOff > maxOff) minOff = maxOff = (minOff + maxOff) / 2;
+        float grass = GrassPassRoom(me);
+        if (me.OvertakeTargetId >= 0) { minOff -= grass; maxOff += grass; }
 
         // driver form varies a little over time (less consistent drivers vary more)
         if (_now >= me.PaceNoiseUntil)
@@ -1214,7 +1216,8 @@ public sealed partial class RaceWorld
             }
         }
 
-        me.Draft = draft;
+        // pulling out of the slipstream: the tow fades over a second or two instead of at once (the slingshot)
+        me.Draft = MathF.Max(draft, me.Draft - 0.12f * _stepDt);
         UpdateClearAhead(me, myS);
 
         // pressure: somebody (player or bot) sitting right behind in my slipstream for a long time makes me nervous
@@ -1328,6 +1331,8 @@ public sealed partial class RaceWorld
                 else if (ds < -((me.Car.Length + target.Value.Length) / 2 + 2))
                 {
                     Diag("end:passed");
+                    bool onGrass = me.Offset > Line.RoomPlusAt(myS) - half + 0.3f || me.Offset < -Line.RoomMinusAt(myS) + half - 0.3f;
+                    Diag($"pass {me.Driver.Personality.Name} {(MathF.Abs(Line.CurvatureAt(myS)) > 1 / 250f ? "corner" : "straight")}{(onGrass ? " grass" : "")}");
                     me.OvertakeTargetId = -1;
                     me.Overtakes++;
                     me.ReturnToLineAfter = _now + 0.8;
@@ -1414,9 +1419,9 @@ public sealed partial class RaceWorld
             }
 
             if (me.OvertakeTargetId < 0 && !cautious && !yellow && !blueFlag && !Settings.SafetyCar && me.Phase == BotPhase.Racing && _now >= me.OvertakeCooldownUntil
-                && aheadGap < attackRange && (me.PressureEma > needAdvantage || closing > 1.0f))
+                && aheadGap < attackRange && (me.PressureEma > needAdvantage || closing > 1.0f || TowRun(me, gripLimited, closing)) && PassHereOk(me, a, gripLimited))
             {
-                if (!TryChooseOvertakeSide(me, a, aheadGap, latClear, minOff, maxOff, out var side))
+                if (!TryChooseOvertakeSide(me, a, aheadGap, latClear, minOff - grass, maxOff + grass, out var side))
                 {
                     me.OvertakeNoRoom++;
                 }
@@ -1435,7 +1440,7 @@ public sealed partial class RaceWorld
 
             // an attacker pulling out is only held behind until half his car is out of the target's lane: then he may brake later and draw alongside
             // (on a straight or braking for the corner, not in the middle of one)
-            bool pullingOut = me.OvertakeTargetId == a.Id && (!gripLimited || vLine < me.Speed - 3) && MathF.Abs(me.TargetOffset - a.Offset) > latClear - 0.3f;
+            bool pullingOut = me.OvertakeTargetId == a.Id && (!gripLimited || vLine < me.Speed - 3 || grass > 0.5f) && MathF.Abs(me.TargetOffset - a.Offset) > latClear - 0.3f;
             bool blocked = MathF.Abs(a.Offset - me.Offset) < (pullingOut ? latClear * 0.7f : latClear - Settings.SideMargin * 0.5f);
             if (UnstuckAround(me, a, myS, minOff, maxOff, ref vTarget)) blocked = false;
             if (blocked)
@@ -1601,8 +1606,9 @@ public sealed partial class RaceWorld
         float span = gap + (me.Car.Length + a.Length) / 2 + 12 + 20 * (1 - AttackOf(me));
         var (roomMinus, roomPlus) = Line.MinRoom(myS, span);
         float half = me.Car.Width / 2;
-        float lo = MathF.Max(minOff, -roomMinus + half + Settings.EdgeMargin);
-        float hi = MathF.Min(maxOff, roomPlus - half - Settings.EdgeMargin);
+        float grass = GrassPassRoom(me);
+        float lo = MathF.Max(minOff, -roomMinus + half + Settings.EdgeMargin - grass);
+        float hi = MathF.Min(maxOff, roomPlus - half - Settings.EdgeMargin + grass);
 
         float plus = a.Offset + latClear + 0.2f;
         float minus = a.Offset - latClear - 0.2f;
@@ -1675,6 +1681,28 @@ public sealed partial class RaceWorld
         float room = me.Clone != null ? 0 : me.Driver.Personality.Room;
         return o.IsBot ? MathF.Max(0.05f, Settings.SideMargin + room) : MathF.Max(Settings.SideMargin, Settings.PlayerSideMargin) + MathF.Max(0, room) * 0.5f;
     }
+
+    /// <summary>How far (m) over the edge this driver goes to overtake: up to two wheels on the grass (needs GrassMoments).</summary>
+    private float GrassPassRoom(RaceBot me)
+        => me.Clone != null || !Settings.GrassMoments ? 0 : Math.Clamp(me.Driver.Personality.GrassPass, 0, 1) * (me.Car.Width / 2 + Settings.EdgeMargin);
+
+    /// <summary>
+    /// Whether this driver tries a pass here: on a straight always; in a corner (or braking for one) only by his CornerPass,
+    /// or when the car in front is off its line (a mistake, running wide).
+    /// </summary>
+    private bool PassHereOk(RaceBot me, in Neighbor a, bool gripLimited)
+    {
+        float cp = me.Clone != null ? 1 : Math.Clamp(me.Driver.Personality.CornerPass, 0, 1);
+        if (!gripLimited || cp >= 0.99f) return true;
+        if (a.Bot is { } ab && ab.Mistake != MistakeKind.None) return true;
+        float line = a.Bot is { } b ? OwnLineOffset(b, a.S) : 0;
+        // the less he likes corner passes, the further off its line the other car has to be
+        return MathF.Abs(a.Offset - line) > 0.4f + 1.2f * (1 - cp);
+    }
+
+    /// <summary>A straight-line passer (low CornerPass) goes for it from the slipstream on a straight, without a speed advantage from the corner.</summary>
+    private static bool TowRun(RaceBot me, bool gripLimited, float closing)
+        => !gripLimited && me.Clone == null && me.Driver.Personality.CornerPass < 0.5f && me.Draft > 0.1f && closing > -0.5f;
 
     private float AttackOf(RaceBot me) => me.Clone != null ? 0.5f : Math.Clamp(me.Driver.Personality.Attack, 0, 1);
     private float DefendOf(RaceBot me) => me.Clone != null ? 0.3f : Math.Clamp(me.Driver.Personality.Defend, 0, 1);
