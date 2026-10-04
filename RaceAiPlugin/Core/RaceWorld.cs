@@ -1433,7 +1433,10 @@ public sealed partial class RaceWorld
                 }
             }
 
-            bool blocked = MathF.Abs(a.Offset - me.Offset) < latClear - Settings.SideMargin * 0.5f;
+            // an attacker pulling out is only held behind until half his car is out of the target's lane: then he may brake later and draw alongside
+            // (on a straight or braking for the corner, not in the middle of one)
+            bool pullingOut = me.OvertakeTargetId == a.Id && (!gripLimited || vLine < me.Speed - 3) && MathF.Abs(me.TargetOffset - a.Offset) > latClear - 0.3f;
+            bool blocked = MathF.Abs(a.Offset - me.Offset) < (pullingOut ? latClear * 0.7f : latClear - Settings.SideMargin * 0.5f);
             if (UnstuckAround(me, a, myS, minOff, maxOff, ref vTarget)) blocked = false;
             if (blocked)
             {
