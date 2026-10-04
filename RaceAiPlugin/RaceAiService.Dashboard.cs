@@ -176,6 +176,7 @@ public sealed partial class RaceAiService
                     personalities = _personalities.Select(p => p.Personality.Name).DefaultIfEmpty("Balanced").ToList()
                 },
                 cars = ordered,
+                lastRace = _lastRace == null ? null : new { at = _lastRaceAt.ToString("HH:mm"), rows = _lastRace },
                 health
             };
         }

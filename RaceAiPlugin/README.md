@@ -311,6 +311,7 @@ MinutesPerTrack: 0                 # oder nach so vielen Minuten (0 = aus)
 Random: false                      # zufällige Reihenfolge
 ChangeWhenEmpty: true              # niemand online und fällig: sofort wechseln
 AnnounceSeconds: 20                # Chat-Hinweis vorher
+ResultSeconds: 30                  # nach einem Rennen so lange warten (Ergebnis ansehen), dann erst wechseln
 FirstStartSeconds: 60              # Wartezeit beim ersten Start einer Strecke (danach gemessen)
 ```
 

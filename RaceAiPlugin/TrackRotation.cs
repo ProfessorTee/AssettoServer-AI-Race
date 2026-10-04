@@ -26,6 +26,8 @@ public sealed class TrackRotationConfiguration
     public bool ChangeWhenEmpty { get; set; } = true;
     /// <summary>Warning in the chat this many seconds before the change.</summary>
     public int AnnounceSeconds { get; set; } = 20;
+    /// <summary>After a race: wait this many seconds before the change (announcement included), so the players can look at the result.</summary>
+    public int ResultSeconds { get; set; } = 30;
     /// <summary>
     /// Players see a countdown until they can rejoin (the game has to load the new track, so no automatic reconnect). Seconds to wait for the new server when it has never
     /// started this track before (later the measured start time is used).
@@ -203,7 +205,11 @@ public sealed class TrackRotation : BackgroundService
             }
         }
         // between sessions: the next one hasn't really started yet
-        if (Due()) StartChange(T("race over", "Rennen vorbei"));
+        if (!Due()) return;
+        if (args.PreviousSession?.Configuration.Type == SessionType.Race && _cfg.ResultSeconds > 0)
+            _ = Task.Delay(_cfg.ResultSeconds * 1000).ContinueWith(_ => { if (Due()) StartChange(T("race over", "Rennen vorbei")); });
+        else
+            StartChange(T("race over", "Rennen vorbei"));
     }
 
     /// <summary>Display name of a rotation entry ([PRESET] TRACK_TITLE of the track), with the class it runs with.</summary>

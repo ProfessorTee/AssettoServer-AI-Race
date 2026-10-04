@@ -117,6 +117,7 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
         <tbody id="field"></tbody>
       </table>
       <div id="detail" style="margin-top:10px"></div>
+      <div id="lastRace" style="margin-top:10px"></div>
     </div>
     <div class="tab" id="tab-ai">
       <div class="card">
@@ -468,7 +469,7 @@ async function poll() {
       $("calChip").style.display = h.calibration ? "" : "none";
       if (h.calibration) $("calChip").textContent = "⚙ " + h.calibration;
     }
-    renderField(); renderLegend(); syncAi();
+    renderField(); renderLegend(); syncAi(); renderLastRace();
   } catch (e) {
     $("conn").classList.remove("on"); $("connText").textContent = "keine Verbindung";
   }
@@ -521,6 +522,14 @@ function renderField() {
   });
   for (const [id, r] of rowCache) if (!seen.has(id)) { r.tr.remove(); rowCache.delete(id); }
   renderDetail(false);
+}
+
+function renderLastRace() {
+  const lr = state.lastRace, box = $("lastRace");
+  const html = !lr ? "" : `<div class="card"><h3>Letztes Rennen <span class="muted">${esc(lr.at)}</span></h3><table>`
+    + lr.rows.map(r => `<tr><td class="num">${r.pos}</td><td><span class="pers" style="background:${r.bot ? "var(--muted)" : "var(--accent)"}"></span>${esc(r.name)}</td>`
+      + `<td class="num">${r.laps}</td><td class="num">${esc(r.gap)}</td><td class="num muted">${esc(r.best)}</td></tr>`).join("") + `</table></div>`;
+  if (box.dataset.html !== html) { box.innerHTML = html; box.dataset.html = html; }
 }
 
 function select(id) { selected = id; renderField(); renderDetail(true); }
