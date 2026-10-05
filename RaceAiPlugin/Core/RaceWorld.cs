@@ -643,7 +643,8 @@ public sealed partial class RaceWorld
             bot.CautiousUntil = bot.LaunchAt;
             // the launch itself: clean, too much throttle (wheelspin), or too little (bogs down)
             double r = _rng.NextDouble();
-            double pSpin = Settings.RealisticStart ? 0.18 + 0.32 * MathF.Max(0, launch) : 0;
+            // traction control catches most of it, a car without it spins its wheels more often
+            double pSpin = Settings.RealisticStart ? (0.18 + 0.32 * MathF.Max(0, launch)) * (bot.Car.HasTc ? 0.5 : 1.3) : 0;
             double pBog = Settings.RealisticStart ? 0.06 + 0.10 * MathF.Max(0, -launch) : 0;
             bot.Launch = r < pSpin ? LaunchKind.Wheelspin : r < pSpin + pBog ? LaunchKind.Bog : LaunchKind.Clean;
             bot.LaunchSpin = 0.3f + 0.7f * _rng.NextSingle();
@@ -1793,7 +1794,7 @@ public sealed partial class RaceWorld
             me.Throttle += Math.Clamp(pedal - me.Throttle, -dt / 0.15f, dt / rise);
             // net acceleration: the full-throttle value scaled by the pedal, minus drag the engine doesn't cover
             accel = me.Throttle * (full + drag) - drag;
-            // upshift in progress: clutch in, no drive (a paddle shift in a GT3 is over in a blink, an H gearbox with a tired driver takes a while)
+            // gear change in progress: clutch in, no drive (a paddle shift in a GT3 is over in a blink, an H gearbox with a tired driver takes a while)
             if (_now < me.ShiftEnd) accel = -drag;
             if (me.Brake > 0.05f) accel -= me.Brake * (physBrake - coast);
             v = accel > 0 ? MathF.Min(target, v + accel * dt) : v + accel * dt;
@@ -2096,7 +2097,7 @@ public sealed partial class RaceWorld
         byte throttle = (byte)Math.Clamp(bot.Throttle * 255f, 0, 255);
         _ = full;
         if (bot.Phase == BotPhase.Grid) throttle = 40; // blipping on the grid
-        if (bot.ShiftTo > 0 && _now < bot.ShiftEnd) throttle = 0; // off the throttle for the upshift
+        if (bot.ShiftTo > 0 && _now < bot.ShiftEnd) throttle = bot.ShiftTo > bot.Gear ? (byte)0 : (byte)140; // off for the upshift, a blip for the downshift
         bool hazards = (bot.Phase == BotPhase.Racing && bot.Speed < 5 && !double.IsNaN(bot.StoppedSince) && _now - bot.StoppedSince > 3)
                        || (bot.YellowHazards && bot.Phase == BotPhase.Racing)
                        || (bot.Mistake == MistakeKind.Spin && bot.SpinPhase >= 1);
@@ -2144,10 +2145,7 @@ public sealed partial class RaceWorld
         return gears.Length;
     }
 
-    /// <summary>
-    /// Downshifts at once (with a blip), upshifts take the car's shift time, longer for less skilled drivers (human errors) and a little
-    /// different every time; while the gear changes the car doesn't drive.
-    /// </summary>
+    /// <summary>Gear changes up at the driver's shift point and down at the car's downshift point, each taking the car's shift time.</summary>
     private void UpdateGear(RaceBot me, float v)
     {
         if (me.ShiftTo > 0 && _now >= me.ShiftEnd) { me.Gear = me.ShiftTo; me.ShiftTo = 0; }
@@ -2157,16 +2155,27 @@ public sealed partial class RaceWorld
         if (me.ShiftTo > 0) return;
         if (want < me.Gear)
         {
-            // a little lower than the upshift point, so it doesn't go up and down at the same speed
-            if (kmh < me.Car.GearTopSpeedsKmh[want - 1] * at * 0.93f) me.Gear = want;
+            // down when the revs in this gear fall below the car's downshift point (ai.ini), else a little under the upshift point of the gear below
+            var gears = me.Car.GearTopSpeedsKmh;
+            float rpm = kmh / gears[me.Gear - 1] * me.Car.MaxRpm;
+            bool down = me.Car.DownshiftRpm > 0 ? rpm < me.Car.DownshiftRpm : kmh < gears[want - 1] * at * 0.93f;
+            if (down) Shift(me, me.Gear - 1, me.Car.ShiftDownTime);
         }
         else if (want > me.Gear)
         {
-            float t = me.Car.ShiftUpTime;
-            if (me.Clone == null) t *= (1 + 3 * Math.Clamp(me.Driver.Errors, 0, 0.3f)) * (0.85f + 0.3f * _rng.NextSingle());
-            me.ShiftTo = me.Gear + 1;
-            me.ShiftEnd = _now + t;
+            Shift(me, me.Gear + 1, me.Car.ShiftUpTime);
         }
+    }
+
+    /// <summary>
+    /// A gear change: the car's shift time (drivetrain.ini), longer for less skilled drivers (human errors) and a little different every time;
+    /// no drive while it changes.
+    /// </summary>
+    private void Shift(RaceBot me, int to, float time)
+    {
+        if (me.Clone == null) time *= (1 + 3 * Math.Clamp(me.Driver.Errors, 0, 0.3f)) * (0.85f + 0.3f * _rng.NextSingle());
+        me.ShiftTo = to;
+        me.ShiftEnd = _now + time;
     }
 
     internal (int Gear, int Rpm) GearAndRpm(RaceBot bot)

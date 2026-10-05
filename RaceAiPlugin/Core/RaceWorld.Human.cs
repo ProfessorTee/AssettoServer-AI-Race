@@ -309,7 +309,8 @@ public sealed partial class RaceWorld
         {
             case MistakeKind.LateBrake:
                 if (me.Accel < -6 && double.IsNaN(me.LockStart)) me.LockStart = _now;
-                me.FrontLock = !double.IsNaN(me.LockStart) && _now - me.LockStart < 0.5 + 0.4 * me.MistakeSeverity && me.Speed > 15;
+                // ABS: only a short chirp before it catches the wheels; without ABS they lock up and smoke
+                me.FrontLock = !double.IsNaN(me.LockStart) && _now - me.LockStart < (me.Car.HasAbs ? 0.15f : 0.5f + 0.4f * me.MistakeSeverity) && me.Speed > 15;
                 break;
             case MistakeKind.Slide:
             {

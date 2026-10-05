@@ -125,6 +125,13 @@ public static partial class CarDataLoader
         }
         float final = drivetrain.GetFloat("GEARS", "FINAL", 3.5f);
         spec.ShiftUpTime = Math.Clamp(drivetrain.GetFloat("GEARBOX", "CHANGE_UP_TIME", 150) / 1000f, 0.03f, 0.6f);
+        spec.ShiftDownTime = Math.Clamp(drivetrain.GetFloat("GEARBOX", "CHANGE_DN_TIME", 200) / 1000f, 0.03f, 0.6f);
+        if (files.ContainsKey("electronics.ini"))
+        {
+            var el = Ini(files, "electronics.ini");
+            spec.HasAbs = el.GetInt("ABS", "PRESENT", 0) == 1;
+            spec.HasTc = el.GetInt("TRACTION_CONTROL", "PRESENT", 0) == 1;
+        }
         string traction = drivetrain.Get("TRACTION", "TYPE") ?? "RWD";
 
         var tyres = Ini(files, "tyres.ini");
@@ -252,6 +259,9 @@ public static partial class CarDataLoader
         {
             var ai = Ini(files, "ai.ini");
             spec.UpshiftRpm = ai.GetInt("GEARS", "UP", 0);
+            spec.DownshiftRpm = ai.GetInt("GEARS", "DOWN", 0);
+            // some cars have nonsense here (ks_ferrari_488_gt3: 85): then the estimate below the upshift point is used
+            if (spec.DownshiftRpm < spec.IdleRpm + 500 || spec.DownshiftRpm >= spec.MaxRpm * 0.95f) spec.DownshiftRpm = 0;
         }
 
         // crests: cars without much downforce get light earlier

@@ -49,6 +49,13 @@ public sealed class CarSpec
     public int UpshiftRpm { get; set; }
     /// <summary>Time an upshift takes in s (drivetrain.ini [GEARBOX] CHANGE_UP_TIME): no drive while the gear changes.</summary>
     public float ShiftUpTime { get; set; } = 0.15f;
+    /// <summary>Time a downshift takes in s (CHANGE_DN_TIME).</summary>
+    public float ShiftDownTime { get; set; } = 0.2f;
+    /// <summary>Rpm below which the car shifts down (ai.ini [GEARS] DOWN), 0 = unknown.</summary>
+    public int DownshiftRpm { get; set; }
+    /// <summary>electronics.ini: the car has ABS (no locked wheels under braking) / traction control (less wheelspin).</summary>
+    public bool HasAbs { get; set; }
+    public bool HasTc { get; set; }
     /// <summary>Top speed of each gear in km/h (1st..nth) at the rev limiter.</summary>
     public float[] GearTopSpeedsKmh { get; set; } = [95, 130, 165, 200, 235, 280];
     /// <summary>Steering ratio (steering wheel angle / wheel angle) and lock, only used for the visual steering wheel.</summary>
