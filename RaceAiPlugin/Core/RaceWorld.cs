@@ -1607,7 +1607,7 @@ public sealed partial class RaceWorld
             Trace($"t={_now,7:F1} s={myS,7:F0} v={me.Speed * 3.6f,4:F0} tgtV={vTarget * 3.6f,4:F0} line={vLine * 3.6f,4:F0} off={me.Offset,5:F1}->{me.TargetOffset,5:F1} " +
                   $"room=[{minOff,5:F1},{maxOff,5:F1}] side=[{sideMin,5:F1},{sideMax,5:F1}] draft={me.Draft:F2} " +
                   (ahead is { } aa ? $"ahead={aa.Id} gap={aheadGap,5:F1} v={aa.Speed * 3.6f,4:F0} off={aa.Offset,5:F1} " : "") +
-                  $"ot={me.OvertakeTargetId} alongside={alongside}");
+                  $"ot={me.OvertakeTargetId} alongside={alongside} gear={me.Gear}{(me.ShiftTo > 0 ? $"->{me.ShiftTo}" : "")} spool={me.Spool:F2} thr={me.Throttle:F2} acc={me.Accel:F2}");
         }
     }
 
@@ -2194,7 +2194,12 @@ public sealed partial class RaceWorld
         }
         else if (want > me.Gear)
         {
-            Shift(me, me.Gear + 1, me.Car.ShiftUpTime);
+            // never so early that the revs in the next gear are below the downshift point (it would shift straight back down,
+            // over and over, without ever driving: a short-shifting driver in a car with a high downshift point)
+            var gears = me.Car.GearTopSpeedsKmh;
+            float rpmNext = me.Gear < gears.Length ? kmh / gears[me.Gear] * me.Car.MaxRpm : me.Car.MaxRpm;
+            float floor = me.Car.DownshiftRpm > 0 ? me.Car.DownshiftRpm * 1.1f : 0;
+            if (rpmNext >= floor || kmh >= gears[me.Gear - 1] * 0.99f) Shift(me, me.Gear + 1, me.Car.ShiftUpTime);
         }
     }
 
@@ -2204,7 +2209,7 @@ public sealed partial class RaceWorld
     /// </summary>
     private void Shift(RaceBot me, int to, float time)
     {
-        if (me.Clone == null) time *= (1 + 3 * Math.Clamp(me.Driver.Errors, 0, 0.3f)) * (0.85f + 0.3f * _rng.NextSingle());
+        if (me.Clone == null) time *= (1 + 1.5f * Math.Clamp(me.Driver.Errors, 0, 0.3f)) * (0.9f + 0.2f * _rng.NextSingle());
         me.ShiftTo = to;
         me.ShiftEnd = _now + time;
     }

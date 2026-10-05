@@ -533,6 +533,9 @@ public static class Simulator
             }
             Console.WriteLine("  " + string.Join(", ", _w.DiagCounts.OrderBy(k => k.Key).Select(k => $"{k.Key} {k.Value}")));
             Console.WriteLine($"  no room for an attack: track too narrow {_w.DiagNoRoomEdge}, lane taken {_w.DiagNoRoomLane}, total {_w.DiagNoRoomAll}");
+            foreach (var (id, t) in _t100.Where(x => x.Value > 12).OrderByDescending(x => x.Value))
+                if (_w.Bots.FirstOrDefault(b => b.Id == id) is { } sb)
+                    Console.WriteLine($"  slow start: #{id} {sb.Car.Model} 0-100 {t:F1} s launch {sb.Launch}");
             var t100 = _t100.Values.ToList();
             if (t100.Count > 0) Console.WriteLine($"  start: 0-100 km/h {t100.Min():F2} .. {t100.Max():F2} s (avg {t100.Average():F2}), launches: " +
                 string.Join(", ", _w.Bots.GroupBy(b => b.Launch).Select(g => $"{g.Key} {g.Count()}")));
