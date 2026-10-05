@@ -166,6 +166,23 @@ public static partial class CarDataLoader
             string front = $"FRONT{sfx}", rear = $"REAR{sfx}";
             if (!tyres.HasSection(front)) { front = "FRONT"; rear = "REAR"; }
             spec.TyreCompound = tyres.Get(front, "NAME") ?? "";
+            // temperature window: thermal sections carry the same suffix as the compound
+            string tsfx = front == "FRONT" ? "" : sfx;
+            var curves = new[] { tyres.Get($"THERMAL_FRONT{tsfx}", "PERFORMANCE_CURVE"), tyres.Get($"THERMAL_REAR{tsfx}", "PERFORMANCE_CURVE") }
+                .Where(n => n != null && files.ContainsKey(n.Trim())).Select(n => Lut.Parse(Encoding.UTF8.GetString(files[n!.Trim()]))).Where(l => l.X.Length > 1).ToList();
+            if (curves.Count > 0)
+            {
+                var c0 = curves[0];
+                var ys = c0.X.Select(x => curves.Average(c => c.At(x))).ToArray();
+                float max = ys.Max();
+                if (max > 0)
+                {
+                    spec.TyreTempCurve = new Lut(c0.X, ys.Select(y => y / max).ToArray());
+                    // the middle of the range at full grip
+                    var top = c0.X.Where((x, k) => ys[k] >= max * 0.999f).ToList();
+                    spec.TyreOptimum = Math.Clamp((top.Min() + top.Max()) / 2, 40, 120);
+                }
+            }
             var wf = tyres.Get(front, "WEAR_CURVE");
             var wr = tyres.Get(rear, "WEAR_CURVE");
             if (wf != null && files.TryGetValue(wf, out var fb))

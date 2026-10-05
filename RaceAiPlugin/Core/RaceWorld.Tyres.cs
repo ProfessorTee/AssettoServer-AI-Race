@@ -21,6 +21,10 @@ public sealed partial class RaceWorld
         return Math.Clamp(1 - k * d * d, 0.75f, 1f);
     }
 
+    /// <summary>Grip factor at a core temperature from the compound's own curve (street tyres work cooler than slicks), else a GT3 slick.</summary>
+    public static float TyreTempGrip(CarSpec car, float t)
+        => car.TyreTempCurve is { } c ? Math.Clamp(c.At(t), 0.7f, 1f) : TyreTempGrip(t);
+
     public void SetTyreTemperature(RaceBot bot, float temperature)
     {
         bot.TyreTempFront = temperature;
@@ -55,7 +59,7 @@ public sealed partial class RaceWorld
     /// <summary>Grip of the tyres from their temperature (the worse axle counts more).</summary>
     public static float TyreTemperatureGrip(RaceBot bot)
     {
-        float f = TyreTempGrip(bot.TyreTempFront), r = TyreTempGrip(bot.TyreTempRear);
+        float f = TyreTempGrip(bot.Car, bot.TyreTempFront), r = TyreTempGrip(bot.Car, bot.TyreTempRear);
         return 0.6f * MathF.Min(f, r) + 0.4f * (f + r) / 2;
     }
 

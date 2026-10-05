@@ -91,6 +91,10 @@ public sealed class CarSpec
     public float CalibratedTyreVkmPerLap { get; set; }
     /// <summary>Tyre grip over virtual km (0..1), default compound. Null = no wear data.</summary>
     public Lut? TyreWear { get; set; }
+    /// <summary>Grip by tyre temperature of the default compound (tyres.ini [THERMAL_x] PERFORMANCE_CURVE, normalised to 1), null = a GT3 slick.</summary>
+    public Lut? TyreTempCurve { get; set; }
+    /// <summary>Middle of the compound's working window (°C).</summary>
+    public float TyreOptimum { get; set; } = RaceWorld.TyreOptimum;
     public string TyreCompound { get; set; } = "";
     /// <summary>Time to change the tyres (car.ini TYRE_CHANGE_TIME_SEC) and to put one litre in (FUEL_LITER_TIME_SEC).</summary>
     public float TyreChangeTime { get; set; } = 20f;
@@ -191,6 +195,7 @@ public sealed class CarSpec
         c.ErsGain = (float[]?)ErsGain?.Clone();
         c.ErsPower = (float[]?)ErsPower?.Clone();
         c.TyreWear = TyreWear;
+        c.TyreTempCurve = TyreTempCurve;
         return c;
     }
 }

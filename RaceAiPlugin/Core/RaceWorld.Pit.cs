@@ -47,7 +47,7 @@ public sealed partial class RaceWorld
         bot.Fuel = Math.Clamp(fuel, 0, bot.Car.FuelCapacity);
         bot.TyreVirtualKm = 0;
         bot.TyreKm = warmTyres ? 10 : 0;
-        SetTyreTemperature(bot, warmTyres ? TyreOptimum - 5 : ColdTyreTemperature());
+        SetTyreTemperature(bot, warmTyres ? bot.Car.TyreOptimum - 5 : ColdTyreTemperature());
         bot.Pit = PitPhase.None;
         bot.PitReason = "";
         bot.PitStops = 0;
