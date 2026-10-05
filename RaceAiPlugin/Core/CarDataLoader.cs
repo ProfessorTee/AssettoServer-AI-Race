@@ -111,6 +111,8 @@ public static partial class CarDataLoader
         if (limiter <= 0) limiter = (int)torque.X.Where((x, i) => torque.Y[i] > 0).DefaultIfEmpty(7500).Max();
         spec.MaxRpm = limiter;
         spec.IdleRpm = engine.GetInt("ENGINE_DATA", "MINIMUM", 1000);
+        spec.CoastTorque = engine.GetFloat("COAST_REF", "TORQUE", 0);
+        spec.CoastRpm = MathF.Max(1000, engine.GetFloat("COAST_REF", "RPM", limiter));
 
         // turbos (like AC): each builds its boost up to REFERENCE_RPM along a curve with exponent GAMMA, capped by the wastegate; the boosts
         // add up and multiply the torque of power.lut. A ctrl_turboN.ini driven by RPMS sets the wastegate by rpm (RX-7, Supra: the first

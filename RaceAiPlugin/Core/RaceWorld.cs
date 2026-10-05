@@ -1754,7 +1754,7 @@ public sealed partial class RaceWorld
         // pedals: the target falls along the planned braking curve; the driver follows it with a brake pressure that builds up quickly,
         // is released gradually towards the apex (trail braking), and small corrections are done by lifting only (no brake lights)
         float drag = me.Car.DragCoefficient * v * v * DamageDrag(me);
-        float coast = drag + 1.0f; // lifting: drag + engine braking
+        float coast = drag + EngineBraking(me, v); // lifting: drag + engine braking
         float maxBrake = me.Car.BrakeAt(v, MathF.Min(1, DriverProfile.BrakeSkill(skill) + 0.06f * MathF.Max(0, me.Driver.Personality.BrakeBehavior)) * phys, me.MassRatio);
         float physBrake = me.Car.BrakeAt(v, phys, me.MassRatio); // what the car could do: the pedal is shown relative to this
         float targetFall = double.IsNaN(me.PrevTargetSpeed) ? 0 : MathF.Max(0, (me.PrevTargetSpeed - target) / dt);
@@ -2133,6 +2133,20 @@ public sealed partial class RaceWorld
             throttle, hazards, indicator, flash,
             SignalTestPhase(_now) is var ph && ph != 0 ? ph == 6 : bot.ClearAhead && bot.Mistake != MistakeKind.Spin,
             bot.FrontLock ? 0f : spinning, bot.RearSlip * spinning);
+    }
+
+    /// <summary>
+    /// Deceleration (m/s²) when lifting: the car's engine braking (engine.ini COAST_REF, rising with the revs) through the gear engaged,
+    /// plus rolling resistance. A car without data: 1 m/s².
+    /// </summary>
+    private float EngineBraking(RaceBot me, float v)
+    {
+        var car = me.Car;
+        if (car.CoastTorque <= 0 || v < 3 || me.Gear <= 0) return 1.0f;
+        float rpm = Math.Clamp(v * 3.6f / car.GearTopSpeedsKmh[Math.Clamp(me.Gear, 1, car.GearTopSpeedsKmh.Length) - 1] * car.MaxRpm, car.IdleRpm, car.MaxRpm);
+        float torque = car.CoastTorque * rpm / car.CoastRpm;
+        // wheel force = engine torque x overall ratio / tyre radius = torque x engine speed / road speed
+        return torque * rpm * 2 * MathF.PI / 60 / v / (car.ReferenceMass * me.MassRatio) + 0.12f;
     }
 
     /// <summary>Upshift point of this driver as a share of the rev limiter: the car's (ai.ini), into the limiter, or short shifting.</summary>

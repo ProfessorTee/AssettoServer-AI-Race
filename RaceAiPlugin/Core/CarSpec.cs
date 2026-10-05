@@ -21,6 +21,9 @@ public sealed class CarSpec
     public float[]? TurboAccel { get; set; }
     /// <summary>Turbo spool time constants in s (engine.ini LAG_UP / LAG_DN at AC's 333 Hz physics).</summary>
     public float SpoolUp { get; set; }
+    /// <summary>Engine braking torque (Nm) at <see cref="CoastRpm"/> (engine.ini [COAST_REF]), 0 = unknown.</summary>
+    public float CoastTorque { get; set; }
+    public float CoastRpm { get; set; } = 7000;
     public float SpoolDown { get; set; }
     /// <summary>Hybrids: extra acceleration with full electric deploy, per 1 m/s (ers.ini). Used with the share the energy per lap allows on this track.</summary>
     public float[]? ErsGain { get; set; }
