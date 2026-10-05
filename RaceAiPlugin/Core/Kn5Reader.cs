@@ -5,7 +5,7 @@ namespace RaceAiPlugin.Core;
 
 /// <summary>
 /// Reads only the dummy nodes (AC_START_x, AC_PIT_x, AC_TIME_x_L/R, ...) and their world transforms from a Kunos .kn5 model.
-/// Textures, materials and meshes are skipped.
+/// Textures and materials are skipped, meshes too unless asked for (<see cref="ReadMeshes"/>).
 /// </summary>
 public static class Kn5Reader
 {
@@ -13,9 +13,20 @@ public static class Kn5Reader
 
     public static List<Kn5Dummy> ReadDummies(string path, Func<string, bool>? filter = null)
     {
+        filter ??= name => name.StartsWith("AC_", StringComparison.Ordinal);
+        var result = new List<Kn5Dummy>();
+        Read(path, filter, result, null, null);
+        return result;
+    }
+
+    /// <summary>Triangles (world space) of the mesh nodes whose name passes <paramref name="meshFilter"/>, e.g. the physics meshes "1ROAD_xx".</summary>
+    public static void ReadMeshes(string path, Func<string, bool> meshFilter, Action<Vector3, Vector3, Vector3> triangle)
+        => Read(path, _ => false, new List<Kn5Dummy>(), meshFilter, triangle);
+
+    private static void Read(string path, Func<string, bool> filter, List<Kn5Dummy> result, Func<string, bool>? meshFilter, Action<Vector3, Vector3, Vector3>? triangle)
+    {
         using var stream = File.OpenRead(path);
         using var reader = new BinaryReader(stream);
-        filter ??= name => name.StartsWith("AC_", StringComparison.Ordinal);
 
         var magic = Encoding.ASCII.GetString(reader.ReadBytes(6));
         if (magic != "sc6969") throw new InvalidDataException($"{path} is not a kn5 file");
@@ -54,12 +65,11 @@ public static class Kn5Reader
             }
         }
 
-        var result = new List<Kn5Dummy>();
-        ReadNode(reader, stream, Matrix4x4.Identity, filter, result);
-        return result;
+        ReadNode(reader, stream, Matrix4x4.Identity, filter, result, meshFilter, triangle);
     }
 
-    private static void ReadNode(BinaryReader reader, Stream stream, Matrix4x4 parent, Func<string, bool> filter, List<Kn5Dummy> result)
+    private static void ReadNode(BinaryReader reader, Stream stream, Matrix4x4 parent, Func<string, bool> filter, List<Kn5Dummy> result,
+        Func<string, bool>? meshFilter, Action<Vector3, Vector3, Vector3>? triangle)
     {
         int nodeClass = reader.ReadInt32();
         string name = ReadString(reader);
@@ -83,9 +93,26 @@ public static class Kn5Reader
             {
                 stream.Seek(3, SeekOrigin.Current);
                 int vertices = reader.ReadInt32();
-                stream.Seek(vertices * 44L, SeekOrigin.Current);
-                int indices = reader.ReadInt32();
-                stream.Seek(indices * 2L, SeekOrigin.Current);
+                if (triangle != null && meshFilter!(name))
+                {
+                    // position, normal, uv, tangent: only the position is used
+                    var pos = new Vector3[vertices];
+                    for (int i = 0; i < vertices; i++)
+                    {
+                        pos[i] = Vector3.Transform(new Vector3(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle()), world);
+                        stream.Seek(32, SeekOrigin.Current);
+                    }
+                    int count = reader.ReadInt32();
+                    var idx = new ushort[count];
+                    for (int i = 0; i < count; i++) idx[i] = reader.ReadUInt16();
+                    for (int i = 0; i + 2 < count; i += 3) triangle(pos[idx[i]], pos[idx[i + 1]], pos[idx[i + 2]]);
+                }
+                else
+                {
+                    stream.Seek(vertices * 44L, SeekOrigin.Current);
+                    int indices = reader.ReadInt32();
+                    stream.Seek(indices * 2L, SeekOrigin.Current);
+                }
                 // material id, layer, lodIn, lodOut, bounding sphere (4 floats), isRenderable
                 stream.Seek(4 + 4 + 8 + 16 + 1, SeekOrigin.Current);
                 break;
@@ -114,7 +141,7 @@ public static class Kn5Reader
             result.Add(new Kn5Dummy(name, new Vector3(world.M41, world.M42, world.M43), Vector3.Normalize(new Vector3(world.M31, world.M32, world.M33))));
 
         for (int i = 0; i < children; i++)
-            ReadNode(reader, stream, world, filter, result);
+            ReadNode(reader, stream, world, filter, result, meshFilter, triangle);
     }
 
     private static string ReadString(BinaryReader reader)
@@ -127,6 +154,15 @@ public static class Kn5Reader
     /// Reads all dummies of a track layout. Uses models_&lt;layout&gt;.ini (or models.ini) when present, otherwise every kn5 in the track root.
     /// </summary>
     public static List<Kn5Dummy> ReadTrackDummies(string trackRoot, string? layout)
+    {
+        var result = new List<Kn5Dummy>();
+        foreach (var file in TrackFiles(trackRoot, layout))
+            result.AddRange(ReadDummies(file));
+        return result;
+    }
+
+    /// <summary>The kn5 files of a track layout (models_&lt;layout&gt;.ini or models.ini, else the main kn5 / every kn5 in the root).</summary>
+    public static List<string> TrackFiles(string trackRoot, string? layout)
     {
         var files = new List<string>();
         string modelsIni = Path.Join(trackRoot, string.IsNullOrEmpty(layout) ? "models.ini" : $"models_{layout}.ini");
@@ -146,9 +182,6 @@ public static class Kn5Reader
             else files.AddRange(Directory.GetFiles(trackRoot, "*.kn5"));
         }
 
-        var result = new List<Kn5Dummy>();
-        foreach (var file in files.Where(File.Exists))
-            result.AddRange(ReadDummies(file));
-        return result;
+        return files.Where(File.Exists).ToList();
     }
 }

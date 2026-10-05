@@ -47,6 +47,8 @@ public sealed class CarSpec
     public int MaxRpm { get; set; } = 8500;
     /// <summary>Rpm at which the car shifts up (from ai.ini), 0 = shortly before <see cref="MaxRpm"/>.</summary>
     public int UpshiftRpm { get; set; }
+    /// <summary>Time an upshift takes in s (drivetrain.ini [GEARBOX] CHANGE_UP_TIME): no drive while the gear changes.</summary>
+    public float ShiftUpTime { get; set; } = 0.15f;
     /// <summary>Top speed of each gear in km/h (1st..nth) at the rev limiter.</summary>
     public float[] GearTopSpeedsKmh { get; set; } = [95, 130, 165, 200, 235, 280];
     /// <summary>Steering ratio (steering wheel angle / wheel angle) and lock, only used for the visual steering wheel.</summary>

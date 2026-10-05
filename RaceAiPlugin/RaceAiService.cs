@@ -197,6 +197,7 @@ public sealed partial class RaceAiService : IHostedService
         var world = new RaceWorld(_track.Line, settings)
         {
             PitLane = _config.PitStops ? _track.PitLane : null,
+            Heights = _track.Heights,
             UnstuckAfter = _config.UnstuckSeconds,
             GhostAfter = _config.GhostAfterSeconds
         };

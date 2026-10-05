@@ -77,6 +77,8 @@ Das Plugin besteht aus zwei Teilen:
   `ExitGreed` (früh am Gas, ab und zu zu früh), `Room` (Platz neben anderen Autos in m, negativ = drückt), `Attack`, `Defend`, `Launch`,
   `GrassPass` (0..1: überholt mit zwei Rädern im Gras, auch mitten in der Kurve; DiveBomber 1),
   `CornerPass` (0..1: 1 überall, 0 nur auf der Geraden aus dem Windschatten, in Kurven nur an Autos neben der Ideallinie; Chill 0, FuelSaver 0.3).
+  `ShiftRpm` (-1..1: 1 dreht bis in den Begrenzer, 0 Schaltpunkt des Autos, -1 schaltet früh; DiveBomber 1, Chill -0.3, FuelSaver -0.6).
+  Hochschalten dauert die Schaltzeit des Autos (`CHANGE_UP_TIME`, z. B. JDM 260 ms, GT3 100 ms), bei schwächeren Fahrern länger; währenddessen kein Vortrieb.
   Fehlen sie in einer älteren cfg, gelten die Werte der gleichnamigen eingebauten Persönlichkeit.
 - **Eigene Linie je Fahrer** (`PersonalLines`): jeder Bot fährt seine Version der Linie seiner Persönlichkeit (Apex früher oder
   später, mehr oder weniger Strecke), jeder Fahrer etwas anders. Kostet keine Rundenzeit (gemessen: alle Persönlichkeiten innerhalb 0,7 %).

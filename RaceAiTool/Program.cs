@@ -36,6 +36,7 @@ public static class Program
                 "selftest" => SelfTest.Run(opts),
                 "strength" => Strength(opts),
                 "width" => Width(opts),
+                "height" => Height(opts),
                 _ => Usage()
             };
         }
@@ -185,6 +186,53 @@ public static class Program
         return 0;
     }
 
+    /// <summary>How far the real road surface is from the AI line's flat road beside the line (cars sinking into / floating over the road).</summary>
+    private static int Height(Options o)
+    {
+        var (trackRoot, layout, _) = ResolvePaths(o);
+        var line = new RacingLine(FastLaneFile.Read(FastLanePath(trackRoot, layout)));
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var road = RoadSurface.Load(trackRoot, layout);
+        if (road == null) { Console.WriteLine("no road meshes"); return 1; }
+        Console.WriteLine($"{road.Triangles} road triangles in {sw.ElapsedMilliseconds} ms");
+        sw.Restart();
+        var lh = LineHeights.Build(line, road);
+        var corr = new List<float>();
+        for (float s = 0; s < line.Length; s += 5)
+            foreach (float off in new[] { -3f, -1.5f, 1.5f, 3f }) corr.Add(lh.At(s, off));
+        corr.Sort();
+        int big = 0;
+        for (float s = 0; s < line.Length; s += 1)
+            for (float off = -4; off <= 4; off += 1)
+            {
+                int i = line.IndexAt(s);
+                if (off > line.RoomPlus[i] || -off > line.RoomMinus[i]) continue;
+                float c = lh.At(s, off);
+                if (MathF.Abs(c) > 0.3f && big++ < 12) Console.WriteLine($"  {s,6:F0} m off {off,3:F0}: {c:F2} (room +{line.RoomPlus[i]:F1} -{line.RoomMinus[i]:F1})");
+            }
+        Console.WriteLine($"  {big} samples over 0.3 m on the road");
+        Console.WriteLine($"profile built in {sw.ElapsedMilliseconds} ms, max {lh.Max:F2} m; correction at ±1.5/3 m: 1 % {corr[corr.Count / 100]:F3}, median {corr[corr.Count / 2]:F3}, 99 % {corr[corr.Count * 99 / 100]:F3}, share over 0.1 m {corr.Count(c => MathF.Abs(c) > 0.1f) * 100f / corr.Count:F1} %");
+        float step = o.Float("step", 50);
+        var all = new List<float>();
+        foreach (float off in new[] { -4f, -2f, 0f, 2f, 4f })
+        {
+            var d = new List<(float S, float D)>();
+            for (float s = 0; s < line.Length; s += step)
+            {
+                int i = line.IndexAt(s);
+                if (off > line.RoomPlus[i] - 1 || -off > line.RoomMinus[i] - 1) continue;
+                var p = line.PositionAt(s, off);
+                if (road.HeightAt(p.X, p.Z, p.Y) is { } y) d.Add((s, y - p.Y));
+            }
+            if (d.Count == 0) continue;
+            var sorted = d.Select(x => x.D).OrderBy(x => x).ToList();
+            all.AddRange(sorted);
+            var worst = d.OrderByDescending(x => x.D).First();
+            Console.WriteLine($"offset {off,3:F0} m: {d.Count,5} points, road above the line: median {sorted[sorted.Count / 2]:F3} m, 95 % {sorted[(int)(sorted.Count * 0.95)]:F3} m, max {worst.D:F3} m at {worst.S:F0} m, below: min {sorted[0]:F3} m");
+        }
+        return 0;
+    }
+
     private static int Width(Options o)
     {
         var (trackRoot, layout, _) = ResolvePaths(o);
@@ -228,7 +276,7 @@ public static class Program
     {
         Console.WriteLine($"{s.Model} ({s.Source}): top {s.TopSpeed * 3.6f:F0} km/h, lat grip {s.LateralGrip:F2} g, brake {s.BrakeGrip:F2} g, " +
                           $"downforce {s.Downforce * 10000:F1}e-4, aeroBrake {s.AeroBrake * 10000:F1}e-4, L {s.Length:F2} W {s.Width:F2} WB {s.Wheelbase:F2}, " +
-                          $"rpm {s.IdleRpm}-{s.MaxRpm} (up {s.UpshiftRpm}), gears [{string.Join(", ", s.GearTopSpeedsKmh.Select(g => g.ToString("F0")))}] km/h");
+                          $"rpm {s.IdleRpm}-{s.MaxRpm} (up {s.UpshiftRpm}, shift {s.ShiftUpTime * 1000:F0} ms), gears [{string.Join(", ", s.GearTopSpeedsKmh.Select(g => g.ToString("F0")))}] km/h");
         if (s.AccelTable != null)
         {
             // 0-100 and 0-200 km/h

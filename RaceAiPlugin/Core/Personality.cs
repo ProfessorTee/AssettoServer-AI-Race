@@ -61,6 +61,8 @@ public sealed class Personality
     public float GrassPass { get; set; }
     /// <summary>0..1: where overtakes are tried. 1 = anywhere, 0 = on the straights, in a corner only past a car that is off its line.</summary>
     public float CornerPass { get; set; } = 1f;
+    /// <summary>-1..1: shift point. +1 = revs into the limiter before each upshift, 0 = the car's shift point, -1 = short shifting.</summary>
+    public float ShiftRpm { get; set; }
 
     public static Personality Balanced => new() { ApexStyle = 0.15f, TrackUse = 0.2f };
 
@@ -70,13 +72,13 @@ public sealed class Personality
         (new Personality { Name = "Balanced", TyreChangeAt = 93, ApexStyle = 0.15f, TrackUse = 0.2f }, 40),
         (new Personality { Name = "DiveBomber", Aggression = 0.25f, BrakeBehavior = 1f, InsideLine = 1f, TyreWear = 1.25f, FuelUse = 1.05f,
             Composure = 0.4f, Weaving = 0.9f, Mistakes = 1.2f, LineErrors = 1.1f, Patience = 0.1f, TyreChangeAt = 95,
-            ApexStyle = 0.9f, TrackUse = 0.9f, ExitGreed = 0.9f, Room = -0.2f, Attack = 1f, Defend = 0.9f, Launch = 0.8f, GrassPass = 1f }, 20),
+            ApexStyle = 0.9f, TrackUse = 0.9f, ExitGreed = 0.9f, Room = -0.2f, Attack = 1f, Defend = 0.9f, Launch = 0.8f, GrassPass = 1f, ShiftRpm = 1f }, 20),
         (new Personality { Name = "Chill", Aggression = -0.2f, BrakeBehavior = -0.6f, TyreWear = 0.75f, FuelUse = 0.97f, Smoothness = 0.5f,
             Composure = 0.9f, Weaving = 0.1f, Mistakes = 0.8f, LineErrors = 0.8f, Patience = 0.9f, TyreChangeAt = 90,
-            ApexStyle = -0.8f, TrackUse = -0.6f, ExitGreed = 0.05f, Room = 0.75f, Attack = 0.3f, Defend = 0.15f, Launch = -0.5f, CornerPass = 0f }, 20),
+            ApexStyle = -0.8f, TrackUse = -0.6f, ExitGreed = 0.05f, Room = 0.75f, Attack = 0.3f, Defend = 0.15f, Launch = -0.5f, CornerPass = 0f, ShiftRpm = -0.3f }, 20),
         (new Personality { Name = "FuelSaver", Aggression = -0.1f, BrakeBehavior = -0.4f, TyreWear = 0.9f, FuelUse = 0.85f, Smoothness = 0.7f,
             Composure = 0.7f, Weaving = 0.2f, LineErrors = 0.9f, Patience = 0.7f, TyreChangeAt = 91,
-            ApexStyle = -0.45f, TrackUse = -0.3f, ExitGreed = 0.1f, Room = 0.45f, Attack = 0.25f, Defend = 0.35f, Launch = -0.3f, CornerPass = 0.3f }, 20)
+            ApexStyle = -0.45f, TrackUse = -0.3f, ExitGreed = 0.1f, Room = 0.45f, Attack = 0.25f, Defend = 0.35f, Launch = -0.3f, CornerPass = 0.3f, ShiftRpm = -0.6f }, 20)
     ];
 
     /// <summary>The built-in personality of that name (for values missing in an older configuration), or null.</summary>

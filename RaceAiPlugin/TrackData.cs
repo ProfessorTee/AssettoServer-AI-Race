@@ -12,6 +12,8 @@ public sealed class TrackData
     public required TrackInfo Info { get; init; }
     public float StartLineS { get; init; }
     public PitLane? PitLane { get; init; }
+    /// <summary>Real road height beside the line (from the track's physics meshes), null when the kn5 files aren't on the server.</summary>
+    public LineHeights? Heights { get; init; }
 
     /// <param name="gridFile">Grid file of another preset than the running one (null = <paramref name="config"/>'s).</param>
     public static TrackData Load(string track, string layout, RaceAiConfiguration config, string? gridFile = null)
@@ -43,6 +45,20 @@ public sealed class TrackData
 
         Log.Information("Race AI: loading racing line {Path}", fastLane);
         var line = new RacingLine(FastLaneFile.Read(fastLane));
+        LineHeights? heights = null;
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            if (RoadSurface.Load(trackRoot, layout) is { } road)
+            {
+                heights = LineHeights.Build(line, road);
+                Log.Information("Race AI: road surface {Triangles} triangles, height beside the line up to {Max:F2} m off ({Ms} ms)", road.Triangles, heights.Max, sw.ElapsedMilliseconds);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Race AI: road surface not readable, cars follow the AI line's height");
+        }
 
         // layout data (ai_hints.ini, sections.ini) from any root that has it
         TrackInfo info = new();
@@ -105,7 +121,7 @@ public sealed class TrackData
             }
         }
 
-        return new TrackData { Line = line, Info = info, StartLineS = startLineS, PitLane = pitLane };
+        return new TrackData { Line = line, Info = info, StartLineS = startLineS, PitLane = pitLane, Heights = heights };
     }
 
     /// <summary>Content folders to search: the server's own content folder first, then the game installation.</summary>

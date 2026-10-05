@@ -134,6 +134,11 @@ public sealed class RaceBot
     internal long LapIndex;
     internal bool StartCrossed;
 
+    /// <summary>Gear engaged (1 = first, 0 = not set yet) and the upshift in progress (target gear, when it's in).</summary>
+    internal int Gear;
+    internal int ShiftTo;
+    internal double ShiftEnd;
+
     // behaviour state
     internal int OvertakeTargetId = -1;
     internal double OvertakeSince;
@@ -489,6 +494,8 @@ public sealed partial class RaceWorld
     /// <summary>(bot, stop time in seconds, litres added, tyres changed)</summary>
     public event Action<RaceBot, float, float, bool>? PitStopCompleted;
     public PitLane? PitLane { get; set; }
+    /// <summary>Real road height beside the line (null: the line's flat road).</summary>
+    public LineHeights? Heights { get; set; }
 
     /// <summary>Debug: bot id whose decisions are written to <see cref="Trace"/> twice a second.</summary>
     public int TraceBotId { get; set; } = -1;
@@ -1770,6 +1777,7 @@ public sealed partial class RaceWorld
             // in a fight the attacker gets on the power earlier and harder out of the corner
             if (me.OvertakeTargetId >= 0) full *= 1.02f + 0.04f * AttackOf(me);
             full *= LaunchTraction(me);
+            UpdateGear(me, v);
             // a clone accelerates like the player did here: our engine model is only an estimate of the real car
             if (me.Clone is { } cl && me.Phase == BotPhase.Racing && !me.InPitLane)
             {
@@ -1785,6 +1793,8 @@ public sealed partial class RaceWorld
             me.Throttle += Math.Clamp(pedal - me.Throttle, -dt / 0.15f, dt / rise);
             // net acceleration: the full-throttle value scaled by the pedal, minus drag the engine doesn't cover
             accel = me.Throttle * (full + drag) - drag;
+            // upshift in progress: clutch in, no drive (a paddle shift in a GT3 is over in a blink, an H gearbox with a tired driver takes a while)
+            if (_now < me.ShiftEnd) accel = -drag;
             if (me.Brake > 0.05f) accel -= me.Brake * (physBrake - coast);
             v = accel > 0 ? MathF.Min(target, v + accel * dt) : v + accel * dt;
         }
@@ -2050,7 +2060,7 @@ public sealed partial class RaceWorld
         Line.Interp(s, out var a, out var b, out var t);
         var pos = Line.PositionAt(s, bot.Offset);
         var normal = Vector3.Normalize(Vector3.Lerp(Line.Normal[a], Line.Normal[b], t));
-        pos += normal * Settings.HeightOffset;
+        pos += normal * (Settings.HeightOffset + (Heights?.At(s, bot.Offset) ?? 0));
 
         var fwd = Line.ForwardAt(s);
         var lat = Line.LateralAt(s);
@@ -2086,6 +2096,7 @@ public sealed partial class RaceWorld
         byte throttle = (byte)Math.Clamp(bot.Throttle * 255f, 0, 255);
         _ = full;
         if (bot.Phase == BotPhase.Grid) throttle = 40; // blipping on the grid
+        if (bot.ShiftTo > 0 && _now < bot.ShiftEnd) throttle = 0; // off the throttle for the upshift
         bool hazards = (bot.Phase == BotPhase.Racing && bot.Speed < 5 && !double.IsNaN(bot.StoppedSince) && _now - bot.StoppedSince > 3)
                        || (bot.YellowHazards && bot.Phase == BotPhase.Racing)
                        || (bot.Mistake == MistakeKind.Spin && bot.SpinPhase >= 1);
@@ -2115,25 +2126,65 @@ public sealed partial class RaceWorld
             bot.FrontLock ? 0f : spinning, bot.RearSlip * spinning);
     }
 
-    internal static (int Gear, int Rpm) GearAndRpm(RaceBot bot)
+    /// <summary>Upshift point of this driver as a share of the rev limiter: the car's (ai.ini), into the limiter, or short shifting.</summary>
+    private static float ShiftPoint(RaceBot bot)
+    {
+        var car = bot.Car;
+        float at = car.UpshiftRpm > 0 && car.MaxRpm > 0 ? MathF.Min(0.99f, car.UpshiftRpm / (float)car.MaxRpm) : 0.97f;
+        float p = bot.Clone != null ? 0 : Math.Clamp(bot.Driver.Personality.ShiftRpm, -1, 1);
+        return p >= 0 ? at + (1.0f - at) * p : at * (1 + 0.15f * p);
+    }
+
+    /// <summary>Gear for this speed (1-based) at the driver's shift point.</summary>
+    private static int GearFor(RaceBot bot, float kmh, float shiftAt)
+    {
+        var gears = bot.Car.GearTopSpeedsKmh;
+        for (int g = 0; g < gears.Length; g++)
+            if (kmh <= gears[g] * shiftAt) return g + 1;
+        return gears.Length;
+    }
+
+    /// <summary>
+    /// Downshifts at once (with a blip), upshifts take the car's shift time, longer for less skilled drivers (human errors) and a little
+    /// different every time; while the gear changes the car doesn't drive.
+    /// </summary>
+    private void UpdateGear(RaceBot me, float v)
+    {
+        if (me.ShiftTo > 0 && _now >= me.ShiftEnd) { me.Gear = me.ShiftTo; me.ShiftTo = 0; }
+        float kmh = v * 3.6f, at = ShiftPoint(me);
+        int want = GearFor(me, kmh, at);
+        if (me.Gear <= 0) { me.Gear = want; return; }
+        if (me.ShiftTo > 0) return;
+        if (want < me.Gear)
+        {
+            // a little lower than the upshift point, so it doesn't go up and down at the same speed
+            if (kmh < me.Car.GearTopSpeedsKmh[want - 1] * at * 0.93f) me.Gear = want;
+        }
+        else if (want > me.Gear)
+        {
+            float t = me.Car.ShiftUpTime;
+            if (me.Clone == null) t *= (1 + 3 * Math.Clamp(me.Driver.Errors, 0, 0.3f)) * (0.85f + 0.3f * _rng.NextSingle());
+            me.ShiftTo = me.Gear + 1;
+            me.ShiftEnd = _now + t;
+        }
+    }
+
+    internal (int Gear, int Rpm) GearAndRpm(RaceBot bot)
     {
         var car = bot.Car;
         float kmh = bot.Speed * 3.6f;
         if (kmh < 1) return (1, car.IdleRpm);
         var gears = car.GearTopSpeedsKmh;
-        for (int g = 0; g < gears.Length; g++)
-        {
-            float shiftAt = car.UpshiftRpm > 0 && car.MaxRpm > 0 ? MathF.Min(0.99f, car.UpshiftRpm / (float)car.MaxRpm) : 0.97f;
-            if (kmh <= gears[g] * shiftAt || g == gears.Length - 1)
-            {
-                float lowTop = g == 0 ? 0 : gears[g - 1];
-                // rpm range used in a gear: from the rpm after the upshift to max
-                float ratio = kmh / gears[g];
-                float rpm = Math.Clamp(ratio, 0, 1) * car.MaxRpm;
-                rpm = MathF.Max(rpm, g == 0 ? car.IdleRpm : car.MaxRpm * lowTop / gears[g]);
-                return (g + 1, (int)rpm);
-            }
-        }
-        return (gears.Length, car.MaxRpm);
+        bool shifting = bot.ShiftTo > 0 && _now < bot.ShiftEnd;
+        int gear = bot.InPitLane || bot.Gear <= 0 ? GearFor(bot, kmh, ShiftPoint(bot)) : shifting ? bot.ShiftTo : bot.Gear;
+        gear = Math.Clamp(gear, 1, gears.Length);
+        float top = gears[gear - 1];
+        float lowTop = gear == 1 ? 0 : gears[gear - 2];
+        float rpm = Math.Clamp(kmh / top, 0, 1) * car.MaxRpm;
+        rpm = MathF.Max(rpm, gear == 1 ? car.IdleRpm : car.MaxRpm * lowTop / top);
+        // in the limiter (a driver who revs it out, or waiting for the gear): the revs bounce off it
+        if (!shifting && rpm >= car.MaxRpm * 0.995f && bot.Throttle > 0.8f)
+            rpm = car.MaxRpm - ((int)(_now * 28) & 1) * MathF.Min(400, car.MaxRpm * 0.04f);
+        return (gear, (int)rpm);
     }
 }

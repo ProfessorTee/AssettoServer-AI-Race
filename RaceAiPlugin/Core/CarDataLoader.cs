@@ -124,6 +124,7 @@ public static partial class CarDataLoader
             if (r > 0) ratios.Add(r);
         }
         float final = drivetrain.GetFloat("GEARS", "FINAL", 3.5f);
+        spec.ShiftUpTime = Math.Clamp(drivetrain.GetFloat("GEARBOX", "CHANGE_UP_TIME", 150) / 1000f, 0.03f, 0.6f);
         string traction = drivetrain.Get("TRACTION", "TYPE") ?? "RWD";
 
         var tyres = Ini(files, "tyres.ini");

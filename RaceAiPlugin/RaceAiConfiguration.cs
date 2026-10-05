@@ -129,6 +129,8 @@ public class PersonalityConfiguration
     public float? GrassPass { get; set; }
     [YamlMember(Description = "0..1: where overtakes are tried. 1 = anywhere, 0 = on the straights, in a corner only past a car off its line")]
     public float? CornerPass { get; set; }
+    [YamlMember(Description = "-1..1: shift point. 1 = into the rev limiter before each upshift, 0 = the car's shift point, -1 = short shifting")]
+    public float? ShiftRpm { get; set; }
 
     public Personality ToPersonality()
     {
@@ -142,7 +144,8 @@ public class PersonalityConfiguration
             ApexStyle = Math.Clamp(ApexStyle ?? d.ApexStyle, -1, 1), TrackUse = Math.Clamp(TrackUse ?? d.TrackUse, -1, 1),
             ExitGreed = Math.Clamp(ExitGreed ?? d.ExitGreed, 0, 1), Room = Math.Clamp(Room ?? d.Room, -0.3f, 2f),
             Attack = Math.Clamp(Attack ?? d.Attack, 0, 1), Defend = Math.Clamp(Defend ?? d.Defend, 0, 1), Launch = Math.Clamp(Launch ?? d.Launch, -1, 1),
-            GrassPass = Math.Clamp(GrassPass ?? d.GrassPass, 0, 1), CornerPass = Math.Clamp(CornerPass ?? d.CornerPass, 0, 1)
+            GrassPass = Math.Clamp(GrassPass ?? d.GrassPass, 0, 1), CornerPass = Math.Clamp(CornerPass ?? d.CornerPass, 0, 1),
+            ShiftRpm = Math.Clamp(ShiftRpm ?? d.ShiftRpm, -1, 1)
         };
     }
 
@@ -153,7 +156,7 @@ public class PersonalityConfiguration
         Smoothness = d.Personality.Smoothness, Composure = d.Personality.Composure, Weaving = d.Personality.Weaving, Mistakes = d.Personality.Mistakes,
         LineErrors = d.Personality.LineErrors, Patience = d.Personality.Patience, ApexStyle = d.Personality.ApexStyle, TrackUse = d.Personality.TrackUse,
         ExitGreed = d.Personality.ExitGreed, Room = d.Personality.Room, Attack = d.Personality.Attack, Defend = d.Personality.Defend, Launch = d.Personality.Launch,
-        GrassPass = d.Personality.GrassPass, CornerPass = d.Personality.CornerPass
+        GrassPass = d.Personality.GrassPass, CornerPass = d.Personality.CornerPass, ShiftRpm = d.Personality.ShiftRpm
     }).ToList();
 }
 
