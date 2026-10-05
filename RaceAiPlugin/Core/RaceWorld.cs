@@ -148,6 +148,8 @@ public sealed class RaceBot
     internal double CompromisedUntil, ExitBoostUntil, CounterUntil;
     internal int CounterTargetId = -1;
     internal bool AttackIsCounter;
+    /// <summary>The attack waits in the target's slipstream until the braking zone (a run down a long straight, a switchback).</summary>
+    internal bool AttackWaitsInTow;
 
     // behaviour state
     internal int OvertakeTargetId = -1;
@@ -1203,7 +1205,12 @@ public sealed partial class RaceWorld
                 if (ds > me.Car.Length * hold) iYield = true;
                 else if (ds < -me.Car.Length * (1 - hold)) iYield = false;
                 else if (o.IsBot && MathF.Abs(give - o.Bot!.Driver.Personality.Room) > 0.3f) iYield = give > o.Bot.Driver.Personality.Room;
-                else if (cornerSign != 0 && MathF.Abs(dOff) > 0.2f) iYield = cornerSign * (me.Offset - o.Offset) < 0;
+                else if (cornerSign != 0 && MathF.Abs(dOff) > 0.2f)
+                {
+                    iYield = cornerSign * (me.Offset - o.Offset) < 0;
+                    // a combination: the outside of this corner is the inside of the next one (left-right): hold on, the fight goes on
+                    if (iYield && MathF.Abs(ds) < me.Car.Length * 0.5f && FollowingCornerSign(myS, cornerSign) == -cornerSign) { iYield = false; Diag("combination: hold outside"); }
+                }
                 else iYield = ds > 0;
                 if (iYield)
                 {
@@ -1328,6 +1335,24 @@ public sealed partial class RaceWorld
                 float tLatClear = (me.Car.Width + target.Value.Width) / 2 + SideMarginFor(me, target.Value);
                 if (MathF.Abs(target.Value.Offset - me.Offset) > tLatClear - 0.4f)
                     me.OvertakeSeparatedAt = _now;
+                // a run from the slipstream / a switchback: stay right behind the target, out of the wind, and only pull out when the
+                // braking zone of the next corner comes up (the tow fades slowly: the slingshot); a switchback pulls out to its inside
+                float lengths = (me.Car.Length + target.Value.Length) / 2;
+                if (me.AttackWaitsInTow && ds > lengths - 0.5f && NextCornerSign(myS, 110 + me.Speed * 1.2f) == 0)
+                {
+                    me.TargetOffset = target.Value.Offset;
+                    me.OvertakeSeparatedAt = _now;
+                    me.OvertakeSince = MathF.Max((float)me.OvertakeSince, (float)_now - 3);
+                    me.OvertakeClosedSince = double.NaN;
+                    goto AttackChecked;
+                }
+                if (me.AttackWaitsInTow)
+                {
+                    me.AttackWaitsInTow = false;
+                    float inside = NextCornerSign(myS, 200);
+                    if (me.AttackIsCounter && inside != 0) me.OvertakeSide = (int)inside;
+                    Diag(me.AttackIsCounter ? "switchback: pull out" : "tow: pull out");
+                }
                 // keep aiming for the chosen side of the target (the lane gets re-clamped to the road below)
                 me.TargetOffset = target.Value.Offset + me.OvertakeSide * (tLatClear + 0.2f);
                 // the door closed (the target covered that side, or the track narrows): try the other side, or wait behind
@@ -1351,6 +1376,7 @@ public sealed partial class RaceWorld
                         me.OvertakeClosedSince = _now;
                     }
                 }
+                AttackChecked:
                 if (me.OvertakeTargetId < 0) { }
                 else if (ds < -((me.Car.Length + target.Value.Length) / 2 + 2))
                 {
@@ -1475,6 +1501,9 @@ public sealed partial class RaceWorld
                     me.OvertakeSeparatedAt = _now;
                     me.OvertakeSide = side > a.Offset ? 1 : -1;
                     me.AttackIsCounter = counter;
+                    // a counter-attack, or a run in the slipstream with a long straight ahead: wait in the tow, strike at the braking zone
+                    me.AttackWaitsInTow = counter || (!gripLimited && me.Draft > 0.08f && NextCornerSign(myS, 250) == 0);
+                    if (me.AttackWaitsInTow) me.TargetOffset = a.Offset;
                     if (counter) Diag("counter start");
                     me.OvertakeBestGap = aheadGap + (me.Car.Length + a.Length) / 2;
                 }
@@ -1512,7 +1541,7 @@ public sealed partial class RaceWorld
         float def = DefendOf(me);
         bool attackedBy = behind is { IsBot: true } ab && ab.Bot!.OvertakeTargetId == me.Id;
         // just made a pass on a tight line into a corner: busy getting the car out of it, no covering the inside yet
-        if (behind is { } b && me.OvertakeTargetId < 0 && me.Phase == BotPhase.Racing && !blueFlag && !yellow && !Settings.SafetyCar && _now >= me.CompromisedUntil + 2
+        if (behind is { } b && me.OvertakeTargetId < 0 && me.Phase == BotPhase.Racing && !blueFlag && !yellow && !Settings.SafetyCar && _now >= me.CompromisedUntil + 4
             && behindGap < 2 + 8 * def && (b.Speed > me.Speed + 1f || attackedBy))
         {
             if (def >= 0.25f && _now > me.DefendUntil + 8 - 4 * def && _rng.NextSingle() < def * 0.02f * (1 + me.Driver.Personality.InsideLine)
@@ -1682,6 +1711,22 @@ public sealed partial class RaceWorld
         else if (corner < 0) side = minus;
         else side = MathF.Abs(plus - me.Offset) < MathF.Abs(minus - me.Offset) ? plus : minus;
         return true;
+    }
+
+    /// <summary>Direction of the corner after the next one (<paramref name="first"/>), when it follows within ~150 m of it, else 0.</summary>
+    private float FollowingCornerSign(float s, float first)
+    {
+        bool inFirst = false;
+        float gapAfter = 0;
+        for (float d = 20; d < 400; d += 5)
+        {
+            float k = Line.Curvature[Line.IndexAt(s + d)];
+            bool corner = MathF.Abs(k) > 1f / 250f;
+            if (!inFirst) { if (corner && MathF.Sign(k) == first) inFirst = true; continue; }
+            if (!corner || MathF.Sign(k) == first) { gapAfter += corner ? 0 : 5; if (gapAfter > 150) return 0; continue; }
+            return MathF.Sign(k);
+        }
+        return 0;
     }
 
     /// <summary>+1 / -1 for the direction of the next real corner within the distance, 0 if none.</summary>
