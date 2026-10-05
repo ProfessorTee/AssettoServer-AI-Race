@@ -37,6 +37,7 @@ public static class Program
                 "strength" => Strength(opts),
                 "width" => Width(opts),
                 "height" => Height(opts),
+                "accel" => AccelCheck(opts),
                 _ => Usage()
             };
         }
@@ -167,6 +168,78 @@ public static class Program
         {
             var spec = CarDataLoader.Load(cars, model, log: Console.WriteLine);
             PrintSpec(spec);
+        }
+        return 0;
+    }
+
+    /// <summary>
+    /// Full-throttle acceleration of a player's recorded laps (DriverRecorder csv.gz) against the bot model of the same car, by speed:
+    /// shows whether the engine/turbo/drag model is too strong or too weak.
+    /// </summary>
+    private static int AccelCheck(Options o)
+    {
+        string cars = o.Get("cars") ?? Path.Join(o.Get("ac") ?? ".", "content", "cars");
+        string model = o.Get("model") ?? throw new ArgumentException("--model required");
+        string dir = o.Get("recordings") ?? throw new ArgumentException("--recordings <folder with csv.gz> required");
+        var spec = CarDataLoader.Load(cars, model, log: _ => { });
+        var bins = new SortedDictionary<int, List<float>>();
+        var brakeBins = new SortedDictionary<int, List<float>>();
+        foreach (var file in Directory.EnumerateFiles(dir, "*.csv.gz", SearchOption.AllDirectories))
+        {
+            using var gz = new System.IO.Compression.GZipStream(File.OpenRead(file), System.IO.Compression.CompressionMode.Decompress);
+            using var rd = new StreamReader(gz);
+            var rows = new List<float[]>();
+            string? line;
+            while ((line = rd.ReadLine()) != null)
+            {
+                if (line.StartsWith('#') || line.StartsWith('t')) continue;
+                var f = line.Split(',');
+                if (f.Length < 11) continue;
+                // t, x, y, z, speed m/s, gas, brake, steer, gear
+                rows.Add([float.Parse(f[0]), float.Parse(f[2]), float.Parse(f[3]), float.Parse(f[4]), float.Parse(f[5]) / 3.6f, float.Parse(f[6]), float.Parse(f[7]), float.Parse(f[9]), float.Parse(f[10])]);
+            }
+            // windows of ~0.4 s at full throttle, no brake, straight, same gear
+            for (int i = 0; i + 1 < rows.Count; i++)
+            {
+                int j = i;
+                while (j + 1 < rows.Count && rows[j + 1][0] - rows[i][0] < 0.4f) j++;
+                if (j == i || rows[j][0] - rows[i][0] < 0.25f) continue;
+                bool ok = true, brk = true;
+                for (int k = i; k <= j && (ok || brk); k++)
+                {
+                    ok &= rows[k][5] >= 250 && rows[k][6] == 0 && MathF.Abs(rows[k][7]) < 8 && rows[k][8] == rows[i][8] && rows[k][4] > 8;
+                    brk &= rows[k][6] >= 150 && rows[k][5] < 20 && MathF.Abs(rows[k][7]) < 15 && rows[k][4] > 8;
+                }
+                if (!ok && !brk) continue;
+                float dt = rows[j][0] - rows[i][0];
+                float ds = 0;
+                for (int k = i; k < j; k++) ds += MathF.Sqrt(MathF.Pow(rows[k + 1][1] - rows[k][1], 2) + MathF.Pow(rows[k + 1][3] - rows[k][3], 2));
+                if (ds < 1) continue;
+                float a = (rows[j][4] - rows[i][4]) / dt + 9.81f * (rows[j][2] - rows[i][2]) / ds; // + climbing
+                int bin = (int)(rows[i][4] * 3.6f / 20) * 20;
+                var target = brk ? brakeBins : bins;
+                if (!target.TryGetValue(bin, out var list)) target[bin] = list = new();
+                list.Add(brk ? -a : a);
+            }
+        }
+        Console.WriteLine($"{model}: full-throttle acceleration, player (median of {bins.Values.Sum(l => l.Count)} windows) vs bot model (pace 1)");
+        Console.WriteLine("  km/h   player   model   model/player");
+        foreach (var (bin, list) in bins)
+        {
+            if (list.Count < 5) continue;
+            list.Sort();
+            float real = list[list.Count / 2];
+            float mdl = spec.AccelAt((bin + 10) / 3.6f, 1f);
+            Console.WriteLine($"  {bin,3}-{bin + 20,-3} {real,6:F2}  {mdl,6:F2}   {(real > 0.2f ? (mdl / real).ToString("F2") : "-"),5}   ({list.Count})");
+        }
+        Console.WriteLine("  braking (pedal >= 60 %), deceleration m/s²: player vs model");
+        foreach (var (bin, list) in brakeBins)
+        {
+            if (list.Count < 5) continue;
+            list.Sort();
+            float real = list[list.Count * 3 / 4]; // the harder part of the braking zones
+            float mdl = spec.BrakeAt((bin + 10) / 3.6f, 1f) + spec.DragCoefficient * MathF.Pow((bin + 10) / 3.6f, 2);
+            Console.WriteLine($"  {bin,3}-{bin + 20,-3} {real,6:F2}  {mdl,6:F2}   {(mdl / real):F2}   ({list.Count})");
         }
         return 0;
     }

@@ -106,13 +106,16 @@ public static partial class CarDataLoader
         spec.MaxRpm = limiter;
         spec.IdleRpm = engine.GetInt("ENGINE_DATA", "MINIMUM", 1000);
 
-        float boost = 0;
-        foreach (var section in engine.Sections.Where(s => s.StartsWith("TURBO_", StringComparison.OrdinalIgnoreCase)))
+        // turbos (like AC): each builds its boost up to REFERENCE_RPM along a curve with exponent GAMMA, capped by the wastegate;
+        // the boosts add up and multiply the torque of power.lut
+        var turbos = engine.Sections.Where(s => s.StartsWith("TURBO_", StringComparison.OrdinalIgnoreCase)).Select(section =>
         {
             float maxBoost = engine.GetFloat(section, "MAX_BOOST", 0);
             float wastegate = engine.GetFloat(section, "WASTEGATE", maxBoost);
-            boost += MathF.Min(maxBoost, wastegate > 0 ? wastegate : maxBoost);
-        }
+            return (Max: MathF.Min(maxBoost, wastegate > 0 ? wastegate : maxBoost), Full: maxBoost,
+                Ref: MathF.Max(1, engine.GetFloat(section, "REFERENCE_RPM", 0)), Gamma: engine.GetFloat(section, "GAMMA", 1));
+        }).ToList();
+        float BoostAt(float rpm) => turbos.Sum(t => MathF.Min(t.Max, t.Full * MathF.Pow(Math.Clamp(rpm / t.Ref, 0, 1), MathF.Max(0.1f, t.Gamma))));
         float restrictor = 1 - Math.Clamp(restrictorPercent, 0, 100) / 100f * 0.5f;
 
         var drivetrain = Ini(files, "drivetrain.ini");
@@ -198,7 +201,7 @@ public static partial class CarDataLoader
             : (1 - cgFront) + 0.08f;
         float driveRadius = traction.Equals("FWD", StringComparison.OrdinalIgnoreCase) ? frontRadius : rearRadius;
         const float efficiency = 0.85f;
-        float torqueScale = (1 + boost) * restrictor;
+        float torqueScale = restrictor;
 
         var ers = ErsData.Read(files);
         var table = new List<float>();
@@ -215,7 +218,7 @@ public static partial class CarDataLoader
                 float rpm = v / (2 * MathF.PI * driveRadius) * 60 * ratio * final;
                 if (rpm > limiter) continue;
                 rpm = MathF.Max(rpm, MathF.Min(limiter * 0.6f, 4500)); // launch: clutch slips at a useful rpm
-                float force = torque.At(rpm) * torqueScale * ratio * final * efficiency / driveRadius;
+                float force = torque.At(rpm) * (1 + BoostAt(rpm)) * torqueScale * ratio * final * efficiency / driveRadius;
                 if (force > best) { best = force; bestRatio = ratio; bestGear = g + 1; }
             }
             float tractionLimit = spec.BrakeGrip * CarSpec.G * mass * drivenShare + clA * AirDensityHalf * v * v * spec.BrakeGrip * drivenShare * 0.9f;
