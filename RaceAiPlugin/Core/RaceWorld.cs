@@ -1488,17 +1488,7 @@ public sealed partial class RaceWorld
         if (behind is { } b && me.OvertakeTargetId < 0 && me.Phase == BotPhase.Racing && !blueFlag && !yellow && !Settings.SafetyCar
             && behindGap < 2 + 8 * def && (b.Speed > me.Speed + 1f || attackedBy))
         {
-            // a bot that is clearly quicker (much stronger driver) is not fought: the slower one stays predictable and makes room
-            bool muchFaster = b.IsBot && b.Bot!.Driver.Level > me.Driver.Level + 6 && b.Bot.OvertakeTargetId == me.Id;
-            if (muchFaster && _now > me.DefendUntil + 2)
-            {
-                float away = MathF.Sign(me.Offset - b.Offset);
-                if (away == 0) away = 1;
-                me.DefendOffset = Math.Clamp(me.Offset + away * 1.0f, minOff, maxOff);
-                me.DefendUntil = _now + 2;
-                me.LetBy++;
-            }
-            else if (!muchFaster && def >= 0.25f && _now > me.DefendUntil + 8 - 4 * def && _rng.NextSingle() < def * 0.02f * (1 + me.Driver.Personality.InsideLine)
+            if (def >= 0.25f && _now > me.DefendUntil + 8 - 4 * def && _rng.NextSingle() < def * 0.02f * (1 + me.Driver.Personality.InsideLine)
                      && (b.IsBot || behindGap > 3)) // a player's position arrives late: only cover the inside while he's clearly behind
             {
                 // one move towards the inside of the next corner: the harder the driver defends, the further over.
@@ -1736,7 +1726,16 @@ public sealed partial class RaceWorld
         => !gripLimited && me.Clone == null && me.Driver.Personality.CornerPass < 0.5f && me.Draft > 0.1f && closing > -0.5f;
 
     private float AttackOf(RaceBot me) => me.Clone != null ? 0.5f : Math.Clamp(me.Driver.Personality.Attack, 0, 1);
-    private float DefendOf(RaceBot me) => me.Clone != null ? 0.3f : Math.Clamp(me.Driver.Personality.Defend, 0, 1);
+    /// <summary>
+    /// How hard a position is defended: the personality, done as well as the driver can. A weak driver notices the car behind later,
+    /// covers the inside less often and less far, so a stronger one finds his way past (he isn't let by, he's out-raced).
+    /// </summary>
+    private float DefendOf(RaceBot me)
+    {
+        if (me.Clone != null) return 0.3f;
+        float skill = Math.Clamp((me.Driver.Level - 70) / 30f, 0.15f, 1f);
+        return Math.Clamp(me.Driver.Personality.Defend, 0, 1) * (0.3f + 0.7f * skill);
+    }
 
     private double NextGaussian()
     {
