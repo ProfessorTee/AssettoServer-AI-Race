@@ -349,7 +349,7 @@ public static class Program
     {
         Console.WriteLine($"{s.Model} ({s.Source}): top {s.TopSpeed * 3.6f:F0} km/h, lat grip {s.LateralGrip:F2} g, brake {s.BrakeGrip:F2} g, " +
                           $"downforce {s.Downforce * 10000:F1}e-4, aeroBrake {s.AeroBrake * 10000:F1}e-4, L {s.Length:F2} W {s.Width:F2} WB {s.Wheelbase:F2}, " +
-                          $"rpm {s.IdleRpm}-{s.MaxRpm} (up {s.UpshiftRpm}/down {s.DownshiftRpm}, shift {s.ShiftUpTime * 1000:F0}/{s.ShiftDownTime * 1000:F0} ms{(s.HasAbs ? ", ABS" : "")}{(s.HasTc ? ", TC" : "")}), gears [{string.Join(", ", s.GearTopSpeedsKmh.Select(g => g.ToString("F0")))}] km/h");
+                          $"rpm {s.IdleRpm}-{s.MaxRpm} (up {s.UpshiftRpm}/down {s.DownshiftRpm}, shift {s.ShiftUpTime * 1000:F0}/{s.ShiftDownTime * 1000:F0} ms{(s.HasAbs ? ", ABS" : "")}{(s.HasTc ? ", TC" : "")}{(s.SpoolUp > 0 ? $", turbo lag {s.SpoolUp:F2}/{s.SpoolDown:F2} s, boost up to {s.TurboAccel!.Max():F1} m/s²" : "")}), gears [{string.Join(", ", s.GearTopSpeedsKmh.Select(g => g.ToString("F0")))}] km/h");
         if (s.AccelTable != null)
         {
             // 0-100 and 0-200 km/h

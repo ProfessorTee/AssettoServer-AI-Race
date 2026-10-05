@@ -17,6 +17,11 @@ public sealed class CarSpec
     public float Acceleration { get; set; } = 7.0f;
     /// <summary>Optional full-throttle acceleration per 1 m/s of speed (index = speed in m/s), computed from the real power curve and gearing.</summary>
     public float[]? AccelTable { get; set; }
+    /// <summary>Acceleration (m/s², by speed in m/s like <see cref="AccelTable"/>) that comes from the turbo boost: missing until the turbo has spooled up.</summary>
+    public float[]? TurboAccel { get; set; }
+    /// <summary>Turbo spool time constants in s (engine.ini LAG_UP / LAG_DN at AC's 333 Hz physics).</summary>
+    public float SpoolUp { get; set; }
+    public float SpoolDown { get; set; }
     /// <summary>Hybrids: extra acceleration with full electric deploy, per 1 m/s (ers.ini). Used with the share the energy per lap allows on this track.</summary>
     public float[]? ErsGain { get; set; }
     /// <summary>Hybrids: electric power (W) with full deploy, per 1 m/s.</summary>
@@ -92,6 +97,15 @@ public sealed class CarSpec
         return max <= 0 ? 1f : Math.Clamp(lut.At(virtualKm) / max, 0.5f, 1f);
     }
 
+    /// <summary>Part of <see cref="AccelAt"/> that needs the turbo spooled up (0 for cars without turbo).</summary>
+    public float TurboAccelAt(float v)
+    {
+        if (TurboAccel is not { Length: > 1 } t) return 0;
+        float x = Math.Clamp(v, 0, t.Length - 1.001f);
+        int i = (int)x;
+        return t[i] + (t[i + 1] - t[i]) * (x - i);
+    }
+
     public float AccelAt(float v, float pace)
     {
         // slower drivers also use less of the engine (early lift, short shifting, careful exits)
@@ -163,6 +177,7 @@ public sealed class CarSpec
         var c = (CarSpec)MemberwiseClone();
         c.GearTopSpeedsKmh = (float[])GearTopSpeedsKmh.Clone();
         c.AccelTable = (float[]?)AccelTable?.Clone();
+        c.TurboAccel = (float[]?)TurboAccel?.Clone();
         c.ErsGain = (float[]?)ErsGain?.Clone();
         c.ErsPower = (float[]?)ErsPower?.Clone();
         c.TyreWear = TyreWear;

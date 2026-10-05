@@ -136,6 +136,8 @@ public sealed class RaceBot
 
     /// <summary>Gear engaged (1 = first, 0 = not set yet) and the upshift in progress (target gear, when it's in).</summary>
     internal int Gear;
+    /// <summary>Turbo spool 0..1: follows the throttle with the car's lag (corner exits pull weaker until the turbo is on boost).</summary>
+    internal float Spool = 1;
     internal int ShiftTo;
     internal double ShiftEnd;
 
@@ -1779,6 +1781,12 @@ public sealed partial class RaceWorld
             if (me.OvertakeTargetId >= 0) full *= 1.02f + 0.04f * AttackOf(me);
             full *= LaunchTraction(me);
             UpdateGear(me, v);
+            if (me.Car.SpoolUp > 0 && me.Clone == null)
+            {
+                float tau = me.Throttle > me.Spool ? me.Car.SpoolUp : me.Car.SpoolDown;
+                me.Spool += (me.Throttle - me.Spool) * MathF.Min(1, dt / tau);
+                full -= me.Car.TurboAccelAt(v) * (1 - me.Spool) * pace;
+            }
             // a clone accelerates like the player did here: our engine model is only an estimate of the real car
             if (me.Clone is { } cl && me.Phase == BotPhase.Racing && !me.InPitLane)
             {

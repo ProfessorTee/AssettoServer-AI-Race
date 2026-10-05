@@ -123,6 +123,14 @@ public static partial class CarDataLoader
                 Ref: MathF.Max(1, engine.GetFloat(section, "REFERENCE_RPM", 0)), Gamma: engine.GetFloat(section, "GAMMA", 1),
                 Ctrl: TurboController(files, section["TURBO_".Length..]));
         }).ToList();
+        // spool time: AC moves the boost by (1 - LAG) per physics step (333 Hz)
+        if (turbos.Count > 0)
+        {
+            float Tau(string key, float dflt) => engine.Sections.Where(s => s.StartsWith("TURBO_", StringComparison.OrdinalIgnoreCase))
+                .Select(s => 1 / (333f * MathF.Max(1e-4f, 1 - engine.GetFloat(s, key, dflt)))).Average();
+            spec.SpoolUp = Math.Clamp(Tau("LAG_UP", 0.995f), 0.05f, 4f);
+            spec.SpoolDown = Math.Clamp(Tau("LAG_DN", 0.995f), 0.05f, 4f);
+        }
         float BoostAt(float rpm) => turbos.Sum(t => MathF.Min(t.Ctrl?.Invoke(rpm) ?? t.Max, t.Full * MathF.Pow(Math.Clamp(rpm / t.Ref, 0, 1), MathF.Max(0.1f, t.Gamma))));
         float restrictor = 1 - Math.Clamp(restrictorPercent, 0, 100) / 100f * 0.5f;
 
@@ -169,8 +177,9 @@ public static partial class CarDataLoader
         if (dy < 0.5f) dy = hasWings ? 1.58f : 1.25f;
         if (dx < 0.5f) dx = dy;
         spec.LateralGrip = dy * 0.98f;
-        // 0.85: recorded laps (RaceAiTool accel) brake ~10 % softer and pull away from slow corners with less traction than 0.95 gave
-        spec.BrakeGrip = dx * 0.85f;
+        // braking and pulling out of slow corners are at the driver's limit, not the car's: recorded laps of an 80-90 % driver are no
+        // reference for these (only full-throttle acceleration on the straights is)
+        spec.BrakeGrip = dx * 0.95f;
         spec.TyreDiameter = 2 * rearRadius;
 
         float cgFront = 0.5f, wheelbase = 2.6f, track = 1.65f;
@@ -215,6 +224,7 @@ public static partial class CarDataLoader
 
         var ers = ErsData.Read(files);
         var table = new List<float>();
+        var turboAccel = new List<float>();
         var ersGain = new List<float>();
         var ersPower = new List<float>();
         float topSpeed = 0;
@@ -234,6 +244,13 @@ public static partial class CarDataLoader
             float tractionLimit = spec.BrakeGrip * CarSpec.G * mass * drivenShare + clA * AirDensityHalf * v * v * spec.BrakeGrip * drivenShare * 0.9f;
             float drag = cdA * AirDensityHalf * v * v + 0.012f * mass * CarSpec.G;
             float a = (MathF.Min(best, tractionLimit) - drag) / mass;
+            if (turbos.Count > 0 && bestRatio > 0)
+            {
+                // what the boost adds at this speed (nothing where the tyres can't put it down anyway)
+                float rpmBest = MathF.Max(v / (2 * MathF.PI * driveRadius) * 60 * bestRatio * final, MathF.Min(limiter * 0.6f, 4500));
+                float noBoost = best / (1 + BoostAt(rpmBest));
+                turboAccel.Add(MathF.Max(0, a - (MathF.Min(noBoost, tractionLimit) - drag) / mass));
+            }
             if (a <= 0.05f && v > 20)
             {
                 table.Add(0);
@@ -256,6 +273,7 @@ public static partial class CarDataLoader
             }
         }
         spec.AccelTable = table.ToArray();
+        if (turboAccel.Count > 0) spec.TurboAccel = turboAccel.ToArray();
         if (ers != null && ersGain.Any(g => g > 0.05f))
         {
             spec.ErsGain = ersGain.ToArray();
