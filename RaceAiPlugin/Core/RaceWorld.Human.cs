@@ -133,8 +133,24 @@ public sealed partial class RaceWorld
         double r = _rng.NextDouble();
         // diving down the inside: more often too late
         float attacking = me.OvertakeTargetId >= 0 ? 1 + AttackOf(me) : 1;
-        if (r < 0.07 * e * (1 + 0.5 * me.Driver.Personality.BrakeBehavior) * attacking + (me.OvertakeTargetId >= 0 ? 0.03 * AttackOf(me) : 0))
+        float att = AttackOf(me);
+        // an aggressive driver forcing a pass gets it wrong a lot more often, however good he is
+        if (r < 0.07 * e * (1 + 0.5 * me.Driver.Personality.BrakeBehavior) * attacking + (me.OvertakeTargetId >= 0 ? 0.04 * att + 0.10 * att * att : 0))
         {
+            float corner = NextCornerSign(Line.WrapS((float)me.Distance), 150);
+            if (me.OvertakeTargetId >= 0 && corner != 0 && Settings.GrassMoments && _rng.NextSingle() < 0.7f * att)
+            {
+                // dived in far too late: straight on past the apex and off on the outside of the exit (grass, gravel), positions lost
+                float outer = -corner;
+                float s = Line.WrapS((float)me.Distance);
+                float edge = outer > 0 ? Line.RoomPlusAt(s) - me.Car.Width / 2 : -Line.RoomMinusAt(s) + me.Car.Width / 2;
+                StartMistake(me, MistakeKind.Grass, outer, 0.5f + 0.5f * _rng.NextSingle(), 2.2f + 1.5f * _rng.NextSingle());
+                float wide = 1.2f + 2.3f * me.MistakeSeverity;
+                me.MistakeTargetOffset = edge + outer * wide;
+                me.EdgeAllowance = MathF.Max(me.EdgeAllowance, wide + 0.5f);
+                Diag("overshoot");
+                return;
+            }
             // braked too late: the plan assumes more braking than the car has. A car with much of its braking at the rear (and without
             // ABS) gets light at the back instead of locking the fronts: the rear steps out on the way into the corner
             float pRear = Math.Clamp((0.66f - me.Car.BrakeFront) * 4, 0, 0.5f) + (me.Car.HasAbs ? 0 : 0.1f);

@@ -1625,8 +1625,11 @@ public sealed partial class RaceWorld
         var (roomMinus, roomPlus) = Line.MinRoom(myS, span);
         float half = me.Car.Width / 2;
         float grass = GrassPassRoom(me);
-        float lo = MathF.Max(minOff, -roomMinus + half + Settings.EdgeMargin - grass);
-        float hi = MathF.Min(maxOff, roomPlus - half - Settings.EdgeMargin + grass);
+        // aggressive drivers use the full width for a pass, up onto the kerbs
+        float att = AttackOf(me);
+        float margin = Settings.EdgeMargin * (1 - att) - 0.2f * att;
+        float lo = MathF.Max(minOff, -roomMinus + half + margin - grass);
+        float hi = MathF.Min(maxOff, roomPlus - half - margin + grass);
 
         float plus = a.Offset + latClear + 0.2f;
         float minus = a.Offset - latClear - 0.2f;
