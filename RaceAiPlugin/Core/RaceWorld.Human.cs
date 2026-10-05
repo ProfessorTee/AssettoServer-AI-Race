@@ -135,7 +135,7 @@ public sealed partial class RaceWorld
         float attacking = me.OvertakeTargetId >= 0 ? 1 + AttackOf(me) : 1;
         float att = AttackOf(me);
         // an aggressive driver forcing a pass gets it wrong a lot more often, however good he is
-        if (r < 0.07 * e * (1 + 0.5 * me.Driver.Personality.BrakeBehavior) * attacking + (me.OvertakeTargetId >= 0 ? 0.04 * att + 0.10 * att * att : 0))
+        if (r < 0.07 * e * (1 + 0.5 * me.Driver.Personality.BrakeBehavior) * attacking + (me.OvertakeTargetId >= 0 ? (0.04 * att + 0.10 * att * att) * (0.35 + 0.65 * Math.Min(1, e * 2)) : 0))
         {
             float corner = NextCornerSign(Line.WrapS((float)me.Distance), 150);
             if (me.OvertakeTargetId >= 0 && corner != 0 && Settings.GrassMoments && _rng.NextSingle() < 0.7f * att)

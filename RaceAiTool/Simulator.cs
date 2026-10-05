@@ -160,7 +160,8 @@ public static class Simulator
             // grid: player (if any) takes the middle slot
             int slot = 0;
             int playerSlot = player != null ? n / 2 : -1;
-            foreach (var bot in world.Bots)
+            // --slowest-first: the weakest in front (BotGridOrder SlowestFirst on the server)
+            foreach (var bot in o.Has("slowest-first") ? world.Bots.OrderBy(b => b.Driver.Level).ToList() : world.Bots.ToList())
             {
                 if (slot == playerSlot) slot++;
                 PlaceOnGrid(world, info, bot, slot++);
