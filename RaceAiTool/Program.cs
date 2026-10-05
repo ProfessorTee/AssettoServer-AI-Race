@@ -268,6 +268,21 @@ public static class Program
         var road = RoadSurface.Load(trackRoot, layout);
         if (road == null) { Console.WriteLine("no road meshes"); return 1; }
         Console.WriteLine($"{road.Triangles} road triangles in {sw.ElapsedMilliseconds} ms");
+        if (RoadSurface.Load(trackRoot, layout, valid: false) is { } offSurf)
+        {
+            var seen = new Dictionary<string, int>();
+            for (float s = 0; s < line.Length; s += 10)
+            {
+                int i = line.IndexAt(s);
+                foreach (float off2 in new[] { line.RoomPlus[i] + 1.5f, -line.RoomMinus[i] - 1.5f })
+                {
+                    var p = line.PositionAt(s, off2);
+                    string k = offSurf.SurfaceAt(p.X, p.Z, p.Y) is { } sf ? $"{sf.Key} (grip {sf.Friction:F2}, damping {sf.Damping:F2})" : "-";
+                    seen[k] = seen.GetValueOrDefault(k) + 1;
+                }
+            }
+            Console.WriteLine($"beside the track ({offSurf.Triangles} triangles): " + string.Join(", ", seen.OrderByDescending(x => x.Value).Take(8).Select(x => $"{x.Key} {x.Value}")));
+        }
         sw.Restart();
         var lh = LineHeights.Build(line, road);
         var corr = new List<float>();

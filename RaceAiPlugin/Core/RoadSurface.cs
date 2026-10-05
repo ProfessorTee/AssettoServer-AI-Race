@@ -8,55 +8,76 @@ namespace RaceAiPlugin.Core;
 /// </summary>
 public sealed class RoadSurface
 {
+    /// <summary>A surface of surfaces.ini: grip (FRICTION, 1 = road) and the speed it eats (DAMPING, gravel and sand).</summary>
+    public readonly record struct Surface(string Key, float Friction, float Damping, bool Valid);
+
     private const float Cell = 4f;
     private readonly List<float> _tri = new(); // 9 floats per triangle
+    private readonly List<short> _surf = new(); // surface per triangle
+    private readonly List<Surface> _surfaces = new();
     private readonly Dictionary<long, List<int>> _grid = new();
 
     public int Triangles => _tri.Count / 9;
 
-    /// <summary>Loads the valid-track meshes of a layout, null when there are none (track not on this machine, no physics meshes).</summary>
-    public static RoadSurface? Load(string trackRoot, string? layout)
+    /// <summary>
+    /// Loads the physics meshes of a layout: the valid track (<paramref name="valid"/>) or everything beside it (grass, gravel, sand),
+    /// null when there are none (track not on this machine, no physics meshes).
+    /// </summary>
+    public static RoadSurface? Load(string trackRoot, string? layout, bool valid = true)
     {
-        var keys = ValidKeys(trackRoot, layout);
-        if (keys.Count == 0) return null;
+        var surfaces = Surfaces(trackRoot, layout).Where(x => x.Valid == valid).OrderByDescending(x => x.Key.Length).ToList();
+        if (surfaces.Count == 0) return null;
         var road = new RoadSurface();
+        road._surfaces.AddRange(surfaces);
         foreach (var file in Kn5Reader.TrackFiles(trackRoot, layout))
-            Kn5Reader.ReadMeshes(file, name => IsRoad(name, keys), road.Add);
+        {
+            short current = -1;
+            Kn5Reader.ReadMeshes(file, name => (current = road.SurfaceOf(name)) >= 0, (a, b, c) => road.Add(a, b, c, current));
+        }
         return road.Triangles > 0 ? road : null;
     }
 
-    /// <summary>Physics mesh names: a digit, then the surface key ("1ASPH-NURB_12", "2ROAD").</summary>
-    private static bool IsRoad(string name, HashSet<string> keys)
+    /// <summary>Physics mesh names: a digit, then the surface key ("1ASPH-NURB_12", "2ROAD"); the longest matching key wins.</summary>
+    private short SurfaceOf(string name)
     {
-        if (name.Length < 2 || !char.IsDigit(name[0])) return false;
+        if (name.Length < 2 || !char.IsDigit(name[0])) return -1;
         int i = 0;
         while (i < name.Length && char.IsDigit(name[i])) i++;
-        return keys.Any(k => name.AsSpan(i).StartsWith(k, StringComparison.OrdinalIgnoreCase));
+        for (short k = 0; k < _surfaces.Count; k++)
+            if (name.AsSpan(i).StartsWith(_surfaces[k].Key, StringComparison.OrdinalIgnoreCase)) return k;
+        return -1;
     }
 
-    private static HashSet<string> ValidKeys(string trackRoot, string? layout)
+    /// <summary>surfaces.ini of the game (system/data: ROAD, GRASS, SAND ...), then the track's and the layout's (they override).</summary>
+    private static List<Surface> Surfaces(string trackRoot, string? layout)
     {
-        var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var path in new[] { Path.Join(trackRoot, "data", "surfaces.ini"), string.IsNullOrEmpty(layout) ? null : Path.Join(trackRoot, layout, "data", "surfaces.ini") })
+        var byKey = new Dictionary<string, Surface>(StringComparer.OrdinalIgnoreCase);
+        string contentRoot = Path.GetFullPath(Path.Join(trackRoot, "..", "..", ".."));
+        foreach (var path in new[]
+                 {
+                     Path.Join(contentRoot, "system", "data", "surfaces.ini"), Path.Join("system", "data", "surfaces.ini"),
+                     Path.Join(trackRoot, "data", "surfaces.ini"), string.IsNullOrEmpty(layout) ? null : Path.Join(trackRoot, layout, "data", "surfaces.ini")
+                 })
         {
             if (path == null || !File.Exists(path)) continue;
             var ini = IniFile.Load(path);
-            foreach (var s in ini.Sections)
-                if (ini.Get(s, "KEY") is { Length: > 0 } key && ini.Get(s, "IS_VALID_TRACK")?.Trim() == "1") keys.Add(key.Trim());
+            foreach (var sec in ini.Sections)
+                if (ini.Get(sec, "KEY") is { Length: > 0 } key)
+                    byKey[key.Trim()] = new Surface(key.Trim(), ini.GetFloat(sec, "FRICTION", 1), ini.GetFloat(sec, "DAMPING", 0), ini.Get(sec, "IS_VALID_TRACK")?.Trim() == "1");
         }
-        // the longest keys first, so "ROAD" doesn't take "ROAD-B" (doesn't matter here: both are road)
-        return keys;
+        return byKey.Values.ToList();
     }
 
     private static long Key(int x, int z) => ((long)x << 32) ^ (uint)z;
 
-    private void Add(Vector3 a, Vector3 b, Vector3 c)
+    private void Add(Vector3 a, Vector3 b, Vector3 c, short surface)
     {
         // skip walls and other steep faces
         var n = Vector3.Cross(b - a, c - a);
         if (n.LengthSquared() < 1e-8f || MathF.Abs(n.Y) / n.Length() < 0.5f) return;
         int id = _tri.Count / 9;
         _tri.AddRange([a.X, a.Y, a.Z, b.X, b.Y, b.Z, c.X, c.Y, c.Z]);
+        _surf.Add(surface);
         int x0 = (int)MathF.Floor(MathF.Min(a.X, MathF.Min(b.X, c.X)) / Cell), x1 = (int)MathF.Floor(MathF.Max(a.X, MathF.Max(b.X, c.X)) / Cell);
         int z0 = (int)MathF.Floor(MathF.Min(a.Z, MathF.Min(b.Z, c.Z)) / Cell), z1 = (int)MathF.Floor(MathF.Max(a.Z, MathF.Max(b.Z, c.Z)) / Cell);
         for (int x = x0; x <= x1; x++)
@@ -68,8 +89,15 @@ public sealed class RoadSurface
     }
 
     /// <summary>Height of the road at (x, z), the surface closest to <paramref name="nearY"/> (bridges, tunnels) within <paramref name="range"/> m, else null.</summary>
-    public float? HeightAt(float x, float z, float nearY, float range = 1.5f)
+    public float? HeightAt(float x, float z, float nearY, float range = 1.5f) => Find(x, z, nearY, range, out _);
+
+    /// <summary>The surface at (x, z) closest to <paramref name="nearY"/>, null when there is none (beyond the meshes).</summary>
+    public Surface? SurfaceAt(float x, float z, float nearY, float range = 2f)
+        => Find(x, z, nearY, range, out int id) != null ? _surfaces[_surf[id]] : null;
+
+    private float? Find(float x, float z, float nearY, float range, out int bestId)
     {
+        bestId = -1;
         if (!_grid.TryGetValue(Key((int)MathF.Floor(x / Cell), (int)MathF.Floor(z / Cell)), out var list)) return null;
         float? best = null;
         foreach (int id in list)
@@ -83,7 +111,7 @@ public sealed class RoadSurface
             if (u < -1e-4f || v < -1e-4f || u + v > 1.0001f) continue;
             float y = u * ay + v * by + (1 - u - v) * cy;
             if (MathF.Abs(y - nearY) > range) continue;
-            if (best == null || MathF.Abs(y - nearY) < MathF.Abs(best.Value - nearY)) best = y;
+            if (best == null || MathF.Abs(y - nearY) < MathF.Abs(best.Value - nearY)) { best = y; bestId = id; }
         }
         return best;
     }

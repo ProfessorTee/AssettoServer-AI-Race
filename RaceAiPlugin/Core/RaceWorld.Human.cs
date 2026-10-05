@@ -347,8 +347,19 @@ public sealed partial class RaceWorld
         float half = me.Car.Width / 2;
         // kerbs are part of the track for drivers who use them; grass starts behind them
         float beyond = MathF.Max(me.Offset - (Line.RoomPlus[i] - half), -Line.RoomMinus[i] + half - me.Offset) - MathF.Max(0.05f, KerbAllowance(me));
-        if (beyond > 0)
-            me.Speed = MathF.Max(0, me.Speed - (1.2f + 2.5f * MathF.Min(1, beyond)) * dt);
+        if (beyond <= 0) return;
+        float share = MathF.Min(1, beyond);
+        float decel = 1.2f + 2.5f * share; // grass
+        // what is really there under the outer wheels: grass, gravel (DAMPING eats speed), a tarmac run-off (hardly slows)
+        if (OffTrack != null)
+        {
+            float s = Line.WrapS((float)me.Distance);
+            float side = me.Offset > 0 ? 1 : -1;
+            var p = Line.PositionAt(s, me.Offset + side * half * 0.8f);
+            if (OffTrack.SurfaceAt(p.X, p.Z, p.Y) is { } surf)
+                decel = decel * Math.Clamp((1 - surf.Friction) / 0.4f, 0.2f, 2f) + surf.Damping * me.Speed * share;
+        }
+        me.Speed = MathF.Max(0, me.Speed - decel * dt);
     }
 
     private void SpinIntegrate(RaceBot me, float dt)

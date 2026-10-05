@@ -498,6 +498,8 @@ public sealed partial class RaceWorld
     public PitLane? PitLane { get; set; }
     /// <summary>Real road height beside the line (null: the line's flat road).</summary>
     public LineHeights? Heights { get; set; }
+    /// <summary>Surfaces beside the track (null: every run-off is grass).</summary>
+    public RoadSurface? OffTrack { get; set; }
 
     /// <summary>Debug: bot id whose decisions are written to <see cref="Trace"/> twice a second.</summary>
     public int TraceBotId { get; set; } = -1;
