@@ -154,6 +154,9 @@ public static partial class CarDataLoader
             spec.HasTc = el.GetInt("TRACTION_CONTROL", "PRESENT", 0) == 1;
         }
         string traction = drivetrain.Get("TRACTION", "TYPE") ?? "RWD";
+        float diffPower = Math.Clamp(drivetrain.GetFloat("DIFFERENTIAL", "POWER", 0.3f), 0, 1);
+        spec.ExitSlide = (traction.ToUpperInvariant() switch { "FWD" => 0.4f, "AWD" or "AWD2" => 0.7f, _ => 0.8f + 0.8f * diffPower });
+        if (files.ContainsKey("brakes.ini")) spec.BrakeFront = Math.Clamp(Ini(files, "brakes.ini").GetFloat("DATA", "FRONT_SHARE", 0.66f), 0.4f, 0.9f);
 
         var tyres = Ini(files, "tyres.ini");
         {
@@ -274,6 +277,7 @@ public static partial class CarDataLoader
                 ersPower.Add(MathF.Max(0, aWith - a) * mass * v);
             }
         }
+        spec.ExitSlide *= spec.HasTc ? 0.6f : 1.3f;
         spec.AccelTable = table.ToArray();
         if (turboAccel.Count > 0) spec.TurboAccel = turboAccel.ToArray();
         if (ers != null && ersGain.Any(g => g > 0.05f))

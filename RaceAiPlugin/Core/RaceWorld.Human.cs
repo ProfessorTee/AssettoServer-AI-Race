@@ -135,8 +135,17 @@ public sealed partial class RaceWorld
         float attacking = me.OvertakeTargetId >= 0 ? 1 + AttackOf(me) : 1;
         if (r < 0.07 * e * (1 + 0.5 * me.Driver.Personality.BrakeBehavior) * attacking + (me.OvertakeTargetId >= 0 ? 0.03 * AttackOf(me) : 0))
         {
-            // braked too late: the plan assumes more braking than the car has
-            StartMistake(me, MistakeKind.LateBrake, 0, 0.4f + 0.6f * _rng.NextSingle(), 6f);
+            // braked too late: the plan assumes more braking than the car has. A car with much of its braking at the rear (and without
+            // ABS) gets light at the back instead of locking the fronts: the rear steps out on the way into the corner
+            float pRear = Math.Clamp((0.66f - me.Car.BrakeFront) * 4, 0, 0.5f) + (me.Car.HasAbs ? 0 : 0.1f);
+            float side = NextCornerSign(Line.WrapS((float)me.Distance), 150);
+            if (side != 0 && _rng.NextSingle() < pRear)
+            {
+                StartMistake(me, MistakeKind.Slide, side, 0.3f + 0.4f * _rng.NextSingle(), 1.4f);
+                me.MistakeTargetOffset = me.Offset - side * 0.5f;
+            }
+            else
+                StartMistake(me, MistakeKind.LateBrake, 0, 0.4f + 0.6f * _rng.NextSingle(), 6f);
         }
         else if (r < 0.13 * e)
         {
@@ -168,7 +177,7 @@ public sealed partial class RaceWorld
         float e = ErrorLevel(me);
         float turn = MathF.Sign(kEff);
         double r = _rng.NextDouble();
-        float pSlide = 0.08f * e + (Settings.HumanErrors ? (1 - me.Driver.Consistency) * 0.02f : 0);
+        float pSlide = (0.08f * e + (Settings.HumanErrors ? (1 - me.Driver.Consistency) * 0.02f : 0)) * me.Car.ExitSlide;
         float pGrass = Settings.GrassMoments ? 0.05f * e + (1 - me.Driver.Consistency) * 0.04f : 0;
         if (r < pSlide)
         {

@@ -64,6 +64,13 @@ public sealed class CarSpec
     /// <summary>electronics.ini: the car has ABS (no locked wheels under braking) / traction control (less wheelspin).</summary>
     public bool HasAbs { get; set; }
     public bool HasTc { get; set; }
+    /// <summary>Share of the brake torque on the front axle (brakes.ini FRONT_SHARE): a rear-biased car gets light at the back under braking.</summary>
+    public float BrakeFront { get; set; } = 0.66f;
+    /// <summary>
+    /// How readily the car steps out on the power out of a corner, 1 = average: rear drive with a tight differential (drivetrain.ini
+    /// [DIFFERENTIAL] POWER) and no traction control more, front drive / four wheel drive / traction control less.
+    /// </summary>
+    public float ExitSlide { get; set; } = 1f;
     /// <summary>Top speed of each gear in km/h (1st..nth) at the rev limiter.</summary>
     public float[] GearTopSpeedsKmh { get; set; } = [95, 130, 165, 200, 235, 280];
     /// <summary>Steering ratio (steering wheel angle / wheel angle) and lock, only used for the visual steering wheel.</summary>
