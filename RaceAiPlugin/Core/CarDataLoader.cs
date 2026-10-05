@@ -71,6 +71,12 @@ public static partial class CarDataLoader
         return spec;
     }
 
+    /// <summary>
+    /// Recorded laps (RaceAiTool accel: GT3 cars on Trial Mountain and the Nordschleife, RX-7) pull harder at high speed than the aero.ini
+    /// drag gives; 0.8 matches them within about 10 % up to 260 km/h.
+    /// </summary>
+    private const float DragScale = 0.8f;
+
     private static string Text(Dictionary<string, byte[]> files, string name)
         => files.TryGetValue(name, out var b) ? Encoding.UTF8.GetString(b) : throw new FileNotFoundException(name);
 
@@ -106,16 +112,18 @@ public static partial class CarDataLoader
         spec.MaxRpm = limiter;
         spec.IdleRpm = engine.GetInt("ENGINE_DATA", "MINIMUM", 1000);
 
-        // turbos (like AC): each builds its boost up to REFERENCE_RPM along a curve with exponent GAMMA, capped by the wastegate;
-        // the boosts add up and multiply the torque of power.lut
+        // turbos (like AC): each builds its boost up to REFERENCE_RPM along a curve with exponent GAMMA, capped by the wastegate; the boosts
+        // add up and multiply the torque of power.lut. A ctrl_turboN.ini driven by RPMS sets the wastegate by rpm (RX-7, Supra: the first
+        // turbo hands over to the second one; GT3 cars: boost by rpm)
         var turbos = engine.Sections.Where(s => s.StartsWith("TURBO_", StringComparison.OrdinalIgnoreCase)).Select(section =>
         {
             float maxBoost = engine.GetFloat(section, "MAX_BOOST", 0);
             float wastegate = engine.GetFloat(section, "WASTEGATE", maxBoost);
             return (Max: MathF.Min(maxBoost, wastegate > 0 ? wastegate : maxBoost), Full: maxBoost,
-                Ref: MathF.Max(1, engine.GetFloat(section, "REFERENCE_RPM", 0)), Gamma: engine.GetFloat(section, "GAMMA", 1));
+                Ref: MathF.Max(1, engine.GetFloat(section, "REFERENCE_RPM", 0)), Gamma: engine.GetFloat(section, "GAMMA", 1),
+                Ctrl: TurboController(files, section["TURBO_".Length..]));
         }).ToList();
-        float BoostAt(float rpm) => turbos.Sum(t => MathF.Min(t.Max, t.Full * MathF.Pow(Math.Clamp(rpm / t.Ref, 0, 1), MathF.Max(0.1f, t.Gamma))));
+        float BoostAt(float rpm) => turbos.Sum(t => MathF.Min(t.Ctrl?.Invoke(rpm) ?? t.Max, t.Full * MathF.Pow(Math.Clamp(rpm / t.Ref, 0, 1), MathF.Max(0.1f, t.Gamma))));
         float restrictor = 1 - Math.Clamp(restrictorPercent, 0, 100) / 100f * 0.5f;
 
         var drivetrain = Ini(files, "drivetrain.ini");
@@ -161,7 +169,8 @@ public static partial class CarDataLoader
         if (dy < 0.5f) dy = hasWings ? 1.58f : 1.25f;
         if (dx < 0.5f) dx = dy;
         spec.LateralGrip = dy * 0.98f;
-        spec.BrakeGrip = dx * 0.95f;
+        // 0.85: recorded laps (RaceAiTool accel) brake ~10 % softer and pull away from slow corners with less traction than 0.95 gave
+        spec.BrakeGrip = dx * 0.85f;
         spec.TyreDiameter = 2 * rearRadius;
 
         float cgFront = 0.5f, wheelbase = 2.6f, track = 1.65f;
@@ -190,6 +199,7 @@ public static partial class CarDataLoader
             }
         }
         if (cdA < 0.2f) cdA = hasWings ? 0.9f : 0.7f;
+        cdA *= DragScale;
         clA = MathF.Max(0, clA);
         spec.Downforce = clA * AirDensityHalf * spec.LateralGrip * 0.9f / mass;
         spec.DragCoefficient = cdA * AirDensityHalf / mass;
@@ -269,6 +279,34 @@ public static partial class CarDataLoader
 
         // crests: cars without much downforce get light earlier
         spec.CrestFactor = hasWings ? 1.35f : 1.2f;
+    }
+
+    /// <summary>Wastegate by rpm from ctrl_turbo&lt;n&gt;.ini (controllers with INPUT=RPMS, ADD or MULT), null when there is none.</summary>
+    private static Func<float, float>? TurboController(Dictionary<string, byte[]> files, string index)
+    {
+        if (!files.ContainsKey($"ctrl_turbo{index}.ini")) return null;
+        var ini = Ini(files, $"ctrl_turbo{index}.ini");
+        var parts = new List<(Lut Lut, bool Mult)>();
+        foreach (var c in ini.Sections.Where(x => x.StartsWith("CONTROLLER_", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (!string.Equals(ini.Get(c, "INPUT")?.Trim(), "RPMS", StringComparison.OrdinalIgnoreCase)) continue;
+            string? lut = ini.Get(c, "LUT")?.Trim();
+            if (string.IsNullOrEmpty(lut)) continue;
+            // inline "(|0=0.74|1000=0.74|...)" or a file name
+            string text = lut.StartsWith('(')
+                ? string.Join('\n', lut.Trim('(', ')').Split('|', StringSplitOptions.RemoveEmptyEntries).Select(e => e.Replace('=', '|')))
+                : files.TryGetValue(lut, out var b) ? Encoding.UTF8.GetString(b) : "";
+            var parsed = Lut.Parse(text);
+            if (parsed.X.Length > 0)
+                parts.Add((parsed, string.Equals(ini.Get(c, "COMBINATOR")?.Trim(), "MULT", StringComparison.OrdinalIgnoreCase)));
+        }
+        if (parts.Count == 0) return null;
+        return rpm =>
+        {
+            float v = 0;
+            foreach (var (lut, mult) in parts) v = mult ? v * lut.At(rpm) : v + lut.At(rpm);
+            return MathF.Max(0, v);
+        };
     }
 
     private static float LutValue(Dictionary<string, byte[]> files, string? lutName, float x)
