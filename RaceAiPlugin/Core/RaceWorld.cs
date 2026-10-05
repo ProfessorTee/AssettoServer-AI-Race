@@ -141,6 +141,14 @@ public sealed class RaceBot
     internal int ShiftTo;
     internal double ShiftEnd;
 
+    /// <summary>
+    /// After a pass into a corner: the attacker's tight inside line costs him the exit until <see cref="CompromisedUntil"/>; the
+    /// car he passed has the better exit (<see cref="ExitBoostUntil"/>) and may strike back at once (<see cref="CounterTargetId"/>).
+    /// </summary>
+    internal double CompromisedUntil, ExitBoostUntil, CounterUntil;
+    internal int CounterTargetId = -1;
+    internal bool AttackIsCounter;
+
     // behaviour state
     internal int OvertakeTargetId = -1;
     internal double OvertakeSince;
@@ -1347,6 +1355,16 @@ public sealed partial class RaceWorld
                 else if (ds < -((me.Car.Length + target.Value.Length) / 2 + 2))
                 {
                     Diag("end:passed");
+                    if (me.AttackIsCounter) Diag("counter passed");
+                    // passed on the way into a corner (late on the brakes, tight inside line): a poor exit, and the other one can strike back
+                    if (target.Value.Bot is { } passed && NextCornerSign(Line.WrapS(myS - 60), 120) != 0)
+                    {
+                        me.CompromisedUntil = _now + 3;
+                        passed.ExitBoostUntil = _now + 3;
+                        passed.CounterTargetId = me.Id;
+                        passed.CounterUntil = _now + 10;
+                        Diag("counter armed");
+                    }
                     bool onGrass = me.Offset > Line.RoomPlusAt(myS) - half + 0.3f || me.Offset < -Line.RoomMinusAt(myS) + half - 0.3f;
                     Diag($"pass {me.Driver.Personality.Name} {(MathF.Abs(Line.CurvatureAt(myS)) > 1 / 250f ? "corner" : "straight")}{(onGrass ? " grass" : "")}");
                     me.OvertakeTargetId = -1;
@@ -1360,7 +1378,9 @@ public sealed partial class RaceWorld
                     // lost ground or took too long: tuck in behind again and wait a moment before the next try
                     if (_now - me.OvertakeSince > 12 + 10 * AttackOf(me))
                         Diag($"toolong: ds {(ds < 0 ? "<0" : ds < 5 ? "0-5" : ds < 10 ? "5-10" : ds < 20 ? "10-20" : ">20")} best {(me.OvertakeBestGap < 5 ? "<5" : me.OvertakeBestGap < 10 ? "5-10" : ">10")} sameLane {(MathF.Abs(target.Value.Offset - me.Offset) < tLatClear - 0.4f)}");
-                    Diag(_now - me.OvertakeSince > 12 + 10 * AttackOf(me) ? "end:too long" : ds > 70 ? "end:dropped back" : _now - me.OvertakeSeparatedAt > 8 + 6 * AttackOf(me) ? "end:never alongside" : "end:lost ground");
+                    string why = _now - me.OvertakeSince > 12 + 10 * AttackOf(me) ? "too long" : ds > 70 ? "dropped back" : _now - me.OvertakeSeparatedAt > 8 + 6 * AttackOf(me) ? "never alongside" : "lost ground";
+                    Diag("end:" + why);
+                    if (me.AttackIsCounter) Diag("counter failed: " + why);
                     me.OvertakeTargetId = -1;
                     me.OvertakeGiveUps++;
                     me.ReturnToLineAfter = _now;
@@ -1434,8 +1454,12 @@ public sealed partial class RaceWorld
                 me.NextFlashAt = _now + 3; // decided not to flash this time
             }
 
-            if (me.OvertakeTargetId < 0 && !cautious && !yellow && !blueFlag && !Settings.SafetyCar && me.Phase == BotPhase.Racing && _now >= me.OvertakeCooldownUntil
-                && aheadGap < attackRange && (me.PressureEma > needAdvantage || closing > 1.0f || TowRun(me, gripLimited, closing)) && PassHereOk(me, a, gripLimited))
+            // just passed into a corner by this car: strike back right away (no cooldown, no speed advantage needed yet)
+            bool counter = me.CounterTargetId == a.Id && _now < me.CounterUntil;
+            if (me.OvertakeTargetId < 0 && !cautious && !yellow && !blueFlag && !Settings.SafetyCar && me.Phase == BotPhase.Racing
+                && (_now >= me.OvertakeCooldownUntil || counter)
+                && aheadGap < attackRange + (counter ? 10 : 0)
+                && (counter || ((me.PressureEma > needAdvantage || closing > 1.0f || TowRun(me, gripLimited, closing)) && PassHereOk(me, a, gripLimited))))
             {
                 if (!TryChooseOvertakeSide(me, a, aheadGap, latClear, minOff - grass, maxOff + grass, out var side))
                 {
@@ -1450,13 +1474,15 @@ public sealed partial class RaceWorld
                     me.OvertakeSince = _now;
                     me.OvertakeSeparatedAt = _now;
                     me.OvertakeSide = side > a.Offset ? 1 : -1;
+                    me.AttackIsCounter = counter;
+                    if (counter) Diag("counter start");
                     me.OvertakeBestGap = aheadGap + (me.Car.Length + a.Length) / 2;
                 }
             }
 
             // an attacker pulling out is only held behind until half his car is out of the target's lane: then he may brake later and draw alongside
             // (on a straight or braking for the corner, not in the middle of one)
-            bool pullingOut = me.OvertakeTargetId == a.Id && (!gripLimited || vLine < me.Speed - 3 || grass > 0.5f) && MathF.Abs(me.TargetOffset - a.Offset) > latClear - 0.3f;
+            bool pullingOut = me.OvertakeTargetId == a.Id && (!gripLimited || vLine < me.Speed - 3 || grass > 0.5f || me.AttackIsCounter) && MathF.Abs(me.TargetOffset - a.Offset) > latClear - 0.3f;
             bool blocked = MathF.Abs(a.Offset - me.Offset) < (pullingOut ? latClear * 0.7f : latClear - Settings.SideMargin * 0.5f);
             if (UnstuckAround(me, a, myS, minOff, maxOff, ref vTarget)) blocked = false;
             if (blocked)
@@ -1485,7 +1511,8 @@ public sealed partial class RaceWorld
         // ---- defend against a faster car right behind (or one that is going for it)
         float def = DefendOf(me);
         bool attackedBy = behind is { IsBot: true } ab && ab.Bot!.OvertakeTargetId == me.Id;
-        if (behind is { } b && me.OvertakeTargetId < 0 && me.Phase == BotPhase.Racing && !blueFlag && !yellow && !Settings.SafetyCar
+        // just made a pass on a tight line into a corner: busy getting the car out of it, no covering the inside yet
+        if (behind is { } b && me.OvertakeTargetId < 0 && me.Phase == BotPhase.Racing && !blueFlag && !yellow && !Settings.SafetyCar && _now >= me.CompromisedUntil + 2
             && behindGap < 2 + 8 * def && (b.Speed > me.Speed + 1f || attackedBy))
         {
             if (def >= 0.25f && _now > me.DefendUntil + 8 - 4 * def && _rng.NextSingle() < def * 0.02f * (1 + me.Driver.Personality.InsideLine)
@@ -1801,6 +1828,9 @@ public sealed partial class RaceWorld
             if (me.OvertakeTargetId >= 0) full *= 1.02f + 0.04f * AttackOf(me);
             full *= LaunchTraction(me);
             UpdateGear(me, v);
+            // the exit after a pass into a corner: the attacker's tight line costs drive, the one passed gets on the power earlier
+            if (_now < me.CompromisedUntil) full *= 0.8f;
+            if (_now < me.ExitBoostUntil) full *= 1.10f;
             if (me.Car.SpoolUp > 0 && me.Clone == null)
             {
                 float tau = me.Throttle > me.Spool ? me.Car.SpoolUp : me.Car.SpoolDown;
