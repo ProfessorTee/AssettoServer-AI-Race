@@ -273,6 +273,8 @@ public sealed class RaceBot
     internal bool OnOwnLine;
     /// <summary>The bot's personal line: the AI line widened (+) or narrowed (-) around the middle of the track, and its apex moved (m).</summary>
     internal float LineScale, ApexShift;
+    /// <summary>0..1: how much of the track's ideal line this driver mixes into the AI line.</summary>
+    internal float IdealMix;
     internal bool StyleRolled;
     /// <summary>Statistics: defensive moves, cars let by on purpose.</summary>
     public int Defends { get; internal set; }
@@ -500,6 +502,8 @@ public sealed partial class RaceWorld
     public LineHeights? Heights { get; set; }
     /// <summary>Surfaces beside the track (null: every run-off is grass).</summary>
     public RoadSurface? OffTrack { get; set; }
+    /// <summary>The track's ideal line (null: only the AI line).</summary>
+    public IdealLine? Ideal { get; set; }
 
     /// <summary>Debug: bot id whose decisions are written to <see cref="Trace"/> twice a second.</summary>
     public int TraceBotId { get; set; } = -1;
@@ -1956,9 +1960,10 @@ public sealed partial class RaceWorld
     internal float PersonalLineOffset(RaceBot me, float s)
     {
         EnsureStyle(me);
-        if (me.LineScale == 0 && me.ApexShift == 0) return 0;
+        float ideal = Ideal != null ? me.IdealMix * Ideal.At(s) : 0;
+        if (me.LineScale == 0 && me.ApexShift == 0 && ideal == 0) return 0;
         float c = TrackCenter(s);
-        float off = me.ApexShift != 0 ? c - TrackCenter(s - me.ApexShift) : 0;
+        float off = (me.ApexShift != 0 ? c - TrackCenter(s - me.ApexShift) : 0) + ideal;
         // the line is near an edge where the middle of the track is far away: push towards that edge (or away from it)
         off -= me.LineScale * MathF.Tanh(c / 1.5f);
         float half = me.Car.Width / 2, edge = EdgeMarginFor(me);
@@ -1995,6 +2000,8 @@ public sealed partial class RaceWorld
         // apex: up to ±5 m later / earlier along the track
         float apex = Math.Clamp(p.ApexStyle * me.StyleScale + (float)NextGaussian() * 0.2f, -1.3f, 1.3f);
         me.ApexShift = ApexShiftPerStyle * apex;
+        // somewhere between the AI line and the track's ideal line, everybody a bit different
+        me.IdealMix = _rng.NextSingle();
     }
 
     /// <summary>The clone's line at <paramref name="s"/>: the player's own line, a little to the side as much as his laps differ.</summary>

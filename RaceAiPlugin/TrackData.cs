@@ -16,6 +16,8 @@ public sealed class TrackData
     public LineHeights? Heights { get; init; }
     /// <summary>Grass, gravel, sand ... beside the track with their grip and damping (surfaces.ini), null without kn5 files.</summary>
     public RoadSurface? OffTrack { get; init; }
+    /// <summary>data/ideal_line.ai as an offset from the AI line, null when the track has none (or a copy of the AI line).</summary>
+    public IdealLine? Ideal { get; init; }
 
     /// <param name="gridFile">Grid file of another preset than the running one (null = <paramref name="config"/>'s).</param>
     public static TrackData Load(string track, string layout, RaceAiConfiguration config, string? gridFile = null)
@@ -47,6 +49,17 @@ public sealed class TrackData
 
         Log.Information("Race AI: loading racing line {Path}", fastLane);
         var line = new RacingLine(FastLaneFile.Read(fastLane));
+        IdealLine? ideal = null;
+        try
+        {
+            var dataDir = Path.GetDirectoryName(Path.GetDirectoryName(fastLane)!)!;
+            ideal = IdealLine.Load(Path.Join(dataDir, "data", "ideal_line.ai"), line);
+            if (ideal != null) Log.Information("Race AI: ideal line found, bots mix it into their own line");
+        }
+        catch (Exception ex)
+        {
+            Log.Debug(ex, "Race AI: ideal_line.ai not readable");
+        }
         LineHeights? heights = null;
         RoadSurface? offTrack = null;
         try
@@ -125,7 +138,7 @@ public sealed class TrackData
             }
         }
 
-        return new TrackData { Line = line, Info = info, StartLineS = startLineS, PitLane = pitLane, Heights = heights, OffTrack = offTrack };
+        return new TrackData { Line = line, Info = info, StartLineS = startLineS, PitLane = pitLane, Heights = heights, OffTrack = offTrack, Ideal = ideal };
     }
 
     /// <summary>Content folders to search: the server's own content folder first, then the game installation.</summary>

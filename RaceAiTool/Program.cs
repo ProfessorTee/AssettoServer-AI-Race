@@ -38,6 +38,7 @@ public static class Program
                 "width" => Width(opts),
                 "height" => Height(opts),
                 "accel" => AccelCheck(opts),
+                "ideal" => IdealCheck(opts),
                 _ => Usage()
             };
         }
@@ -252,6 +253,28 @@ public static class Program
             float mdl = spec.BrakeAt((bin + 10) / 3.6f, 1f) + spec.DragCoefficient * MathF.Pow((bin + 10) / 3.6f, 2);
             Console.WriteLine($"  {bin,3}-{bin + 20,-3} {real,6:F2}  {mdl,6:F2}   {(mdl / real):F2}   ({list.Count})");
         }
+        return 0;
+    }
+
+    /// <summary>How far data/ideal_line.ai is from ai/fast_lane.ai (the bots' line) across the track.</summary>
+    private static int IdealCheck(Options o)
+    {
+        var (trackRoot, layout, _) = ResolvePaths(o);
+        var line = new RacingLine(FastLaneFile.Read(FastLanePath(trackRoot, layout)));
+        string ip = Path.Join(trackRoot, layout ?? "", "data", "ideal_line.ai");
+        if (!File.Exists(ip)) ip = Path.Join(trackRoot, "data", "ideal_line.ai");
+        if (!File.Exists(ip)) { Console.WriteLine("no ideal_line.ai"); return 1; }
+        var ideal = FastLaneFile.Read(ip);
+        var offs = new List<float>();
+        int hint = -1;
+        foreach (var p in ideal)
+        {
+            var pr = line.Project(p.Position, hint);
+            hint = pr.Index;
+            offs.Add(pr.Offset);
+        }
+        var abs = offs.Select(MathF.Abs).OrderBy(x => x).ToList();
+        Console.WriteLine($"{ideal.Length} points: offset from fast_lane median {abs[abs.Count / 2]:F2} m, 90 % {abs[abs.Count * 9 / 10]:F2} m, max {abs[^1]:F2} m");
         return 0;
     }
 

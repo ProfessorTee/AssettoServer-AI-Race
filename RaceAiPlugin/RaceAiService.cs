@@ -199,6 +199,7 @@ public sealed partial class RaceAiService : IHostedService
             PitLane = _config.PitStops ? _track.PitLane : null,
             Heights = _track.Heights,
             OffTrack = _track.OffTrack,
+            Ideal = _track.Ideal,
             UnstuckAfter = _config.UnstuckSeconds,
             GhostAfter = _config.GhostAfterSeconds
         };
