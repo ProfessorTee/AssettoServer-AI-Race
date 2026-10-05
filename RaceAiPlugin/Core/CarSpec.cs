@@ -71,6 +71,15 @@ public sealed class CarSpec
     /// [DIFFERENTIAL] POWER) and no traction control more, front drive / four wheel drive / traction control less.
     /// </summary>
     public float ExitSlide { get; set; } = 1f;
+    /// <summary>
+    /// Damage per zone (front, rear, left, right): aero.ini ZONE_x_CD / ZONE_x_CL weighted by each wing's share of drag and lift
+    /// (drag rises like CD*(1+ZONE_CD*damage), downforce falls like CL/(1+ZONE_CL*damage)); impact speed (km/h) below which a zone
+    /// isn't visibly damaged (damage.ini MIN_SPEED), and the suspension's (suspensions.ini [DAMAGE] MIN_VELOCITY).
+    /// </summary>
+    public float[] ZoneCd { get; set; } = [0.004f, 0.002f, 0.002f, 0.002f];
+    public float[] ZoneCl { get; set; } = [0, 0, 0, 0];
+    public float[] DamageMinKmh { get; set; } = [20, 20, 20, 20, 30];
+    public float SuspDamageMinKmh { get; set; } = 25;
     /// <summary>Top speed of each gear in km/h (1st..nth) at the rev limiter.</summary>
     public float[] GearTopSpeedsKmh { get; set; } = [95, 130, 165, 200, 235, 280];
     /// <summary>Steering ratio (steering wheel angle / wheel angle) and lock, only used for the visual steering wheel.</summary>
@@ -196,6 +205,9 @@ public sealed class CarSpec
         c.ErsPower = (float[]?)ErsPower?.Clone();
         c.TyreWear = TyreWear;
         c.TyreTempCurve = TyreTempCurve;
+        c.ZoneCd = (float[])ZoneCd.Clone();
+        c.ZoneCl = (float[])ZoneCl.Clone();
+        c.DamageMinKmh = (float[])DamageMinKmh.Clone();
         return c;
     }
 }

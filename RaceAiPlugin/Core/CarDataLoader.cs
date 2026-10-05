@@ -147,6 +147,20 @@ public static partial class CarDataLoader
         float final = drivetrain.GetFloat("GEARS", "FINAL", 3.5f);
         spec.ShiftUpTime = Math.Clamp(drivetrain.GetFloat("GEARBOX", "CHANGE_UP_TIME", 150) / 1000f, 0.03f, 0.6f);
         spec.ShiftDownTime = Math.Clamp(drivetrain.GetFloat("GEARBOX", "CHANGE_DN_TIME", 200) / 1000f, 0.03f, 0.6f);
+        if (files.ContainsKey("damage.ini"))
+        {
+            // the softest visual part of each zone decides when it shows damage; glass of the zone as a fallback
+            var dmg = Ini(files, "damage.ini");
+            string[] zn = ["FRONT", "REAR", "LEFT", "RIGHT", "CENTER"];
+            for (int z = 0; z < 5; z++)
+            {
+                var mins = dmg.Sections.Where(s => s.StartsWith("VISUAL_OBJECT_", StringComparison.OrdinalIgnoreCase)
+                                                   && string.Equals(dmg.Get(s, "DAMAGE_ZONE")?.Trim(), zn[z], StringComparison.OrdinalIgnoreCase))
+                    .Select(s => dmg.GetFloat(s, "MIN_SPEED", 20)).ToList();
+                if (mins.Count == 0 && dmg.HasSection($"DAMAGE_GLASS_{zn[z]}")) mins.Add(dmg.GetFloat($"DAMAGE_GLASS_{zn[z]}", "MIN_SPEED", 20));
+                if (mins.Count > 0) spec.DamageMinKmh[z] = Math.Clamp(mins.Min(), 0, 120);
+            }
+        }
         if (files.ContainsKey("electronics.ini"))
         {
             var el = Ini(files, "electronics.ini");
@@ -208,6 +222,7 @@ public static partial class CarDataLoader
         if (files.ContainsKey("suspensions.ini"))
         {
             var susp = Ini(files, "suspensions.ini");
+            spec.SuspDamageMinKmh = susp.GetFloat("DAMAGE", "MIN_VELOCITY", spec.SuspDamageMinKmh);
             wheelbase = susp.GetFloat("BASIC", "WHEELBASE", 2.6f);
             cgFront = susp.GetFloat("BASIC", "CG_LOCATION", 0.5f);
             track = MathF.Max(susp.GetFloat("FRONT", "TRACK", 1.6f), susp.GetFloat("REAR", "TRACK", 1.6f));
@@ -221,13 +236,25 @@ public static partial class CarDataLoader
         if (files.ContainsKey("aero.ini"))
         {
             var aero = Ini(files, "aero.ini");
+            string[] zones = ["FRONT", "REAR", "LEFT", "RIGHT"];
+            var zcd = new float[4];
+            var zcl = new float[4];
             foreach (var wing in aero.Sections.Where(s => s.StartsWith("WING_", StringComparison.OrdinalIgnoreCase)))
             {
                 float area = aero.GetFloat(wing, "CHORD", 0) * aero.GetFloat(wing, "SPAN", 0);
                 float angle = aero.GetFloat(wing, "ANGLE", 0);
-                clA += LutValue(files, aero.Get(wing, "LUT_AOA_CL"), angle) * aero.GetFloat(wing, "CL_GAIN", 1) * area;
-                cdA += LutValue(files, aero.Get(wing, "LUT_AOA_CD"), angle) * aero.GetFloat(wing, "CD_GAIN", 1) * area;
+                float cl = LutValue(files, aero.Get(wing, "LUT_AOA_CL"), angle) * aero.GetFloat(wing, "CL_GAIN", 1) * area;
+                float cd = LutValue(files, aero.Get(wing, "LUT_AOA_CD"), angle) * aero.GetFloat(wing, "CD_GAIN", 1) * area;
+                clA += cl;
+                cdA += cd;
+                for (int z = 0; z < 4; z++)
+                {
+                    zcd[z] += cd * aero.GetFloat(wing, $"ZONE_{zones[z]}_CD", 0);
+                    zcl[z] += MathF.Max(0, cl) * aero.GetFloat(wing, $"ZONE_{zones[z]}_CL", 0);
+                }
             }
+            if (cdA > 0.05f) spec.ZoneCd = zcd.Select(x => x / cdA).ToArray();
+            if (clA > 0.05f) spec.ZoneCl = zcl.Select(x => x / clA).ToArray();
         }
         if (cdA < 0.2f) cdA = hasWings ? 0.9f : 0.7f;
         cdA *= DragScale;

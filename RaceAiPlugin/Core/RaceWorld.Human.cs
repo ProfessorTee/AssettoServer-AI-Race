@@ -551,8 +551,10 @@ public sealed partial class RaceWorld
         if (!Settings.Damage || Settings.DamageRate <= 0) return;
         float v = impactKmh * Settings.DamageRate;
         if (v < 4) return;
-        bot.DamageZones[zone] = MathF.Min(400, bot.DamageZones[zone] + v * 0.6f);
-        if (v > 25) suspension += (v - 25) / 250f;
+        // below the zone's damage speed (damage.ini) only scratches
+        float body = v < bot.Car.DamageMinKmh[zone] ? v * 0.15f : v * 0.6f;
+        bot.DamageZones[zone] = MathF.Min(400, bot.DamageZones[zone] + body);
+        if (v > bot.Car.SuspDamageMinKmh) suspension += (v - bot.Car.SuspDamageMinKmh) / 250f;
         bot.Suspension = Math.Clamp(bot.Suspension + suspension * Settings.DamageRate, 0, 1);
         bot.DamageVersion++;
         UpdateGrip(bot);
@@ -563,6 +565,10 @@ public sealed partial class RaceWorld
     {
         var z = bot.DamageZones;
         float g = 1 - 0.0012f * z[0] - 0.0005f * (z[2] + z[3]) - 0.0003f * z[1] - 0.15f * bot.Suspension;
+        // a damaged wing or splitter loses downforce (aero.ini ZONE_x_CL): the aero part of the grip (a third in a fast corner) goes
+        var cl = bot.Car.ZoneCl;
+        if (bot.Car.Downforce > 0)
+            g -= 0.3f * (1 - 1 / (1 + cl[0] * z[0] + cl[1] * z[1] + cl[2] * z[2] + cl[3] * z[3]));
         return Math.Clamp(g, 0.65f, 1f);
     }
 
@@ -570,7 +576,8 @@ public sealed partial class RaceWorld
     public static float DamageDrag(RaceBot bot)
     {
         var z = bot.DamageZones;
-        return 1 + 0.004f * z[0] + 0.004f * (z[2] + z[3]) * 0.5f + 0.002f * z[1];
+        var cd = bot.Car.ZoneCd;
+        return 1 + cd[0] * z[0] + cd[1] * z[1] + cd[2] * z[2] + cd[3] * z[3];
     }
 
     /// <summary>Body damage in percent (for the repair time).</summary>
