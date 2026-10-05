@@ -1353,8 +1353,8 @@ public sealed partial class RaceWorld
                     me.Overtakes++;
                     me.ReturnToLineAfter = _now + 0.8;
                 }
-                else if (_now - me.OvertakeSince > 12 + 10 * AttackOf(me) || ds > 70
-                         || ((ds - me.OvertakeBestGap) / MathF.Max(me.Speed, 10) > 0.25f + 0.35f * AttackOf(me) && _now - me.OvertakeSince > 2)
+                else if ((_now - me.OvertakeSince > 12 + 10 * AttackOf(me) && ds > me.OvertakeBestGap + 2) || ds > 70
+                         || ((ds - me.OvertakeBestGap) / MathF.Max(me.Speed, 10) > 0.5f + 0.5f * AttackOf(me) && _now - me.OvertakeSince > 2)
                          || _now - me.OvertakeSeparatedAt > 8 + 6 * AttackOf(me))
                 {
                     // lost ground or took too long: tuck in behind again and wait a moment before the next try
@@ -1619,7 +1619,9 @@ public sealed partial class RaceWorld
     {
         float myS = Line.WrapS((float)me.Distance);
         // the lane has to be free alongside the target and a little beyond (to pull ahead and back in), not for half a straight
-        float span = gap + (me.Car.Length + a.Length) / 2 + 12 + 20 * (1 - AttackOf(me));
+        // room is needed alongside the target and a little beyond it, not for the next 50 m: a narrowing further on is the next corner,
+        // and the driver decides there (careful drivers only want a bit more)
+        float span = gap + (me.Car.Length + a.Length) / 2 + 8 + 6 * (1 - AttackOf(me));
         var (roomMinus, roomPlus) = Line.MinRoom(myS, span);
         float half = me.Car.Width / 2;
         float grass = GrassPassRoom(me);
