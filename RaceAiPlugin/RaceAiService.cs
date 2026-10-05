@@ -227,7 +227,7 @@ public sealed partial class RaceAiService : IHostedService
             var k = (ec.Model, ec.Ballast, ec.Restrictor);
             if (specCache.ContainsKey(k)) continue;
             var root = carRoots.FirstOrDefault(r => Directory.Exists(Path.Join(r, ec.Model))) ?? carRoots.FirstOrDefault() ?? "content/cars";
-            var sp = CarDataLoader.Load(root, ec.Model, ec.Ballast, ec.Restrictor, msg => Log.Warning("Race AI: {Message}", msg));
+            var sp = CarDataLoader.LoadForTrack(root, ec.Model, _track.Line, ec.Ballast, ec.Restrictor, msg => Log.Warning("Race AI: {Message}", msg));
             specCache[k] = sp;
             toCalibrate.Add((sp, $"{ec.Ballast}/{ec.Restrictor}"));
         }
@@ -241,8 +241,8 @@ public sealed partial class RaceAiService : IHostedService
             var (cal, final) = done[sp];
             _calibrations[sp] = cal;
             if (!final) _provisional.Add((sp, variant));
-            Log.Information("Race AI: car {Model} ({Source}): top {Top:F0} km/h, grip {Grip:F2} g, 100 % = {Best}{Prov}, {Fuel:F1} l/lap, tyres {Compound}, mistakes {Loss:F0} s/lap at most",
-                sp.Model, sp.Source, sp.TopSpeed * 3.6f, sp.LateralGrip, FormatLap(cal.BestLap), final ? "" : " (provisional)", sp.CalibratedFuelPerLap, sp.TyreCompound, cal.ErrorLossFull);
+            Log.Information("Race AI: car {Model} ({Source}): top {Top:F0} km/h, grip {Grip:F2} g, 100 % = {Best}{Prov}, {Fuel:F1} l/lap, tyres {Compound}, mistakes {Loss:F0} s/lap at most{Wing}",
+                sp.Model, sp.Source, sp.TopSpeed * 3.6f, sp.LateralGrip, FormatLap(cal.BestLap), final ? "" : " (provisional)", sp.CalibratedFuelPerLap, sp.TyreCompound, cal.ErrorLossFull, sp.WingLevel is { } wl ? $", wings {wl * 100:F0} %" : "");
         }
         if (toCalibrate.Count > 0)
             Log.Information("Race AI: {Count} cars ready in {Seconds:F1} s on {Cores} CPU core(s), {Prov} to be calibrated finally in the background",
@@ -258,7 +258,7 @@ public sealed partial class RaceAiService : IHostedService
             if (!specCache.TryGetValue(key, out var spec))
             {
                 var root = carRoots.FirstOrDefault(r => Directory.Exists(Path.Join(r, entryCar.Model))) ?? carRoots.FirstOrDefault() ?? "content/cars";
-                spec = CarDataLoader.Load(root, entryCar.Model, entryCar.Ballast, entryCar.Restrictor, msg => Log.Warning("Race AI: {Message}", msg));
+                spec = CarDataLoader.LoadForTrack(root, entryCar.Model, _track.Line, entryCar.Ballast, entryCar.Restrictor, msg => Log.Warning("Race AI: {Message}", msg));
                 specCache[key] = spec;
                 var (cal, final) = StartupCalibration(spec, settings, $"{entryCar.Ballast}/{entryCar.Restrictor}");
                 _calibrations[spec] = cal;
@@ -1246,7 +1246,7 @@ public sealed partial class RaceAiService : IHostedService
         if (!_specCache.TryGetValue(key, out var spec))
         {
             var root = _carRoots.FirstOrDefault(r => Directory.Exists(Path.Join(r, car.Model))) ?? _carRoots.FirstOrDefault() ?? "content/cars";
-            spec = CarDataLoader.Load(root, car.Model, car.Ballast, car.Restrictor, msg => Log.Warning("Race AI: {Message}", msg));
+            spec = CarDataLoader.LoadForTrack(root, car.Model, _track!.Line, car.Ballast, car.Restrictor, msg => Log.Warning("Race AI: {Message}", msg));
             _specCache[key] = spec;
         }
 

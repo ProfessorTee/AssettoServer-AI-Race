@@ -168,6 +168,17 @@ public static class Program
         {
             var spec = CarDataLoader.Load(cars, model, log: Console.WriteLine);
             PrintSpec(spec);
+            if (o.Get("track") is { } tr && spec.HasWingSetup)
+            {
+                var (trackRoot, layout, _) = ResolvePaths(o);
+                var line = new RacingLine(FastLaneFile.Read(FastLanePath(trackRoot, layout)));
+                foreach (float lv in new[] { 0f, 0.25f, 0.5f, 0.75f, 1f })
+                {
+                    var s2 = CarDataLoader.Load(cars, model, wingLevel: lv);
+                    Console.WriteLine($"  wings {lv * 100,3:F0} %: top {s2.TopSpeed * 3.6f:F0} km/h, estimated lap {LapEstimator.Estimate(s2, line):F2} s");
+                }
+                Console.WriteLine($"  chosen: {CarDataLoader.LoadForTrack(cars, model, line).WingLevel?.ToString("P0") ?? "default"}");
+            }
         }
         return 0;
     }
@@ -327,6 +338,8 @@ public static class Program
         var line = new RacingLine(FastLaneFile.Read(FastLanePath(trackRoot, layout)));
         float from = o.Float("from", 800), to = o.Float("to", 1000);
         Console.WriteLine($"spacing {line.Spacing:F2} m, {line.Count} points");
+        foreach (float r in new[] { 300f, 500f, 1000f })
+            Console.WriteLine($"share of the lap straighter than radius {r} m: {line.Curvature.Count(k => MathF.Abs(k) < 1 / r) * 100f / line.Count:F0} %");
         for (float s = from; s < to; s += 2)
         {
             int i = line.IndexAt(s);

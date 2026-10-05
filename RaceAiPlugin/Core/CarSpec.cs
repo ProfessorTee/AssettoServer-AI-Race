@@ -80,6 +80,9 @@ public sealed class CarSpec
     public float[] ZoneCl { get; set; } = [0, 0, 0, 0];
     public float[] DamageMinKmh { get; set; } = [20, 20, 20, 20, 30];
     public float SuspDamageMinKmh { get; set; } = 25;
+    /// <summary>The car has wings adjustable in the setup; the level chosen for this track (0 = minimum .. 1 = maximum, null = default setup).</summary>
+    public bool HasWingSetup { get; set; }
+    public float? WingLevel { get; set; }
     /// <summary>Top speed of each gear in km/h (1st..nth) at the rev limiter.</summary>
     public float[] GearTopSpeedsKmh { get; set; } = [95, 130, 165, 200, 235, 280];
     /// <summary>Steering ratio (steering wheel angle / wheel angle) and lock, only used for the visual steering wheel.</summary>

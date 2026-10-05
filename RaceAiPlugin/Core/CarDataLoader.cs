@@ -13,7 +13,25 @@ public static partial class CarDataLoader
 {
     private const float AirDensityHalf = 0.5f * 1.225f;
 
-    public static CarSpec Load(string carsRoot, string model, float extraMassKg = 0, float restrictorPercent = 0, Action<string>? log = null)
+    /// <summary>
+    /// Like a player setting up the car for a track: tries the adjustable wings (setup.ini WING_n) from minimum to maximum and keeps
+    /// the level with the quickest estimated lap on <paramref name="line"/>. Cars without adjustable wings: the default setup.
+    /// </summary>
+    public static CarSpec LoadForTrack(string carsRoot, string model, RacingLine line, float extraMassKg = 0, float restrictorPercent = 0, Action<string>? log = null)
+    {
+        var spec = Load(carsRoot, model, extraMassKg, restrictorPercent, log);
+        if (!spec.HasWingSetup) return spec;
+        float bestTime = LapEstimator.Estimate(spec, line);
+        foreach (float level in new[] { 0f, 0.25f, 0.5f, 0.75f, 1f })
+        {
+            var s = Load(carsRoot, model, extraMassKg, restrictorPercent, null, level);
+            float t = LapEstimator.Estimate(s, line);
+            if (t < bestTime - 0.05f) { bestTime = t; spec = s; }
+        }
+        return spec;
+    }
+
+    public static CarSpec Load(string carsRoot, string model, float extraMassKg = 0, float restrictorPercent = 0, Action<string>? log = null, float? wingLevel = null)
     {
         var spec = new CarSpec { Model = model };
         string carDir = Path.Join(carsRoot, model);
@@ -59,7 +77,7 @@ public static partial class CarDataLoader
 
         try
         {
-            FromData(spec, files, extraMassKg, restrictorPercent, hasWings);
+            FromData(spec, files, extraMassKg, restrictorPercent, hasWings, wingLevel);
         }
         catch (Exception ex)
         {
@@ -82,7 +100,7 @@ public static partial class CarDataLoader
 
     private static IniFile Ini(Dictionary<string, byte[]> files, string name) => IniFile.Parse(Text(files, name));
 
-    private static void FromData(CarSpec spec, Dictionary<string, byte[]> files, float extraMassKg, float restrictorPercent, bool hasWings)
+    private static void FromData(CarSpec spec, Dictionary<string, byte[]> files, float extraMassKg, float restrictorPercent, bool hasWings, float? wingLevel)
     {
         var car = Ini(files, "car.ini");
         float mass = car.GetFloat("BASIC", "TOTALMASS", 1300) + 25 /* fuel */ + extraMassKg;
@@ -239,10 +257,22 @@ public static partial class CarDataLoader
             string[] zones = ["FRONT", "REAR", "LEFT", "RIGHT"];
             var zcd = new float[4];
             var zcl = new float[4];
+            var setup = files.ContainsKey("setup.ini") ? Ini(files, "setup.ini") : null;
             foreach (var wing in aero.Sections.Where(s => s.StartsWith("WING_", StringComparison.OrdinalIgnoreCase)))
             {
                 float area = aero.GetFloat(wing, "CHORD", 0) * aero.GetFloat(wing, "SPAN", 0);
                 float angle = aero.GetFloat(wing, "ANGLE", 0);
+                // adjustable in the setup (setup.ini [WING_n], the value is the wing angle)
+                if (setup != null && setup.HasSection(wing.ToUpperInvariant()))
+                {
+                    spec.HasWingSetup = true;
+                    if (wingLevel is { } lv)
+                    {
+                        float lo = setup.GetFloat(wing.ToUpperInvariant(), "MIN", angle), hi = setup.GetFloat(wing.ToUpperInvariant(), "MAX", angle);
+                        angle = lo + Math.Clamp(lv, 0, 1) * (hi - lo);
+                        spec.WingLevel = lv;
+                    }
+                }
                 float cl = LutValue(files, aero.Get(wing, "LUT_AOA_CL"), angle) * aero.GetFloat(wing, "CL_GAIN", 1) * area;
                 float cd = LutValue(files, aero.Get(wing, "LUT_AOA_CD"), angle) * aero.GetFloat(wing, "CD_GAIN", 1) * area;
                 clA += cl;

@@ -226,7 +226,7 @@ public sealed partial class RaceAiService
                     cancel.ThrowIfCancellationRequested();
                     var root = _carRoots.FirstOrDefault(r => Directory.Exists(Path.Join(r, model)));
                     if (root == null) continue;
-                    var spec = CarDataLoader.Load(root, model, ballast, restrictor, _ => { });
+                    var spec = CarDataLoader.LoadForTrack(root, model, td.Line, ballast, restrictor, _ => { });
                     string variant = $"{ballast}/{restrictor}";
                     string baseKey = CalibrationBaseKey(trackKey, td.Line, spec, settings, variant);
                     if (File.Exists(CalibrationPath(trackKey, spec, baseKey))) continue;
