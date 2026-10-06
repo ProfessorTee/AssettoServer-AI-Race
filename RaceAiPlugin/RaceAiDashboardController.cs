@@ -29,11 +29,13 @@ public class RaceAiDashboardController : ControllerBase
     private readonly TrackRotation _rotation;
     private readonly PlayerStats _stats;
     private readonly LiveFeed _live;
+    private readonly RaceAiConfiguration _config;
 
     public RaceAiDashboardController(RaceAiService service, SessionManager sessionManager, WeatherManager weatherManager,
         EntryCarManager entryCarManager, ACServerConfiguration serverConfig, IHostApplicationLifetime lifetime, ChatService chatService, JoinInfo joinInfo, TrackRotation rotation, PlayerStats stats,
-        LiveFeed live)
+        LiveFeed live, RaceAiConfiguration config)
     {
+        _config = config;
         _live = live;
         _stats = stats;
         _rotation = rotation;
@@ -93,9 +95,14 @@ public class RaceAiDashboardController : ControllerBase
     [HttpGet("/raceai/api/stats")]
     public IActionResult Stats() => Ok(_stats.Overview());
 
-    /// <summary>Landing page: the server's address alone (http://SERVER:HTTP_PORT/) opens the join page.</summary>
+    /// <summary>Landing page: the server's address alone (http://SERVER:HTTP_PORT/) opens the join or the live page (LandingPage).</summary>
     [HttpGet("/")]
-    public IActionResult Landing() => Redirect("/raceai/join");
+    public IActionResult Landing() => _config.LandingPage.Trim().ToLowerInvariant() switch
+    {
+        "live" when _live.Enabled => Redirect("/raceai/live"),
+        "none" => NotFound(),
+        _ => Redirect("/raceai/join")
+    };
 
     /// <summary>Public page for friends: Content Manager link, IP and ports.</summary>
     [HttpGet("/raceai/join")]

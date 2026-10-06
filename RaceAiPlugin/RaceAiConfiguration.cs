@@ -427,6 +427,10 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
                               "for everybody (no admin data). false = off")]
     public bool LiveView { get; set; } = true;
 
+    [YamlMember(Description = "What the server address alone (http://<server>:<HTTP_PORT>/) opens: Join = the join page, Live = the live page, " +
+                              "None = nothing (404)")]
+    public string LandingPage { get; set; } = "Join";
+
     [YamlMember(Description = "Updates per second the live page gets (1-10, pushed as a stream; only computed while somebody watches)")]
     public int LiveViewHz { get; set; } = 5;
 

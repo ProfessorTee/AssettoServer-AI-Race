@@ -156,6 +156,8 @@ GhostAfterSeconds: 25
 DashboardRemoteAccess: false
 # Join page also shows the local-network address (only for a server at home)
 JoinShowLan: false
+# What the server address alone (http://<server>:<HTTP_PORT>/) opens: Join (join page), Live (live page) or None
+LandingPage: Join
 # Address friends join with, shown on the join page /raceai/join (e.g. a DynDNS name). Empty = public IP looked up automatically
 PublicAddress: ""
 # Clones of recorded players (DriverRecorderPlugin, players agree with /rec on): folder of the recordings,
