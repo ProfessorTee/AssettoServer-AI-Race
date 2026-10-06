@@ -93,6 +93,10 @@ public class RaceAiDashboardController : ControllerBase
     [HttpGet("/raceai/api/stats")]
     public IActionResult Stats() => Ok(_stats.Overview());
 
+    /// <summary>Landing page: the server's address alone (http://SERVER:HTTP_PORT/) opens the join page.</summary>
+    [HttpGet("/")]
+    public IActionResult Landing() => Redirect("/raceai/join");
+
     /// <summary>Public page for friends: Content Manager link, IP and ports.</summary>
     [HttpGet("/raceai/join")]
     public IActionResult JoinPage() => Content(JoinPageHtml.Html, "text/html; charset=utf-8");
