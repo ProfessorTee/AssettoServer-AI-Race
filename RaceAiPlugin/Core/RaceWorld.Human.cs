@@ -362,7 +362,8 @@ public sealed partial class RaceWorld
         int i = Line.IndexAt(Line.WrapS((float)me.Distance));
         float half = me.Car.Width / 2;
         // kerbs are part of the track for drivers who use them; grass starts behind them
-        float beyond = MathF.Max(me.Offset - (Line.RoomPlus[i] - half), -Line.RoomMinus[i] + half - me.Offset) - MathF.Max(0.05f, KerbAllowance(me));
+        float overPlus = me.Offset - (Line.RoomPlus[i] - half), overMinus = -Line.RoomMinus[i] + half - me.Offset;
+        float beyond = MathF.Max(overPlus, overMinus) - MathF.Max(0.05f, KerbAllowance(me));
         if (beyond <= 0) return;
         float share = MathF.Min(1, beyond);
         float decel = 1.2f + 2.5f * share; // grass
@@ -370,7 +371,7 @@ public sealed partial class RaceWorld
         if (OffTrack != null)
         {
             float s = Line.WrapS((float)me.Distance);
-            float side = me.Offset > 0 ? 1 : -1;
+            float side = overPlus > overMinus ? 1 : -1; // the edge it is over, not the sign of the offset (the line isn't the middle)
             var p = Line.PositionAt(s, me.Offset + side * half * 0.8f);
             if (OffTrack.SurfaceAt(p.X, p.Z, p.Y) is { } surf)
                 decel = decel * Math.Clamp((1 - surf.Friction) / 0.4f, 0.2f, 2f) + surf.Damping * me.Speed * share;

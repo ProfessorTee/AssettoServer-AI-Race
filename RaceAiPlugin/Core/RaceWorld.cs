@@ -1342,7 +1342,7 @@ public sealed partial class RaceWorld
                 {
                     me.TargetOffset = target.Value.Offset;
                     me.OvertakeSeparatedAt = _now;
-                    me.OvertakeSince = MathF.Max((float)me.OvertakeSince, (float)_now - 3);
+                    me.OvertakeSince = Math.Max(me.OvertakeSince, _now - 3);
                     me.OvertakeClosedSince = double.NaN;
                     goto AttackChecked;
                 }
@@ -1558,15 +1558,6 @@ public sealed partial class RaceWorld
                     me.Defends++;
                 }
             }
-            else if (def < 0.25f && attackedBy && b.Speed > me.Speed + 1f && _now > me.DefendUntil + 3 && MathF.Abs(b.Offset - me.Offset) < 3.5f)
-            {
-                // a careful driver doesn't fight a clearly faster car: moves over a little and lets it by
-                float away = MathF.Sign(me.Offset - b.Offset);
-                if (away == 0) away = 1;
-                me.DefendOffset = Math.Clamp(me.Offset + away * 0.9f, minOff, maxOff);
-                me.DefendUntil = _now + 2;
-                me.LetBy++;
-            }
         }
 
         // ---- choose lateral target
@@ -1653,7 +1644,7 @@ public sealed partial class RaceWorld
         if (_now < me.MarginOverrideUntil && me.Mistake == MistakeKind.None && lo <= hi)
             me.TargetOffset = Math.Clamp(me.Offset + me.MisjudgeTowards * 0.5f, lo, hi); // leans on the other car
         if (!float.IsNaN(shiftBase)) me.LineShiftNow = me.TargetOffset - shiftBase; // after clamping to the room there is
-                CornerExecution(me, myS, ref vTarget);
+        CornerExecution(me, myS, ref vTarget);
         MistakeThink(me, ref vTarget);
         if (sc) vTarget = MathF.Min(vTarget, Settings.SafetyCarSpeed);
         me.TargetSpeed = MathF.Max(0, vTarget);
@@ -1862,6 +1853,8 @@ public sealed partial class RaceWorld
             float press = 0.12f * (1 - 0.35f * bb) * (1 + 0.8f * smooth), release = 0.4f * (1 - 0.2f * bb);
             me.Brake += Math.Clamp(pedal - me.Brake, -dt / release, dt / press);
             me.Throttle = MathF.Max(0, me.Throttle - dt / 0.1f);
+            // down through the gears on the brakes (with a blip), not all at once on the way out of the corner
+            UpdateGear(me, v);
             accel = -MathF.Min(maxBrake, coast + me.Brake * (physBrake - coast));
             v = MathF.Max(target, v + accel * dt);
         }
@@ -1876,12 +1869,7 @@ public sealed partial class RaceWorld
             // the exit after a pass into a corner: the attacker's tight line costs drive, the one passed gets on the power earlier
             if (_now < me.CompromisedUntil) full *= 0.8f;
             if (_now < me.ExitBoostUntil) full *= 1.10f;
-            if (me.Car.SpoolUp > 0 && me.Clone == null)
-            {
-                float tau = me.Throttle > me.Spool ? me.Car.SpoolUp : me.Car.SpoolDown;
-                me.Spool += (me.Throttle - me.Spool) * MathF.Min(1, dt / tau);
-                full -= me.Car.TurboAccelAt(v) * (1 - me.Spool) * pace;
-            }
+            if (me.Car.SpoolUp > 0 && me.Clone == null) full -= me.Car.TurboAccelAt(v) * (1 - me.Spool) * pace;
             // a clone accelerates like the player did here: our engine model is only an estimate of the real car
             if (me.Clone is { } cl && me.Phase == BotPhase.Racing && !me.InPitLane)
             {
@@ -1902,6 +1890,9 @@ public sealed partial class RaceWorld
             if (me.Brake > 0.05f) accel -= me.Brake * (physBrake - coast);
             v = accel > 0 ? MathF.Min(target, v + accel * dt) : v + accel * dt;
         }
+        // the turbo follows the throttle with the car's lag, also while braking (off boost when the exit begins)
+        if (me.Car.SpoolUp > 0)
+            me.Spool += (me.Throttle - me.Spool) * MathF.Min(1, dt / (me.Throttle > me.Spool ? me.Car.SpoolUp : me.Car.SpoolDown));
         me.Accel = accel;
         me.Speed = MathF.Max(0, v);
         if (MistakeIntegrate(me, dt, pace * 1.04f)) return;
@@ -2199,9 +2190,7 @@ public sealed partial class RaceWorld
             float share = bot.Launch switch { LaunchKind.Wheelspin => 0.88f, LaunchKind.Bog => tl < 0.6f ? 0.35f : 0.6f, _ => 0.68f };
             rpm = Math.Max(rpm, (int)(bot.Car.MaxRpm * share));
         }
-        float full = bot.Car.AccelAt(bot.Speed, bot.Driver.Pace);
         byte throttle = (byte)Math.Clamp(bot.Throttle * 255f, 0, 255);
-        _ = full;
         if (bot.Phase == BotPhase.Grid) throttle = 40; // blipping on the grid
         if (bot.ShiftTo > 0 && _now < bot.ShiftEnd) throttle = bot.ShiftTo > bot.Gear ? (byte)0 : (byte)140; // off for the upshift, a blip for the downshift
         bool hazards = (bot.Phase == BotPhase.Racing && bot.Speed < 5 && !double.IsNaN(bot.StoppedSince) && _now - bot.StoppedSince > 3)
