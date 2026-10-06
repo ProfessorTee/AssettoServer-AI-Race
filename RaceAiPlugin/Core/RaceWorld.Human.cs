@@ -581,7 +581,8 @@ public sealed partial class RaceWorld
     public static float DamageGrip(RaceBot bot)
     {
         var z = bot.DamageZones;
-        float g = 1 - 0.0012f * z[0] - 0.0005f * (z[2] + z[3]) - 0.0003f * z[1] - 0.15f * bot.Suspension;
+        // like in AC: a dented body doesn't cost mechanical grip, a bent suspension does (and the aero below)
+        float g = 1 - 0.15f * bot.Suspension;
         // a damaged wing or splitter loses downforce (aero.ini ZONE_x_CL): the aero part of the grip (a third in a fast corner) goes
         var cl = bot.Car.ZoneCl;
         if (bot.Car.Downforce > 0)
