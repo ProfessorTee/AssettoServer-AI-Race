@@ -1482,12 +1482,15 @@ public sealed partial class RaceWorld
 
             // just passed into a corner by this car: strike back right away (no cooldown, no speed advantage needed yet)
             bool counter = me.CounterTargetId == a.Id && _now < me.CounterUntil;
+            // a corner pass the driver normally wouldn't try: only when the car in front clearly holds him up, and only with room to spare
+            bool safeOnly = gripLimited && !PassHereOk(me, a, gripLimited) && HeldUpBadly(me);
             if (me.OvertakeTargetId < 0 && !cautious && !yellow && !blueFlag && !Settings.SafetyCar && me.Phase == BotPhase.Racing
                 && (_now >= me.OvertakeCooldownUntil || counter)
                 && aheadGap < attackRange + (counter ? 10 : 0)
-                && (counter || ((me.PressureEma > needAdvantage || closing > 1.0f || TowRun(me, gripLimited, closing)) && PassHereOk(me, a, gripLimited))))
+                && (counter || ((me.PressureEma > needAdvantage || closing > 1.0f || TowRun(me, gripLimited, closing)) && (PassHereOk(me, a, gripLimited) || safeOnly))))
             {
-                if (!TryChooseOvertakeSide(me, a, aheadGap, latClear, minOff - grass, maxOff + grass, out var side))
+                float spare = safeOnly ? 0.8f : 0; // stays well clear of the edges and the other car
+                if (!TryChooseOvertakeSide(me, a, aheadGap, latClear + spare, minOff - grass + spare, maxOff + grass - spare, out var side))
                 {
                     me.OvertakeNoRoom++;
                 }
@@ -1505,6 +1508,7 @@ public sealed partial class RaceWorld
                     me.AttackWaitsInTow = counter || (!gripLimited && me.Draft > 0.08f && NextCornerSign(myS, 250) == 0);
                     if (me.AttackWaitsInTow) me.TargetOffset = a.Offset;
                     if (counter) Diag("counter start");
+                    if (safeOnly) Diag("safe pass start");
                     me.OvertakeBestGap = aheadGap + (me.Car.Length + a.Length) / 2;
                 }
             }
@@ -1783,6 +1787,12 @@ public sealed partial class RaceWorld
         // the less he likes corner passes, the further off its line the other car has to be
         return MathF.Abs(a.Offset - line) > 0.4f + 1.2f * (1 - cp);
     }
+
+    /// <summary>
+    /// A driver who doesn't like corner passes still goes when the car in front costs him a lot: he could be clearly faster
+    /// there (2 m/s on average) or has been stuck behind for long.
+    /// </summary>
+    private static bool HeldUpBadly(RaceBot me) => me.PressureEma > 2f || me.Impatience > 0.6f;
 
     /// <summary>A straight-line passer (low CornerPass) goes for it from the slipstream on a straight, without a speed advantage from the corner.</summary>
     private static bool TowRun(RaceBot me, bool gripLimited, float closing)
