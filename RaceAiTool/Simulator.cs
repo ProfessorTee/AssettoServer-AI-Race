@@ -178,6 +178,8 @@ public static class Simulator
         world.Trace = Console.WriteLine;
         var stats = new SimStats(world) { Behaviour = o.Has("style") };
         var trace = hotlap ? new SpeedTrace(line, info) : null;
+        // --dump file.csv: the hot lap's second lap, sample by sample (to compare with a player's recording)
+        using var dump = o.Get("dump") is { } dumpPath ? new StreamWriter(dumpPath) : null;
         var cloneCmp = new SortedDictionary<int, (float V, float O, int N)>();
         float dt = 1f / tickHz;
         double maxTime = hotlap ? 60 * 20 : laps * 60 * 12 + 120;
@@ -222,6 +224,11 @@ public static class Simulator
             net?.SendBots(world, now);
             stats.Sample(now);
             trace?.Sample(world.Bots[0]);
+            if (dump != null && world.Bots[0].LapsCompleted == 1)
+            {
+                var db = world.Bots[0];
+                dump.WriteLine(FormattableString.Invariant($"{now:F2},{line.WrapS((float)db.Distance) / line.Length:F5},{db.Speed * 3.6f:F1},{db.Throttle:F2},{db.Brake:F2},{db.Offset:F2},{line.CurvatureAt(line.WrapS((float)db.Distance)):F5},{db.TargetSpeed * 3.6f:F0}"));
+            }
             if (cloneProfile != null && world.Bots[0].LapsCompleted >= 1)
             {
                 var cb = world.Bots[0];

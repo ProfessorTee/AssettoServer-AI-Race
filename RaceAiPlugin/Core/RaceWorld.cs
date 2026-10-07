@@ -1106,6 +1106,8 @@ public sealed partial class RaceWorld
             var pers = bot.Driver.Personality;
             decel *= (1 + 0.05f * pers.BrakeBehavior * (bot.OvertakeTargetId >= 0 && pers.BrakeBehavior > 0 ? 1.6f : 1f)) * (1 - 0.15f * pers.Smoothness);
             if (inPlan || (plan && Line.Delta(s0 + d, bot.PlanStartS) >= 0)) decel *= bot.PlanBrake; // this corner's braking point
+            // downhill the braking zone is longer, uphill shorter (Fuchsröhre, Kesselchen: ~10 % = 1 m/s²)
+            decel = MathF.Max(1.5f, decel + CarSpec.G * Line.Forward[i].Y);
             if (bot.Clone is { } bc && bot.Phase == BotPhase.Racing && d > 1)
             {
                 // a clone brakes where and as hard as the player did (his speed trace already is his braking curve)
@@ -1846,8 +1848,13 @@ public sealed partial class RaceWorld
 
         // pedals: the target falls along the planned braking curve; the driver follows it with a brake pressure that builds up quickly,
         // is released gradually towards the apex (trail braking), and small corrections are done by lifting only (no brake lights)
-        float drag = me.Car.DragCoefficient * v * v * DamageDrag(me);
+        // tyres at a slip angle scrub off speed in a corner: lifting mid-corner slows the car, no need to dab the brakes
+        // (recorded laps: half as many brake applications as the bots had, five times as much coasting)
+        float scrub = 0.08f * v * v * kNow;
+        float drag = me.Car.DragCoefficient * v * v * DamageDrag(me) + scrub;
         float coast = drag + EngineBraking(me, v); // lifting: drag + engine braking
+        // the road's gradient: downhill the car keeps accelerating, uphill it runs out of steam (sin of the slope from the line)
+        float slopeG = me.InPitLane ? 0 : -CarSpec.G * Line.ForwardAt(sNow).Y;
         float maxBrake = me.Car.BrakeAt(v, MathF.Min(1, DriverProfile.BrakeSkill(skill) + 0.06f * MathF.Max(0, me.Driver.Personality.BrakeBehavior)) * phys, me.MassRatio);
         float physBrake = me.Car.BrakeAt(v, phys, me.MassRatio); // what the car could do: the pedal is shown relative to this
         float targetFall = double.IsNaN(me.PrevTargetSpeed) ? 0 : MathF.Max(0, (me.PrevTargetSpeed - target) / dt);
@@ -1856,7 +1863,10 @@ public sealed partial class RaceWorld
         if (target < v - 0.05f)
         {
             float want = Math.Clamp(MathF.Min(targetFall, maxBrake) * 0.95f + (v - target) / 0.35f, 0, maxBrake);
-            float pedal = want <= coast || _now < me.LiftOnlyUntil ? 0 : Math.Clamp((want - coast) / MathF.Max(0.5f, physBrake - coast), 0, 1);
+            float coastHere = coast - slopeG;
+            float pedal = want <= coastHere || _now < me.LiftOnlyUntil ? 0 : Math.Clamp((want - coastHere) / MathF.Max(0.5f, physBrake - coast), 0, 1);
+            // a little too fast: a driver lifts and lets the car roll until it's worth braking, no dabbing the pedal
+            if (me.Brake < 0.05f && v - target < 0.5f) pedal = 0;
             // quick to press (0.12 s to full), slower to release (0.4 s); late brakers stamp on it, careful drivers squeeze it
             float bb = me.Driver.Personality.BrakeBehavior;
             float smooth = Math.Clamp(me.Driver.Personality.Smoothness, 0, 1);
@@ -1865,7 +1875,7 @@ public sealed partial class RaceWorld
             me.Throttle = MathF.Max(0, me.Throttle - dt / 0.1f);
             // down through the gears on the brakes (with a blip), not all at once on the way out of the corner
             UpdateGear(me, v);
-            accel = -MathF.Min(maxBrake, coast + me.Brake * (physBrake - coast));
+            accel = -MathF.Min(maxBrake, coast + me.Brake * (physBrake - coast)) + slopeG;
             v = MathF.Max(target, v + accel * dt);
         }
         else
@@ -1888,7 +1898,7 @@ public sealed partial class RaceWorld
                 if (playerAccel > full) full = MathF.Min(playerAccel * 1.03f, full + 4f);
             }
             // full throttle when far below the target, part throttle to hold the speed near it (fast corners, following)
-            float hold = MathF.Max(0, full) > 0.1f ? Math.Clamp(drag / (full + drag), 0, 1) : 1;
+            float hold = MathF.Max(0, full) > 0.1f ? Math.Clamp((drag - slopeG) / (full + drag), 0, 1) : 1;
             float pedal = Math.Clamp(hold + (target - v) / 0.6f, 0, 1);
             // smooth drivers roll onto the throttle more gently
             float rise = 0.2f * (1 + 1.5f * Math.Clamp(me.Driver.Personality.Smoothness, 0, 1));
@@ -1898,6 +1908,7 @@ public sealed partial class RaceWorld
             // gear change in progress: clutch in, no drive (a paddle shift in a GT3 is over in a blink, an H gearbox with a tired driver takes a while)
             if (_now < me.ShiftEnd) accel = -drag;
             if (me.Brake > 0.05f) accel -= me.Brake * (physBrake - coast);
+            accel += slopeG;
             v = accel > 0 ? MathF.Min(target, v + accel * dt) : v + accel * dt;
         }
         // the turbo follows the throttle with the car's lag, also while braking (off boost when the exit begins)
