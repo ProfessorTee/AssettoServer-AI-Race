@@ -2169,6 +2169,17 @@ public sealed partial class RaceWorld
         var pos = Line.PositionAt(s, bot.Offset);
         var normal = Vector3.Normalize(Vector3.Lerp(Line.Normal[a], Line.Normal[b], t));
         pos += normal * (Settings.HeightOffset + (Heights?.At(s, bot.Offset) ?? 0));
+        // wheels on a kerb: the car rattles over the stripes instead of gliding onto them (then grass beyond ~0.8 m)
+        float half = bot.Car.Width / 2;
+        float onKerb = MathF.Max(bot.Offset + half - Line.RoomPlusAt(s), half - bot.Offset - Line.RoomMinusAt(s));
+        float kerbRoll = 0;
+        if (onKerb > 0 && onKerb < 0.8f && bot.Speed > 3)
+        {
+            float bump = MathF.Abs(MathF.Sin((float)bot.Distance * MathF.PI / 0.9f)); // a stripe every ~0.9 m
+            float depth = MathF.Min(1, onKerb / 0.25f);
+            pos += normal * (0.018f * depth * bump);
+            kerbRoll = MathF.Sign(bot.Offset) * 0.014f * depth * (bump - 0.5f); // rocks with the stripes
+        }
 
         var fwd = Line.ForwardAt(s);
         var lat = Line.LateralAt(s);
@@ -2181,7 +2192,7 @@ public sealed partial class RaceWorld
         var rotation = new Vector3(
             MathF.Atan2(dir.Z, dir.X) - MathF.PI / 2,
             (MathF.Atan2(new Vector2(dir.Z, dir.X).Length(), dir.Y) - MathF.PI / 2) * -1f,
-            Line.CamberAt(s));
+            Line.CamberAt(s) + kerbRoll);
 
         float k = Line.CurvatureAt(s);
         if (MathF.Abs(k) > 1e-5f)
