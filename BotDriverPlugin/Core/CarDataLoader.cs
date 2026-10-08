@@ -192,15 +192,16 @@ public static partial class CarDataLoader
         if (files.ContainsKey("brakes.ini")) spec.BrakeFront = Math.Clamp(Ini(files, "brakes.ini").GetFloat("DATA", "FRONT_SHARE", 0.66f), 0.4f, 0.9f);
 
         var tyres = Ini(files, "tyres.ini");
+        // the default compound (COMPOUND_DEFAULT: street cars come on semislicks), its sections carry the index as a suffix
+        int idx = tyres.GetInt("COMPOUND_DEFAULT", "INDEX", 0);
+        string sfx = idx == 0 ? "" : $"_{idx}";
+        string tyreF = $"FRONT{sfx}", tyreR = $"REAR{sfx}";
+        if (!tyres.HasSection(tyreF) || !tyres.HasSection(tyreR)) { tyreF = "FRONT"; tyreR = "REAR"; }
         {
             // wear curve of the default compound (front and rear averaged)
-            int idx = tyres.GetInt("COMPOUND_DEFAULT", "INDEX", 0);
-            string sfx = idx == 0 ? "" : $"_{idx}";
-            string front = $"FRONT{sfx}", rear = $"REAR{sfx}";
-            if (!tyres.HasSection(front)) { front = "FRONT"; rear = "REAR"; }
-            spec.TyreCompound = tyres.Get(front, "NAME") ?? "";
+            spec.TyreCompound = tyres.Get(tyreF, "NAME") ?? "";
             // temperature window: thermal sections carry the same suffix as the compound
-            string tsfx = front == "FRONT" ? "" : sfx;
+            string tsfx = tyreF == "FRONT" ? "" : sfx;
             var curves = new[] { tyres.Get($"THERMAL_FRONT{tsfx}", "PERFORMANCE_CURVE"), tyres.Get($"THERMAL_REAR{tsfx}", "PERFORMANCE_CURVE") }
                 .Where(n => n != null && files.ContainsKey(n.Trim())).Select(n => Lut.Parse(Encoding.UTF8.GetString(files[n!.Trim()]))).Where(l => l.X.Length > 1).ToList();
             if (curves.Count > 0)
@@ -216,8 +217,8 @@ public static partial class CarDataLoader
                     spec.TyreOptimum = Math.Clamp((top.Min() + top.Max()) / 2, 40, 120);
                 }
             }
-            var wf = tyres.Get(front, "WEAR_CURVE");
-            var wr = tyres.Get(rear, "WEAR_CURVE");
+            var wf = tyres.Get(tyreF, "WEAR_CURVE");
+            var wr = tyres.Get(tyreR, "WEAR_CURVE");
             if (wf != null && files.TryGetValue(wf, out var fb))
             {
                 var lf = Lut.Parse(Encoding.UTF8.GetString(fb));
@@ -225,10 +226,10 @@ public static partial class CarDataLoader
                 spec.TyreWear = new Lut(lf.X, lf.X.Select(x => (lf.At(x) + lr.At(x)) / 2).ToArray());
             }
         }
-        float rearRadius = tyres.GetFloat("REAR", "RADIUS", 0.34f);
-        float frontRadius = tyres.GetFloat("FRONT", "RADIUS", rearRadius);
-        float dy = (tyres.GetFloat("FRONT", "DY_REF", 0) + tyres.GetFloat("REAR", "DY_REF", 0)) / 2;
-        float dx = (tyres.GetFloat("FRONT", "DX_REF", 0) + tyres.GetFloat("REAR", "DX_REF", 0)) / 2;
+        float rearRadius = tyres.GetFloat(tyreR, "RADIUS", 0.34f);
+        float frontRadius = tyres.GetFloat(tyreF, "RADIUS", rearRadius);
+        float dy = (tyres.GetFloat(tyreF, "DY_REF", 0) + tyres.GetFloat(tyreR, "DY_REF", 0)) / 2;
+        float dx = (tyres.GetFloat(tyreF, "DX_REF", 0) + tyres.GetFloat(tyreR, "DX_REF", 0)) / 2;
         if (dy < 0.5f) dy = hasWings ? 1.58f : 1.25f;
         if (dx < 0.5f) dx = dy;
         spec.LateralGrip = dy * 0.98f;
