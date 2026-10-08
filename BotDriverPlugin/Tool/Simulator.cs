@@ -59,7 +59,7 @@ public static class Simulator
         };
         float errorsBelow = o.Float("errors-below", 87), errorsFull = o.Float("errors-full", 75);
         if (info.StartFinish is { } sf) settings.StartLineS = line.Project(sf).S;
-        var world = new RaceWorld(line, settings);
+        var world = new RaceWorld(line, settings) { Diagnostics = !o.Has("no-diag") }; // --no-diag: as fast as on the server
         if (!o.Has("no-ideal"))
             world.Ideal = IdealLine.Load(Path.Join(Path.GetDirectoryName(Path.GetDirectoryName(Program.FastLanePath(trackRoot, layout)))!, "data", "ideal_line.ai"), line);
         if (!o.Has("no-surfaces")) world.OffTrack = RoadSurface.Load(trackRoot, layout, valid: false);
@@ -138,6 +138,7 @@ public static class Simulator
         foreach (var bot in world.Bots)
         {
             world.ResetCarCondition(bot, hotlap ? 30 : world.FuelForLaps(bot, laps + 0.5f));
+            if (o.Has("day-form")) world.RollDayForm(bot); // --day-form: as on the server (off for comparable benchmarks)
             // --default-tyres: everybody on the car's default compound (as before the compound choice)
             if (hotlap || o.Has("default-tyres")) continue;
             world.ChooseTyres(bot, laps);
@@ -236,7 +237,7 @@ public static class Simulator
             net?.SendBots(world, now);
             stats.Sample(now);
             trace?.Sample(world.Bots[0]);
-            if (hotlap && world.Bots[0].LapsCompleted == 1)
+            if (hotlap && world.Bots[0].LapsCompleted >= 1)
                 botLap.Add((line.WrapS((float)world.Bots[0].Distance), world.Bots[0].Speed, world.Bots[0].Brake));
             if (dump != null && world.Bots[0].LapsCompleted == 1)
             {
@@ -408,32 +409,41 @@ public static class Simulator
     /// </summary>
     private static void CompareCorners(RacingLine line, TrackInfo info, float startLineS, string recDir, List<(float S, float V, float Brake)> botLap)
     {
-        var lap = LoadRecordedLaps(recDir).Where(l => l.Valid && l.Samples.Count > 50).MinBy(l => l.LapTime);
+        // his clean laps within 3 % of his best against all the bot's laps after the first: averages, one lap is too random
+        var valid = LoadRecordedLaps(recDir).Where(l => l.Valid && l.Samples.Count > 50).ToList();
+        var lap = valid.MinBy(l => l.LapTime);
         if (lap == null || botLap.Count < 50) { Console.WriteLine("corners: no valid recorded lap or no bot lap"); return; }
+        var laps = valid.Where(l => l.LapTime <= lap.LapTime * 1.03f).ToList();
         const float bin = 5;
         int n = (int)(line.Length / bin) + 1;
         float[] Profile(IEnumerable<(float S, float V)> samples)
         {
-            var v = Enumerable.Repeat(float.NaN, n).ToArray();
+            var sum = new float[n];
+            var cnt = new int[n];
             foreach (var (s, sp) in samples)
             {
                 int i = (int)(line.WrapS(s) / bin) % n;
-                v[i] = float.IsNaN(v[i]) ? sp : MathF.Min(v[i], sp);
+                sum[i] += sp;
+                cnt[i]++;
             }
+            var v = Enumerable.Range(0, n).Select(i => cnt[i] > 0 ? sum[i] / cnt[i] : float.NaN).ToArray();
             for (int k = 0; k < 2 * n; k++) // fill the gaps from the neighbours
                 if (float.IsNaN(v[k % n])) v[k % n] = v[(k + n - 1) % n];
             return v;
         }
-        int hint = -1;
-        var player = Profile(lap.Samples.Select(smp =>
+        var player = Profile(laps.SelectMany(l =>
         {
-            var p = line.Project(smp.Position, hint);
-            hint = p.Index;
-            return (p.S, smp.Speed);
+            int hint = -1;
+            return l.Samples.Select(smp =>
+            {
+                var p = line.Project(smp.Position, hint);
+                hint = p.Index;
+                return (p.S, smp.Speed);
+            }).ToList();
         }));
         var bot = Profile(botLap.Select(b => (b.S, b.V)));
         float At(float[] v, int i) => v[((i % n) + n) % n];
-        Console.WriteLine($"Corners against the player's best lap ({TimeSpan.FromSeconds(lap.LapTime).ToString(@"m\:ss\.fff")}): braking point (+ = bot brakes later), slowest speed");
+        Console.WriteLine($"Corners against the player's {laps.Count} best laps (best {TimeSpan.FromSeconds(lap.LapTime).ToString(@"m\:ss\.fff")}), averaged: braking point (+ = bot brakes later), slowest speed");
         int last = -1000;
         for (int i = 0; i < n; i++)
         {

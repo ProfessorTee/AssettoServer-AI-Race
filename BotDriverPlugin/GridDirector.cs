@@ -79,6 +79,10 @@ public sealed class GridDirector
         _world.Settings.PitWindowEnd = lapRace ? _serverConfig.Server.PitWindowEnd : 0;
         _world.Settings.Qualifying = _sessionType == SessionType.Qualifying;
 
+        // a new race weekend (practice, or the first session / the race after a race): everybody's form of the day
+        if (previous == null || _sessionType == SessionType.Practice || previous.Configuration.Type == SessionType.Race)
+            foreach (var slot in _slots) _world.RollDayForm(slot.Bot);
+
         var driving = new List<RaceBot>();
         foreach (var slot in _slots.Where(s => s.Active))
         {

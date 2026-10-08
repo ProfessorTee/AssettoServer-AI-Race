@@ -1,3 +1,4 @@
+using AssettoServer.Server.Extensions;
 using BotDriverPlugin.Core;
 
 namespace BotDriverPlugin;
@@ -12,6 +13,14 @@ public sealed partial class BotDriverService
 
     private const int MaxIncidents = 400;
     private readonly List<IncidentEntry> _incidents = [];
+    private readonly List<DrivenCarEvent> _spectator = [];
+    private long _spectatorNumber;
+
+    /// <summary>Spins, crashes and stopped bots for the live page (IDrivenCars).</summary>
+    public IReadOnlyList<DrivenCarEvent> SpectatorEvents
+    {
+        get { lock (_lock) return _spectator.ToList(); }
+    }
 
     /// <summary>Newest first.</summary>
     public List<IncidentEntry> Incidents()
@@ -49,6 +58,73 @@ public sealed partial class BotDriverService
         _incidents.Add(new IncidentEntry(DateTime.Now.ToString("HH:mm:ss"), _sessionManager.CurrentSession.Configuration.Name ?? "", lap, carId,
             CarName(carId), kind, text, otherId >= 0 ? CarName(otherId) : null, where));
         if (_incidents.Count > MaxIncidents) _incidents.RemoveRange(0, _incidents.Count - MaxIncidents);
+        SaveIncident(_incidents[^1]);
+
+        // for spectators: what you would see on TV (contacts with players come from the players' own collision messages)
+        string at = where != null ? $" ({where})" : "";
+        string? show = kind switch
+        {
+            "spin" => $"{CarName(carId)} dreht sich{at}",
+            "stopped" => $"{CarName(carId)} steht auf der Strecke{at}",
+            "crash" when otherId >= 0 && _slotsBySessionId.ContainsKey((byte)otherId) => $"Unfall: {CarName(carId)} und {CarName(otherId)}{at}",
+            _ => null
+        };
+        if (show != null)
+        {
+            _spectator.Add(new DrivenCarEvent(++_spectatorNumber, show));
+            if (_spectator.Count > 30) _spectator.RemoveAt(0);
+        }
+    }
+
+    // ---- the log on disk: one CSV per day, so it survives restarts and track changes
+
+    private readonly object _fileLock = new();
+
+    private string? IncidentFile(DateTime day)
+        => string.IsNullOrWhiteSpace(_config.IncidentLogFolder) ? null : Path.Join(_config.IncidentLogFolder, $"{day:yyyy-MM-dd}.csv");
+
+    private static string Csv(string? s) => (s ?? "").Replace(';', ',').Replace('\n', ' ');
+
+    private void SaveIncident(IncidentEntry e)
+    {
+        if (IncidentFile(DateTime.Now) is not { } path) return;
+        string row = string.Join(";", e.Time, Csv(e.Session), e.Lap, e.Car, Csv(e.Name), e.Kind, Csv(e.Text), Csv(e.Other), Csv(e.Where), Csv(TrackKey()));
+        // off the race lock and the bots' tick
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                lock (_fileLock)
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                    bool header = !File.Exists(path);
+                    File.AppendAllText(path, (header ? "time;session;lap;car;name;kind;text;other;where;track\n" : "") + row + "\n");
+                }
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.Debug(ex, "BotDriver: incident log not writable");
+            }
+        });
+    }
+
+    /// <summary>Today's incidents back into the list after a restart (newest 400).</summary>
+    private void LoadIncidents()
+    {
+        try
+        {
+            if (IncidentFile(DateTime.Now) is not { } path || !File.Exists(path)) return;
+            foreach (var line in File.ReadLines(path).Skip(1).TakeLast(MaxIncidents))
+            {
+                var p = line.Split(';');
+                if (p.Length < 9 || !int.TryParse(p[2], out int lap) || !int.TryParse(p[3], out int car)) continue;
+                _incidents.Add(new IncidentEntry(p[0], p[1], lap, car, p[4], p[5], p[6], p[7] == "" ? null : p[7], p[8] == "" ? null : p[8]));
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Debug(ex, "BotDriver: incident log not readable");
+        }
     }
 
     private string CarName(int id)

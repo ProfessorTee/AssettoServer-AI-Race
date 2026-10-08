@@ -414,4 +414,7 @@ public class BotDriverConfiguration : IValidateConfiguration<BotDriverConfigurat
 
     [YamlMember(Description = "Log every bot lap to the server log")]
     public bool LogLaps { get; set; } = true;
+
+    [YamlMember(Description = "Folder for the incident log (contacts, spins, damage and pit decisions, tyre choices): one CSV file per day. Empty = no file")]
+    public string IncidentLogFolder { get; set; } = "incidents";
 }

@@ -85,6 +85,9 @@ public sealed partial class BotDriverService
         {
             _debug = on;
             if (_world == null) return on ? "BotDriver debug on" : "BotDriver debug off";
+            // the racecraft counters (attacks, dives, mistakes ...) only while debugging: they cost time in every step
+            _world.Diagnostics = on || _config.Debug;
+            if (_world.Diagnostics) _world.DiagCounts.Clear();
             _world.TraceBotId = -1;
             string traced = "";
             if (on && !string.IsNullOrWhiteSpace(bot))
@@ -111,6 +114,9 @@ public sealed partial class BotDriverService
         _nextDebug = now + 10;
         Log.Information("BotDriver debug: session {Session}, race started {Started}, safety car {Sc}, bot limit {Limit}, {Players} players",
             _sessionType, _raceStarted, world.Settings.SafetyCar, _botLimit?.ToString() ?? "all", _entryCarManager.ConnectedCars.Count);
+        if (world.DiagCounts.Count > 0)
+            Log.Information("BotDriver debug: counters {Counters}",
+                string.Join(", ", world.DiagCounts.OrderByDescending(x => x.Value).Take(15).Select(x => $"{x.Key} {x.Value}")));
         foreach (var slot in _slots)
         {
             var b = slot.Bot;

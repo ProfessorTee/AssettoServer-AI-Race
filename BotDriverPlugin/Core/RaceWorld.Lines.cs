@@ -94,7 +94,7 @@ public sealed partial class RaceWorld
         }
 
         // every driver below the limit: brakes a bit too early here, waits a moment before full throttle there
-        float skill = me.Driver.Pace + me.PaceNoise + me.PaceBoost;
+        float skill = me.Driver.Pace + me.PaceNoise + me.PaceBoost + me.DayForm;
         me.PlanBrakeMargin = DriverProfile.BrakeMargin(skill) * (0.3f + 1.4f * _rng.NextSingle())
                              + 6f * MathF.Max(0, -me.Driver.Personality.BrakeBehavior) * _rng.NextSingle();
         me.PlanExitDelay = DriverProfile.ExitHesitation(skill) * (0.2f + 1.6f * _rng.NextSingle());

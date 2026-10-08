@@ -19,6 +19,6 @@ Repo: Fork von AssettoServer (AGPL-3.0) mit vier eigenen Plugins. Antworten auf 
 - Kern und `PluginContracts.cs` nur ändern, wenn es nicht anders geht; Verträge nur erweitern, nicht brechen.
 - Neue Einstellung = Property in der Konfigurationsklasse des Plugins (alte Namen nicht umbenennen: die Übernahme aus
   `plugin_race_ai_cfg.yml` hängt an den Namen).
-- Bauen: `tools/build.sh` (alles). Bots prüfen: `dotnet run --project BotDriverPlugin/Tool -c Release -- selftest` und `sim`.
+- Bauen: `tools/build.sh` (alles). Bots prüfen: `dotnet run --project BotDriverPlugin/Tool -c Release -- selftest` und `tools/bench.sh`.
 - Update-Pakete nach `~/Downloads/Server_Files/Update_<n>/` (neuer Ordner je Update, alte nicht anfassen), mit LIESMICH.txt.
 - Commit/Push nur auf Wunsch des Nutzers bzw. wie bisher nach fertigem, getestetem Schritt.

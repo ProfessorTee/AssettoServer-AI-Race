@@ -325,9 +325,11 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         world.YellowFlag += _announcer.OnYellowFlag;
         world.YellowFlag += OnYellowIncident;
         world.Incident += OnWorldIncident;
+        LoadIncidents();
         world.PitStopCompleted += _announcer.OnBotPitStop;
         _world = world;
         world.Trace = msg => Log.Information("BotDriver trace: {Line}", msg);
+        world.Diagnostics = _config.Debug;
         world.TraceBotId = -1;
         if (_config.Debug) Log.Information("BotDriver: debug logging on (Debug in plugin_bot_driver_cfg.yml)");
         if (_config.MaxBots >= 0) _botLimit = _config.MaxBots;

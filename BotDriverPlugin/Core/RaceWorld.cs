@@ -182,6 +182,8 @@ public sealed class RaceBot
     /// <summary>0..1 share of aero drag removed by the car in front (slipstream).</summary>
     public float Draft { get; internal set; }
     internal float PaceNoise;
+    /// <summary>Form of the day (share of pace, about ±1 % lap time): rolled per race weekend, see <see cref="RaceWorld.RollDayForm"/>.</summary>
+    public float DayForm { get; internal set; }
     internal float PressureEma;
     internal int OvertakeSide;
     internal double OvertakeSeparatedAt;
@@ -1069,7 +1071,7 @@ public sealed partial class RaceWorld
     public float LineSpeedLimit(RaceBot bot, float offset, float extraPaceLoss)
     {
         var car = bot.Car;
-        float skill = bot.Driver.Pace - extraPaceLoss + bot.PaceNoise + bot.PaceBoost;
+        float skill = bot.Driver.Pace - extraPaceLoss + bot.PaceNoise + bot.PaceBoost + bot.DayForm;
         if (_now < bot.MistakeUntil) skill -= 0.08f; // braked too early / too carefully
         if (Settings.RainCaution) skill -= WetFactor() * 0.05f; // careful in the wet
         if (bot.SavingTyres) skill -= 0.012f;
@@ -1431,7 +1433,7 @@ public sealed partial class RaceWorld
                         Diag("counter armed");
                     }
                     bool onGrass = me.Offset > Line.RoomPlusAt(myS) - half + 0.3f || me.Offset < -Line.RoomMinusAt(myS) + half - 0.3f;
-                    Diag($"pass {me.Driver.Personality.Name} {(MathF.Abs(Line.CurvatureAt(myS)) > 1 / 250f ? "corner" : "straight")}{(onGrass ? " grass" : "")}");
+                    if (Diagnostics) Diag($"pass {me.Driver.Personality.Name} {(MathF.Abs(Line.CurvatureAt(myS)) > 1 / 250f ? "corner" : "straight")}{(onGrass ? " grass" : "")}");
                     me.OvertakeTargetId = -1;
                     me.Overtakes++;
                     me.ReturnToLineAfter = _now + 0.8;
@@ -1441,7 +1443,7 @@ public sealed partial class RaceWorld
                          || _now - me.OvertakeSeparatedAt > 8 + 6 * AttackOf(me))
                 {
                     // lost ground or took too long: tuck in behind again and wait a moment before the next try
-                    if (_now - me.OvertakeSince > 12 + 10 * AttackOf(me))
+                    if (Diagnostics && _now - me.OvertakeSince > 12 + 10 * AttackOf(me))
                         Diag($"toolong: ds {(ds < 0 ? "<0" : ds < 5 ? "0-5" : ds < 10 ? "5-10" : ds < 20 ? "10-20" : ">20")} best {(me.OvertakeBestGap < 5 ? "<5" : me.OvertakeBestGap < 10 ? "5-10" : ">10")} sameLane {(MathF.Abs(target.Value.Offset - me.Offset) < tLatClear - 0.4f)}");
                     string why = _now - me.OvertakeSince > 12 + 10 * AttackOf(me) ? "too long" : ds > 70 ? "dropped back" : _now - me.OvertakeSeparatedAt > 8 + 6 * AttackOf(me) ? "never alongside" : "lost ground";
                     Diag("end:" + why);
@@ -1715,7 +1717,12 @@ public sealed partial class RaceWorld
 
     public int DiagNoRoomEdge, DiagNoRoomLane, DiagNoRoomAll;
     public readonly Dictionary<string, int> DiagCounts = new();
-    internal void Diag(string key) => DiagCounts[key] = DiagCounts.GetValueOrDefault(key) + 1;
+    /// <summary>Count <see cref="DiagCounts"/> (simulator statistics, server debug): off by default, it costs time in every step.</summary>
+    public bool Diagnostics { get; set; }
+    internal void Diag(string key)
+    {
+        if (Diagnostics) DiagCounts[key] = DiagCounts.GetValueOrDefault(key) + 1;
+    }
 
     /// <summary>
     /// Braking-zone dive (on top of the lane-to-the-side attack): with the car in front close and the braking zone of a corner coming,
@@ -1924,7 +1931,7 @@ public sealed partial class RaceWorld
     private void Integrate(RaceBot me, float dt)
     {
         float phys = Settings.GripFactor * me.CarGrip;
-        float skill = me.Driver.Pace + me.PaceNoise + me.PaceBoost;
+        float skill = me.Driver.Pace + me.PaceNoise + me.PaceBoost + me.DayForm;
         float pace = DriverProfile.CornerSkill(skill) * phys;
         float v = me.Speed;
         float target = me.TargetSpeed;

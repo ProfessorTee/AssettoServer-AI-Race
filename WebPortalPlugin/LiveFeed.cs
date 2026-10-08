@@ -1,6 +1,9 @@
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
+using AssettoServer.Network.Tcp;
+using AssettoServer.Server;
 using AssettoServer.Server.Extensions;
 using Serilog;
 
@@ -23,12 +26,61 @@ public sealed class LiveFeed
     private DateTime _latestAt = DateTime.MinValue;
     private const int MaxViewers = 100;
 
-    public LiveFeed(RaceView view, IEnumerable<IPlayerRating> ratings, WebPortalConfiguration config)
+    private readonly IReadOnlyList<IDrivenCars> _drivers;
+    private readonly EntryCarManager _entryCarManager;
+
+    public LiveFeed(RaceView view, IEnumerable<IPlayerRating> ratings, WebPortalConfiguration config, IEnumerable<IDrivenCars> drivers,
+        EntryCarManager entryCarManager)
     {
         _view = view;
         _ratings = ratings.ToList();
         _config = config;
+        _drivers = drivers.ToList();
+        _entryCarManager = entryCarManager;
+        // crashes of players (also into bots): from their own collision messages
+        entryCarManager.ClientConnected += (c, _) => c.Collision += OnCollision;
+        entryCarManager.ClientDisconnected += (c, _) => c.Collision -= OnCollision;
     }
+
+    // ------------------------------------------------------------------ crashes for the event list
+
+    private readonly ConcurrentQueue<string> _crashes = new();
+    private readonly Dictionary<(int, int), DateTime> _lastCrash = new();
+    private readonly long[] _seenSpectator = new long[8];
+
+    private void OnCollision(ACTcpClient sender, CollisionEventArgs args)
+    {
+        // a hard hit only (a touch isn't news), both cars report the same crash: once
+        bool car = args.TargetCar != null;
+        if (args.Speed < (car ? 40 : 80)) return;
+        var key = car ? (Math.Min(sender.SessionId, args.TargetCar!.SessionId), Math.Max(sender.SessionId, args.TargetCar.SessionId)) : (sender.SessionId, -1);
+        lock (_lastCrash)
+        {
+            if (_lastCrash.TryGetValue(key, out var at) && DateTime.UtcNow - at < TimeSpan.FromSeconds(5)) return;
+            _lastCrash[key] = DateTime.UtcNow;
+        }
+        string where = _view.Map is { } map && map.Info.SectionAt(map.Locate(args.Position).LapFraction) is { } sec ? $" ({sec})" : "";
+        _crashes.Enqueue(car ? $"Unfall: {sender.Name} und {CarName(args.TargetCar!)}{where}" : $"{sender.Name} schlägt ein{where}");
+    }
+
+    private string CarName(EntryCar car) => car.Client?.Name ?? _drivers.Select(d => d.Get(car)?.Name).FirstOrDefault(n => n != null) ?? $"#{car.SessionId}";
+
+    /// <summary>Crashes, spins and passes since the last frame into the event list.</summary>
+    private void CollectNews(RaceView.LiveFrame f)
+    {
+        while (_crashes.TryDequeue(out var text)) Event(f, text);
+        for (int i = 0; i < _drivers.Count && i < _seenSpectator.Length; i++)
+            foreach (var e in _drivers[i].SpectatorEvents)
+                if (e.Number > _seenSpectator[i])
+                {
+                    _seenSpectator[i] = e.Number;
+                    Event(f, e.Text);
+                }
+    }
+
+    /// <summary>Who was clearly ahead in each pair of cars (by id), for the passes.</summary>
+    private readonly Dictionary<(byte, byte), byte> _ahead = new();
+    private double _startedAt;
 
     public bool Enabled => _config.LiveView;
     private int Hz => Math.Clamp(_config.LiveViewHz, 1, 10);
@@ -135,7 +187,7 @@ public sealed class LiveFeed
     {
         long ms = Math.Max(0, f.ServerMs - f.SessionStart);
         _events.Add((TimeSpan.FromMilliseconds(ms).ToString(ms >= 3600_000 ? @"h\:mm\:ss" : @"mm\:ss"), text));
-        if (_events.Count > 14) _events.RemoveAt(0);
+        if (_events.Count > 30) _events.RemoveAt(0);
     }
 
     private static string FmtLap(uint ms) => TimeSpan.FromMilliseconds(ms).ToString(@"m\:ss\.fff");
@@ -158,11 +210,16 @@ public sealed class LiveFeed
                 _events.Clear();
                 _sessionBest = 0;
                 _leader = 255;
+                _ahead.Clear();
+                for (int i = 0; i < _drivers.Count && i < _seenSpectator.Length; i++)
+                    _seenSpectator[i] = _drivers[i].SpectatorEvents.LastOrDefault()?.Number ?? 0; // only what happens from now on
             }
             if (race && f.RaceStarted && !_wasStarted)
             {
                 foreach (var t in _timing.Values) { t.P = double.NaN; t.Pass.Clear(); t.Order.Clear(); }
                 Event(f, "Start!");
+                _ahead.Clear();
+                _startedAt = now;
             }
             _wasStarted = race && f.RaceStarted;
 
@@ -219,6 +276,20 @@ public sealed class LiveFeed
             var cars = race
                 ? f.Cars.OrderByDescending(c => c.Finished).ThenByDescending(c => progress[c.Id]).ToList()
                 : f.Cars.OrderBy(c => c.Best is > 0 and < 999999999 ? c.Best : uint.MaxValue).ToList();
+            CollectNews(f);
+            // passes: two cars close together that swapped places, each clearly ahead once (not in the first seconds, not in the pits)
+            if (race && f.RaceStarted && now - _startedAt > 20 && length > 0)
+                for (int i = 0; i + 1 < cars.Count; i++)
+                {
+                    var a = cars[i];
+                    var b = cars[i + 1];
+                    if (a.InPit || b.InPit || a.Finished || b.Finished) continue;
+                    double gap = (progress[a.Id] - progress[b.Id]) * length;
+                    if (gap < 8 || gap > 60) continue;
+                    var pair = (Math.Min(a.Id, b.Id), Math.Max(a.Id, b.Id));
+                    if (_ahead.TryGetValue(pair, out var was) && was == b.Id) Event(f, $"{a.Name} überholt {b.Name}");
+                    _ahead[pair] = a.Id;
+                }
             if (race && f.RaceStarted && cars.Count > 0 && cars[0].Id != _leader)
             {
                 if (_leader != 255 && _timing.ContainsKey(_leader)) Event(f, $"{cars[0].Name} übernimmt die Führung");

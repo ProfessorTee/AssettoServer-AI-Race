@@ -75,6 +75,19 @@ public sealed partial class RaceWorld
         return 1 - 0.3f * bot.DirtyAir * share;
     }
 
+    // ------------------------------------------------------------------ form of the day
+
+    /// <summary>
+    /// Nobody drives at exactly the same level every day: a little quicker or slower for the whole race weekend (inconsistent drivers vary
+    /// more), so the order isn't the same in every race. A clone drives the player's recorded laps as they are.
+    /// </summary>
+    public void RollDayForm(RaceBot bot)
+    {
+        if (bot.Clone != null) { bot.DayForm = 0; return; }
+        float sigma = 0.004f + 0.02f * (1 - bot.Driver.Consistency);
+        bot.DayForm = Math.Clamp((float)NextGaussian() * sigma, -2 * sigma, 2 * sigma);
+    }
+
     // ------------------------------------------------------------------ who hit whom
 
     /// <summary><paramref name="me"/> was hit by <paramref name="otherId"/>: remembered for three minutes.</summary>

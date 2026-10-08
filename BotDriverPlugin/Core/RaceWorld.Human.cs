@@ -570,7 +570,7 @@ public sealed partial class RaceWorld
         Shaken(other, hit);
         // "me" did it: ran into the car in front, or moved over into the car alongside (closing above)
         Grudge(other, me.Id);
-        RaiseIncident(me.Id, other.Id, "contact", sideBySide ? $"side contact ({hit:F0} km/h)" : $"hit the car in front ({hit:F0} km/h)");
+        RaiseIncident(me.Id, other.Id, hit > 30 ? "crash" : "contact", sideBySide ? $"side contact ({hit:F0} km/h)" : $"hit the car in front ({hit:F0} km/h)");
         if (me.OvertakeTargetId >= 0) Diag("end:contact");
         me.OvertakeTargetId = -1;
     }

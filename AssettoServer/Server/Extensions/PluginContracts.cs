@@ -63,7 +63,12 @@ public interface IDrivenCars
     bool? PlayerInPitLane(EntryCar car);
     /// <summary>False while the plugin is still starting (loading tracks, calibrating); a track change waits for it.</summary>
     bool Ready { get; }
+    /// <summary>Spins and crashes of its cars for spectators (live page), oldest first, numbered so a reader can skip what it has seen.</summary>
+    IReadOnlyList<DrivenCarEvent> SpectatorEvents => [];
 }
+
+/// <summary>A moment worth showing spectators: <see cref="Number"/> counts up, <see cref="Text"/> is ready to show (German).</summary>
+public sealed record DrivenCarEvent(long Number, string Text);
 
 /// <summary>Who may use the admin pages and APIs of all plugins (WebPortalPlugin). Without it only this computer may.</summary>
 public interface IAdminWebAccess
