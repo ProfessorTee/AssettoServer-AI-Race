@@ -11,14 +11,10 @@ namespace RaceAiPlugin;
 public class RaceAiCommandModule : ACModuleBase
 {
     private readonly RaceAiService _service;
-    private readonly TrackRotation _rotation;
-    private readonly PlayerStats _stats;
 
-    public RaceAiCommandModule(RaceAiService service, TrackRotation rotation, PlayerStats stats)
+    public RaceAiCommandModule(RaceAiService service)
     {
-        _stats = stats;
         _service = service;
-        _rotation = rotation;
     }
 
     [Command("raceai", "bots")]
@@ -66,7 +62,7 @@ public class RaceAiCommandModule : ACModuleBase
         bool on = value.ToLowerInvariant() is "on" or "1" or "true" or "an" or "ein";
         Reply(_service.SetFeature(feature.ToLowerInvariant(), on)
             ? $"Race AI: {feature} {(on ? "on" : "off")}"
-            : "Unknown feature. Use: errors, lines, spins, grass, contacts, damage, blueflags, yellowflags, flash, highbeams, raincaution, realweather");
+            : "Unknown feature. Use: errors, lines, spins, grass, contacts, damage, blueflags, yellowflags, flash, highbeams, raincaution");
     }
 
     /// <summary>Driver change: the clone takes over at the next stop in the box (or drives on instead of coming in).</summary>
@@ -83,31 +79,6 @@ public class RaceAiCommandModule : ACModuleBase
     {
         if (Client == null) { Reply("Only for players."); return; }
         Reply(_service.CommandPlay(Client));
-    }
-
-    [Command("raceai_nexttrack"), RequireAdmin]
-    public void NextTrack(string? track = null)
-    {
-        Reply(_rotation.Active
-            ? _rotation.StartChange("admin", track) ? $"Track change to {track ?? _rotation.NextTrack()} started" : "A track change is already running"
-            : "No track rotation (rotation.yml)");
-    }
-
-    /// <summary>/raceai_class (list), /raceai_class gte (change now), /raceai_class gte next (from the next track change on).</summary>
-    [Command("raceai_class", "class"), RequireAdmin]
-    public void Class(string? cls = null, string? when = null)
-    {
-        if (string.IsNullOrWhiteSpace(cls))
-        {
-            var running = ClassCatalog.Get(PresetOverlay.Split(_rotation.Current).Class);
-            Reply($"Class: {_rotation.ConfiguredClass?.Label ?? "-"} (running: {running?.Label ?? "cfg/"}). " +
-                  string.Join(" | ", ClassCatalog.All.Select(c => c.Key + (c.MissingModels().Count > 0 ? " (cars missing)" : ""))) +
-                  ". /raceai_class <class> = now, /raceai_class <class> next = from the next track change");
-            return;
-        }
-        bool now = !string.Equals(when, "next", StringComparison.OrdinalIgnoreCase) && !string.Equals(when, "later", StringComparison.OrdinalIgnoreCase)
-                   && !string.Equals(when, "danach", StringComparison.OrdinalIgnoreCase);
-        Reply(_rotation.SetClass(cls, now));
     }
 
     [Command("raceai_grid"), RequireAdmin]
@@ -141,30 +112,6 @@ public class RaceAiCommandModule : ACModuleBase
     {
         bool on = state.ToLowerInvariant() is "on" or "1" or "an" or "ein" or "true";
         Reply(_service.SetDebug(on, bot));
-    }
-
-    /// <summary>Best laps on the current track: /top (this week), /top all.</summary>
-    [Command("top")]
-    public void Top(string which = "week")
-    {
-        bool week = !(which.ToLowerInvariant() is "all" or "alltime" or "allzeit" or "ever");
-        var list = _stats.Top(_service.TrackKeyName, week, 10);
-        if (list.Count == 0)
-        {
-            Reply(week ? "No lap times this week yet. /top all for all time." : "No lap times yet.");
-            return;
-        }
-        var sb = new StringBuilder(week ? $"Best laps this week ({PlayerStats.Week(DateTime.UtcNow)}):" : "Best laps of all time:");
-        for (int i = 0; i < list.Count; i++)
-            sb.Append($"\n{i + 1}. {PlayerStats.Fmt(list[i].Ms)} {list[i].Name} ({list[i].Car})");
-        Reply(sb.ToString());
-    }
-
-    /// <summary>Profile with safety rating: /profile, /profile name, /sr.</summary>
-    [Command("profile", "sr", "stats")]
-    public void Profile([Remainder] string? name = null)
-    {
-        Reply(_stats.ProfileText(Client?.Guid ?? 0, name));
     }
 
     /// <summary>Duel against a recorded player's line: /raceai_duel name [bot name or car number] [pace %], /raceai_duel off.</summary>

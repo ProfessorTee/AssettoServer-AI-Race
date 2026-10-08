@@ -3,18 +3,19 @@ using System.Text.Json;
 using AssettoServer.Network.Tcp;
 using AssettoServer.Server;
 using AssettoServer.Server.Configuration;
+using AssettoServer.Server.Extensions;
 using AssettoServer.Shared.Model;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 
-namespace RaceAiPlugin;
+namespace ServerToolsPlugin;
 
 /// <summary>
 /// Player statistics: best laps (all time and per week) per track and car, and a safety rating from contacts, off-track moments
 /// and cuts per distance driven (recent driving counts more). Stored in stats/players.json, shown with /top, /profile and on
-/// the public page /raceai/stats.
+/// the public page /stats (WebPortalPlugin).
 /// </summary>
-public sealed class PlayerStats : BackgroundService
+public sealed class PlayerStats : BackgroundService, IPlayerRating
 {
     public sealed class BestLap
     {
@@ -57,19 +58,20 @@ public sealed class PlayerStats : BackgroundService
     private const double HalfLifeKm = 300;
     private readonly EntryCarManager _entryCarManager;
     private readonly SessionManager _sessionManager;
-    private readonly RaceAiService _service;
-    private readonly RaceAiConfiguration _config;
+    private readonly ServerTrack _track;
+    private readonly ServerToolsConfiguration _config;
     private readonly object _lock = new();
     private Dictionary<ulong, Player> _players = new();
     private bool _dirty;
     private readonly Dictionary<ACTcpClient, DateTime> _lastIncident = new();
 
-    public PlayerStats(EntryCarManager entryCarManager, SessionManager sessionManager, RaceAiService service, RaceAiConfiguration config)
+    public PlayerStats(EntryCarManager entryCarManager, SessionManager sessionManager, ServerTrack track, ServerToolsConfiguration config)
     {
         _entryCarManager = entryCarManager;
         _sessionManager = sessionManager;
-        _service = service;
+        _track = track;
         _config = config;
+        if (!config.PlayerStats) return;
         Load();
         _entryCarManager.ClientConnected += (c, _) =>
         {
@@ -107,8 +109,8 @@ public sealed class PlayerStats : BackgroundService
     {
         uint ms = args.Packet.LapTime;
         int cuts = args.Packet.Cuts;
-        float lengthKm = _service.TrackLengthMeters / 1000f;
-        string key = $"{_service.TrackKeyName}|{client.EntryCar.Model}";
+        float lengthKm = _track.LengthMeters / 1000f;
+        string key = $"{_track.Key}|{client.EntryCar.Model}";
         lock (_lock)
         {
             var p = Get(client.Guid, client.Name);
@@ -136,7 +138,6 @@ public sealed class PlayerStats : BackgroundService
             }
             _dirty = true;
         }
-        _service.DuelLap(client, ms, cuts);
     }
 
     private void OnCollision(ACTcpClient client, CollisionEventArgs args)
@@ -255,7 +256,7 @@ public sealed class PlayerStats : BackgroundService
 
     public object Overview()
     {
-        string track = _service.TrackKeyName;
+        string track = _track.Key;
         lock (_lock)
         {
             var tracks = _players.Values.SelectMany(p => p.Tracks.Keys).Select(k => k.Split('|')[0]).Distinct().OrderBy(t => t).ToList();
@@ -300,7 +301,7 @@ public sealed class PlayerStats : BackgroundService
                 : _players.Values.FirstOrDefault(x => !string.IsNullOrWhiteSpace(name) && x.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
             if (p == null) return T("No statistics yet.", "Noch keine Statistik.");
             var sr = SafetyRating(p);
-            string key = _service.TrackKeyName + "|";
+            string key = _track.Key + "|";
             var here = p.Tracks.Where(t => t.Key.StartsWith(key) && t.Value.Best != null).OrderBy(t => t.Value.Best!.Ms).FirstOrDefault();
             string best = here.Value?.Best != null ? $"{Fmt(here.Value.Best.Ms)} ({here.Key[key.Length..]})" : "-";
             return T($"{p.Name}: safety {SafetyClass(sr)} {(sr?.ToString("F2", CultureInfo.InvariantCulture) ?? "(after 20 km)")}, {p.Km:F0} km, {p.Laps} laps ({p.CleanLaps} clean), " +
@@ -321,7 +322,7 @@ public sealed class PlayerStats : BackgroundService
         }
         catch (Exception ex)
         {
-            Log.Warning(ex, "Race AI: stats/players.json not readable, starting new statistics");
+            Log.Warning(ex, "Player stats: stats/players.json not readable, starting new statistics");
             try { File.Copy(FilePath, FilePath + ".broken", true); } catch { /* ignored */ }
         }
     }
@@ -340,13 +341,16 @@ public sealed class PlayerStats : BackgroundService
         File.Move(FilePath + ".tmp", FilePath, true);
     }
 
+    public bool Enabled => _config.PlayerStats;
+
     protected override async Task ExecuteAsync(CancellationToken token)
     {
+        if (!_config.PlayerStats) return;
         try
         {
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
             while (await timer.WaitForNextTickAsync(token))
-                try { Save(); } catch (Exception ex) { Log.Warning(ex, "Race AI: statistics not saved"); }
+                try { Save(); } catch (Exception ex) { Log.Warning(ex, "Player stats: statistics not saved"); }
         }
         catch (OperationCanceledException) { }
         finally

@@ -3,20 +3,28 @@ using System.Text.RegularExpressions;
 using AssettoServer.Server.Configuration;
 using Serilog;
 
-namespace RaceAiPlugin;
+namespace SharedConfig;
 
 /// <summary>
-/// Writes settings changed in the dashboard (or by admin commands) back into plugin_race_ai_cfg.yml, so they survive a restart.
+/// Writes settings changed in the dashboard (or by admin commands) back into a plugin's yml file, so they survive a restart.
 /// Top-level keys only, the line is replaced in place (comments stay). The key goes into the top layer (class, track) that sets it,
 /// otherwise into cfg/ (valid for all tracks and classes).
 /// </summary>
 public sealed class ConfigWriter
 {
-    private const string FileName = "plugin_race_ai_cfg.yml";
+    private readonly string FileName;
+    private readonly string _logPrefix;
     private readonly ACServerConfiguration _serverConfig;
     private readonly object _lock = new();
 
-    public ConfigWriter(ACServerConfiguration serverConfig) => _serverConfig = serverConfig;
+    /// <param name="fileName">e.g. plugin_bot_driver_cfg.yml</param>
+    /// <param name="logPrefix">e.g. "Bot driver"</param>
+    public ConfigWriter(ACServerConfiguration serverConfig, string fileName, string logPrefix)
+    {
+        _serverConfig = serverConfig;
+        FileName = fileName;
+        _logPrefix = logPrefix;
+    }
 
     public void Set(string key, object value)
     {
@@ -44,11 +52,11 @@ public sealed class ConfigWriter
                 var tmp = path + ".tmp";
                 File.WriteAllText(tmp, content);
                 File.Move(tmp, path, overwrite: true);
-                Log.Information("Race AI: saved {Key}: {Value} in {File}", key, text, path);
+                Log.Information("{Prefix}: saved {Key}: {Value} in {File}", _logPrefix, key, text, path);
             }
             catch (Exception ex)
             {
-                Log.Warning(ex, "Race AI: could not save {Key} in the configuration", key);
+                Log.Warning(ex, "{Prefix}: could not save {Key} in the configuration", _logPrefix, key);
             }
         }
     }

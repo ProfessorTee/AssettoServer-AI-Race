@@ -282,7 +282,7 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     [YamlMember(Description = "Added to the player's name while his clone drives")]
     public string TakeoverNameSuffix { get; set; } = " (KI)";
 
-    [YamlMember(Description = "Address your friends join with (e.g. a DynDNS name like myserver.ddns.net). Empty = the public IP is looked up automatically")]
+    [YamlMember(Description = "Address your friends join with (e.g. a DynDNS name like myserver.ddns.net). Empty = the one set in ServerToolsPlugin, else the public IP is looked up automatically")]
     public string PublicAddress { get; set; } = "";
 
     [YamlMember(Description = "No flashing of the lights in the first seconds of a race, while the field is bunched up")]
@@ -405,8 +405,8 @@ public class RaceAiConfiguration : IValidateConfiguration<RaceAiConfigurationVal
     [YamlMember(Description = "Chat message 'Yellow flag in sector X' when a car spins, crashes or stops on the track")]
     public bool YellowFlagChat { get; set; } = true;
 
-    [YamlMember(Description = "Language of the chat messages: de or en")]
-    public string ChatLanguage { get; set; } = "en";
+    [YamlMember(Description = "Language of the chat messages: de or en. Empty = the one set in ServerToolsPlugin (else en)")]
+    public string? ChatLanguage { get; set; }
 
     [YamlMember(Description = "Stuck in a cluster of standing cars for this long (s): the front car goes first, the others go round")]
     public float UnstuckSeconds { get; set; } = 4;

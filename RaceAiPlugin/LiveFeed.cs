@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
+using AssettoServer.Server.Extensions;
 using Serilog;
 
 namespace RaceAiPlugin;
@@ -13,7 +14,7 @@ namespace RaceAiPlugin;
 public sealed class LiveFeed
 {
     private readonly RaceAiService _service;
-    private readonly PlayerStats _stats;
+    private readonly IReadOnlyList<IPlayerRating> _ratings;
     private readonly RaceAiConfiguration _config;
     private readonly object _lock = new();
     private readonly List<Channel<byte[]>> _subscribers = [];
@@ -22,10 +23,10 @@ public sealed class LiveFeed
     private DateTime _latestAt = DateTime.MinValue;
     private const int MaxViewers = 100;
 
-    public LiveFeed(RaceAiService service, PlayerStats stats, RaceAiConfiguration config)
+    public LiveFeed(RaceAiService service, IEnumerable<IPlayerRating> ratings, RaceAiConfiguration config)
     {
         _service = service;
-        _stats = stats;
+        _ratings = ratings.ToList();
         _config = config;
     }
 
@@ -263,7 +264,7 @@ public sealed class LiveFeed
                     w.WriteString("n", c.Name);
                     w.WriteString("m", c.Model);
                     w.WriteString("k", c.Kind);
-                    if (c.Kind != "ai" && _stats.Licence(c.Guid) is { } lic) w.WriteString("lic", lic);
+                    if (c.Kind != "ai" && _ratings.Select(r => r.Licence(c.Guid)).FirstOrDefault(l => l != null) is { } lic) w.WriteString("lic", lic);
                     w.WriteNumber("x", MathF.Round(c.X, 1));
                     w.WriteNumber("z", MathF.Round(c.Z, 1));
                     w.WriteNumber("vx", MathF.Round(c.Vx, 1));

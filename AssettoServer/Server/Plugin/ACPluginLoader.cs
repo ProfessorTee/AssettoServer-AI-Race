@@ -64,6 +64,8 @@ public class ACPluginLoader
 
     internal void LoadPlugins(List<string> plugins)
     {
+        // Race AI patch: "RaceAiPlugin" stands for the plugins it was split into
+        plugins = AssettoServer.Server.Configuration.LegacyPluginConfig.ExpandPluginNames(plugins, AvailablePlugins.ContainsKey);
         foreach (var pluginName in plugins)
         {
             if (!AvailablePlugins.TryGetValue(pluginName, out var plugin))

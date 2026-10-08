@@ -17,6 +17,7 @@
     <Build Project="false" />
   </Project>
   <Project Path="ReportPlugin\ReportPlugin.csproj" />
+  <Project Path="ServerToolsPlugin\ServerToolsPlugin.csproj" />
   <Project Path="SamplePlugin\SamplePlugin.csproj" />
   <Project Path="TagModePlugin\TagModePlugin.csproj" />
   <Project Path="TimeDilationPlugin\TimeDilationPlugin.csproj" />

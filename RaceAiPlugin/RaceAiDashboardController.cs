@@ -8,6 +8,8 @@ using AssettoServer.Server.Weather;
 using AssettoServer.Shared.Weather;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Hosting;
+using AssettoServer.Server.Extensions;
+using SharedWeb;
 
 namespace RaceAiPlugin;
 
@@ -26,19 +28,17 @@ public class RaceAiDashboardController : ControllerBase
     private readonly IHostApplicationLifetime _lifetime;
     private readonly ChatService _chatService;
     private readonly JoinInfo _joinInfo;
-    private readonly TrackRotation _rotation;
-    private readonly PlayerStats _stats;
+    private readonly IEnumerable<IAdminWebAccess> _access;
     private readonly LiveFeed _live;
     private readonly RaceAiConfiguration _config;
 
     public RaceAiDashboardController(RaceAiService service, SessionManager sessionManager, WeatherManager weatherManager,
-        EntryCarManager entryCarManager, ACServerConfiguration serverConfig, IHostApplicationLifetime lifetime, ChatService chatService, JoinInfo joinInfo, TrackRotation rotation, PlayerStats stats,
+        EntryCarManager entryCarManager, ACServerConfiguration serverConfig, IHostApplicationLifetime lifetime, ChatService chatService, JoinInfo joinInfo, IEnumerable<IAdminWebAccess> access,
         LiveFeed live, RaceAiConfiguration config)
     {
         _config = config;
         _live = live;
-        _stats = stats;
-        _rotation = rotation;
+        _access = access;
         _joinInfo = joinInfo;
         _chatService = chatService;
         _service = service;
@@ -49,33 +49,9 @@ public class RaceAiDashboardController : ControllerBase
         _lifetime = lifetime;
     }
 
-    private bool IsLocal
-    {
-        get
-        {
-            var ip = HttpContext.Connection.RemoteIpAddress;
-            return ip == null || IPAddress.IsLoopback(ip) || (ip.IsIPv4MappedToIPv6 && IPAddress.IsLoopback(ip.MapToIPv4()));
-        }
-    }
-
-    private bool Allowed()
-    {
-        if (IsLocal) return true;
-        if (!_service.DashboardRemoteAccess || string.IsNullOrEmpty(_service.AdminPassword)) return false;
-        string? given = null;
-        if (Request.Headers.TryGetValue("X-Admin-Password-Enc", out var enc))
-        {
-            try { given = Uri.UnescapeDataString(enc.ToString()); } catch { given = null; }
-        }
-        else if (Request.Headers.TryGetValue("X-Admin-Password", out var pw)) given = pw.ToString();
-        return given != null && given.Trim() == _service.AdminPassword.Trim();
-    }
-
-    private IActionResult Denied() => StatusCode(403, new
-    {
-        error = "Dashboard: only from this computer (DashboardRemoteAccess) or with the admin password",
-        reason = !IsLocal && !_service.DashboardRemoteAccess ? "remote" : string.IsNullOrEmpty(_service.AdminPassword) ? "nopassword" : "password"
-    });
+    private bool IsLocal => AdminAccess.IsLocal(HttpContext);
+    private bool Allowed() => AdminAccess.Allowed(HttpContext, _serverConfig, _access);
+    private IActionResult Denied() => AdminAccess.Denied(HttpContext, _serverConfig, _access);
 
     [HttpGet("/raceai")]
     public IActionResult Page()
@@ -92,8 +68,6 @@ public class RaceAiDashboardController : ControllerBase
     [HttpGet("/raceai/stats")]
     public IActionResult StatsPage() => Content(StatsPageHtml.Html, "text/html; charset=utf-8");
 
-    [HttpGet("/raceai/api/stats")]
-    public IActionResult Stats() => Ok(_stats.Overview());
 
     /// <summary>Landing page: the server's address alone (http://SERVER:HTTP_PORT/) opens the join or the live page (LandingPage).</summary>
     [HttpGet("/")]
@@ -157,8 +131,6 @@ public class RaceAiDashboardController : ControllerBase
     [HttpGet("/raceai/api/state")]
     public IActionResult State() => Allowed() ? Ok(_service.State()) : Denied();
 
-    [HttpGet("/raceai/api/rotation")]
-    public IActionResult Rotation() => Allowed() ? Ok(_rotation.Info()) : Denied();
 
     [HttpGet("/raceai/api/clones")]
     public IActionResult Clones() => Allowed() ? Ok(_service.CloneList()) : Denied();
@@ -292,37 +264,6 @@ public class RaceAiDashboardController : ControllerBase
             case "stop":
                 _ = Task.Run(async () => { await Task.Delay(500); _lifetime.StopApplication(); });
                 return Ok(new { ok = true });
-            case "rotate":
-                if (!_rotation.Active) return BadRequest(new { error = "Keine Strecken-Rotation eingerichtet (rotation.yml)" });
-                return Ok(new { ok = _rotation.StartChange("dashboard", string.IsNullOrEmpty(req.Text) ? null : req.Text) });
-            case "class":
-            {
-                var parts = (req.Text ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length == 0) return BadRequest(new { error = "Klasse fehlt" });
-                return Ok(new { ok = true, message = _rotation.SetClass(parts[0], parts.Length < 2 || parts[1] != "next") });
-            }
-            case "restartserver":
-            {
-                // the start script (race-ai/server-supervisor.sh) starts the server again after it stopped; "update" pulls
-                // the newest version from GitHub and installs it first
-                string mode = req.Text == "update" ? "update" : "restart";
-                if (!Supervised)
-                {
-                    // e.g. at a game server host: restart inside the process (same track, same ports); updates are uploaded there
-                    if (mode == "update")
-                        return BadRequest(new { error = "Update aus dem Dashboard geht nur, wenn der Server über race-ai/start-server.sh läuft. Beim Hoster: neue Dateien hochladen und neu starten." });
-                    Serilog.Log.Information("Race AI: server restart requested from the dashboard (in-process)");
-                    _entryCarManager.BroadcastChat("Server-Neustart … / server restart …");
-                    var preset = _serverConfig.Preset;
-                    _ = Task.Run(async () => { await Task.Delay(1500); _rotation.RestartInto(string.IsNullOrEmpty(preset) ? null : preset); });
-                    return Ok(new { ok = true, mode });
-                }
-                System.IO.File.WriteAllText("restart.request", mode);
-                Serilog.Log.Information("Race AI: server {Mode} requested from the dashboard", mode);
-                _entryCarManager.BroadcastChat(mode == "update" ? "Server-Update und Neustart … / server update and restart …" : "Server-Neustart … / server restart …");
-                _ = Task.Run(async () => { await Task.Delay(1500); _lifetime.StopApplication(); });
-                return Ok(new { ok = true, mode });
-            }
             case "temperature":
             {
                 var w = _weatherManager.CurrentWeather;

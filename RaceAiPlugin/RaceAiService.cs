@@ -1,3 +1,5 @@
+using SharedConfig;
+using AssettoServer.Server.Extensions;
 using TrackGeometry;
 using System.Collections.Concurrent;
 using System.Numerics;
@@ -17,7 +19,7 @@ namespace RaceAiPlugin;
 /// Runs the racing AI: owns the <see cref="RaceWorld"/>, maps bots to entry list slots, follows the server's sessions
 /// (grid, race start, chequered flag) and feeds laps back into the official timing.
 /// </summary>
-public sealed partial class RaceAiService : IHostedService
+public sealed partial class RaceAiService : IHostedService, IDrivenCars
 {
     private readonly RaceAiConfiguration _config;
     private readonly ACServerConfiguration _serverConfig;
@@ -57,8 +59,10 @@ public sealed partial class RaceAiService : IHostedService
         SessionManager sessionManager,
         ACServer server,
         WeatherManager weatherManager,
-        CSPServerScriptProvider scriptProvider)
+        CSPServerScriptProvider scriptProvider,
+        IEnumerable<ISharedSettings> sharedSettings)
     {
+        SharedSettingsResolver.Resolve(config, sharedSettings);
         _scriptProvider = scriptProvider;
         AddSwapScript();
         _config = config;
@@ -67,23 +71,11 @@ public sealed partial class RaceAiService : IHostedService
         _sessionManager = sessionManager;
         _server = server;
         _weatherManager = weatherManager;
-        _configWriter = new ConfigWriter(serverConfig);
-        SetupListedName();
+        _configWriter = new ConfigWriter(serverConfig, "plugin_race_ai_cfg.yml", "Race AI");
+        // duels: a player's lap against the recorded clone
+        _entryCarManager.ClientConnected += (c, _) => c.LapCompleted += OnDuelLap;
+        _entryCarManager.ClientDisconnected += (c, _) => c.LapCompleted -= OnDuelLap;
         SetupRejoin();
-    }
-
-    /// <summary>"Bots:16,Player:2 - Name" in the server lists (only when bots are configured).</summary>
-    private void SetupListedName()
-    {
-        if (!_config.ServerNameCounts || string.IsNullOrWhiteSpace(_config.ServerNameFormat)) return;
-        int configured = ConfiguredBotSlots().Count;
-        if (configured == 0) return;
-        _serverConfig.ListedNameProvider = name =>
-        {
-            int bots = _world != null ? _slots.ToArray().Count(s => s.Active) : configured;
-            int players = _entryCarManager.ConnectedCars.Count;
-            return _config.ServerNameFormat.Replace("{bots}", bots.ToString()).Replace("{players}", players.ToString()).Replace("{name}", name);
-        };
     }
 
     /// <summary>Entry list slots that are bots, as configured (also used by the slot filter before the service has started).</summary>
@@ -1034,6 +1026,8 @@ public sealed partial class RaceAiService : IHostedService
 
     private string T(string en, string de) => _config.ChatLanguage == "de" ? de : en;
 
+    private void OnDuelLap(ACTcpClient client, LapCompletedEventArgs args) => DuelLap(client, args.Packet.LapTime, args.Packet.Cuts);
+
     private static string GermanSignal(int phase) => phase switch
     {
         1 => "Blinker links", 2 => "Blinker rechts", 3 => "Warnblinker", 4 => "Lichthupe", 5 => "Bremslicht", 6 => "Fernlicht", _ => ""
@@ -1385,7 +1379,6 @@ public sealed partial class RaceAiService : IHostedService
                 case "yellowflags": s.YellowFlags = on; _config.YellowFlags = on; _configWriter.Set("YellowFlags", on); break;
                 case "flash": _config.FlashLights = on; _configWriter.Set("FlashLights", on); break;
                 case "raincaution": _config.RainCaution = on; s.RainCaution = on; _configWriter.Set("RainCaution", on); break;
-                case "realweather": _config.RealWeather = on; _configWriter.Set("RealWeather", on); break;
                 case "highbeams": _config.HighBeams = on; _configWriter.Set("HighBeams", on); break;
                 case "realstart": _config.RealisticStart = on; s.RealisticStart = on; _configWriter.Set("RealisticStart", on); break;
                 case "personallines":

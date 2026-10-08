@@ -1,3 +1,4 @@
+using AssettoServer.Server.Extensions;
 using AssettoServer.Server.OpenSlotFilters;
 using AssettoServer.Server.Plugin;
 using Autofac;
@@ -20,12 +21,28 @@ public class RaceAiModule : AssettoServerModule<RaceAiConfiguration>
 
     protected override void Load(ContainerBuilder builder)
     {
-        builder.RegisterType<RaceAiService>().AsSelf().As<IHostedService>().SingleInstance();
+        builder.RegisterType<RaceAiService>().AsSelf().As<IHostedService>().As<IDrivenCars>().SingleInstance();
+        builder.RegisterType<DashboardAccess>().As<IAdminWebAccess>().SingleInstance();
         builder.RegisterType<RaceAiSlotFilter>().As<IOpenSlotFilter>().SingleInstance();
         builder.RegisterType<JoinInfo>().AsSelf().SingleInstance();
         builder.RegisterType<LiveFeed>().AsSelf().SingleInstance();
-        builder.RegisterType<TrackRotation>().AsSelf().As<IHostedService>().SingleInstance();
-        builder.RegisterType<RealWeatherService>().AsSelf().As<IHostedService>().SingleInstance();
-        builder.RegisterType<PlayerStats>().AsSelf().As<IHostedService>().SingleInstance();
+    }
+}
+
+/// <summary>Remote access to the admin pages of all plugins (DashboardRemoteAccess).</summary>
+public sealed class DashboardAccess(RaceAiConfiguration config) : IAdminWebAccess
+{
+    public bool RemoteAccess => config.DashboardRemoteAccess;
+}
+
+/// <summary>Settings a plugin shares with the others (<see cref="ISharedSettings"/>): own value when set, else the shared one.</summary>
+public static class SharedSettingsResolver
+{
+    public static void Resolve(RaceAiConfiguration config, IEnumerable<ISharedSettings> shared)
+    {
+        var list = shared.ToList();
+        config.ChatLanguage = SharedSettings.ChatLanguage(list, config.ChatLanguage);
+        config.AssettoCorsaPath = SharedSettings.AssettoCorsaPath(list, config.AssettoCorsaPath);
+        config.PublicAddress = SharedSettings.PublicAddress(list, config.PublicAddress);
     }
 }

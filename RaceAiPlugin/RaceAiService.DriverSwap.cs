@@ -101,19 +101,6 @@ public sealed partial class RaceAiService
     }
 
     /// <summary>Track rotation: banner and automatic reconnect into the own car after <paramref name="seconds"/>.</summary>
-    public void SendTrackChange(ACTcpClient client, string track, int seconds)
-    {
-        try
-        {
-            // no automatic reconnect: CSP's reconnect keeps the loaded track and the game crashes when the server has another one
-            client.SendPacket(new RaiSwapPacket { Phase = 6, Car = client.SessionId, Reconnect = 0, Eta = (ushort)seconds, Info = track });
-        }
-        catch (Exception ex)
-        {
-            Log.Debug(ex, "Race AI: track change packet not sent");
-        }
-    }
-
     private void Tell(ACTcpClient? client, string en, string de)
     {
         if (client == null) return;

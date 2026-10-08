@@ -20,7 +20,7 @@ public class RaceAiConfigurationValidator : AbstractValidator<RaceAiConfiguratio
         RuleFor(cfg => cfg.QualifyingBotDelaySeconds).InclusiveBetween(0, 600);
         RuleFor(cfg => cfg.PracticeBotDelaySeconds).InclusiveBetween(0, 600);
         RuleFor(cfg => cfg.PitReleaseIntervalSeconds).InclusiveBetween(1, 120);
-        RuleFor(cfg => cfg.ChatLanguage).Must(x => x is "de" or "en").WithMessage("ChatLanguage: de or en");
+        RuleFor(cfg => cfg.ChatLanguage).Must(x => x is null or "" or "de" or "en").WithMessage("ChatLanguage: de or en");
         RuleForEach(cfg => cfg.Personalities).ChildRules(p =>
         {
             p.RuleFor(x => x.Name).NotEmpty();

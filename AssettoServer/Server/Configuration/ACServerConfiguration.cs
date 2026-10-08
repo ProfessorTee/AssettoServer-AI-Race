@@ -366,6 +366,8 @@ public partial class ACServerConfiguration
                 ReferenceConfigurationHelper.WriteReferenceConfiguration(plugin.ReferenceConfigurationFileName,
                     schemaPath, plugin.ReferenceConfiguration, plugin.Name);
                 
+                // Race AI patch: a plugin split off the Race AI plugin takes its settings from plugin_race_ai_cfg.yml once
+                LegacyPluginConfig.Migrate(Layers, plugin.ConfigurationFileName, plugin.ConfigurationType);
                 // Race AI patch: the plugin's config of all layers
                 var configText = PresetOverlay.ReadYaml(Layers, plugin.ConfigurationFileName);
                 if (configText != null && builder != null)

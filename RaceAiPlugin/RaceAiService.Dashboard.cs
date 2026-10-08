@@ -264,7 +264,6 @@ public sealed partial class RaceAiService
             ["flash"] = _config.FlashLights,
             ["highbeams"] = _config.HighBeams,
             ["raincaution"] = s?.RainCaution ?? false,
-            ["realweather"] = _config.RealWeather,
             ["yellowchat"] = _config.YellowFlagChat,
             ["overtakechat"] = _config.AnnounceOvertakes,
             ["personallines"] = s?.PersonalLines ?? _config.PersonalLines,

@@ -1,8 +1,7 @@
 using TrackGeometry;
 using AssettoServer.Server.Configuration;
-using RaceAiPlugin.Core;
 
-namespace RaceAiPlugin;
+namespace SharedPresets;
 
 /// <summary>A vehicle class: the folder presets/classes/&lt;key&gt;/ (entry_list.ini with its cars, server_cfg.ini with CARS= and [PRESET] CLASS_TITLE).</summary>
 public sealed record VehicleClass(string Key, string Label, string Description, List<string> Models)

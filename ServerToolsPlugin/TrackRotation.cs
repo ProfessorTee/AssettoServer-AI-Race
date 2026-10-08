@@ -1,58 +1,30 @@
 using System.Text.Json;
 using AssettoServer.Server;
 using AssettoServer.Server.Configuration;
+using AssettoServer.Server.Extensions;
+using AssettoServer.Network.Tcp;
+using SharedPresets;
 using AssettoServer.Shared.Model;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 using YamlDotNet.Serialization;
 
-namespace RaceAiPlugin;
-
-/// <summary>rotation.yml in the server folder.</summary>
-public sealed class TrackRotationConfiguration
-{
-    public bool Enabled { get; set; }
-    /// <summary>Tracks (folders in presets/tracks/, "default" = the track of cfg/), in this order; "nordschleife+lmp1" = always with that class.</summary>
-    public List<string> Tracks { get; set; } = [];
-    /// <summary>Change the track after this many finished races (0 = only by time).</summary>
-    public int RacesPerTrack { get; set; } = 1;
-    /// <summary>Races per track for single tracks, e.g. trialmountain: 3 (the others use RacesPerTrack).</summary>
-    public Dictionary<string, int> Races { get; set; } = new();
-    /// <summary>Or after this many minutes (0 = off). Only changed between sessions, never during a race.</summary>
-    public int MinutesPerTrack { get; set; }
-    /// <summary>Random order instead of the list order (never the same track twice in a row).</summary>
-    public bool Random { get; set; }
-    /// <summary>Nobody online: change right away when it's due.</summary>
-    public bool ChangeWhenEmpty { get; set; } = true;
-    /// <summary>Warning in the chat this many seconds before the change.</summary>
-    public int AnnounceSeconds { get; set; } = 20;
-    /// <summary>After a race: wait this many seconds before the change (announcement included), so the players can look at the result.</summary>
-    public int ResultSeconds { get; set; } = 30;
-    /// <summary>
-    /// Players see a countdown until they can rejoin (the game has to load the new track, so no automatic reconnect). Seconds to wait for the new server when it has never
-    /// started this track before (later the measured start time is used).
-    /// </summary>
-    public int FirstStartSeconds { get; set; } = 60;
-    /// <summary>
-    /// Vehicle class (folder in presets/classes/: gt3, gte, lmp1, jdm ...): every track runs with the cars of this class.
-    /// Empty = the cars of cfg/entry_list.ini. /raceai_class changes it.
-    /// </summary>
-    public string? Class { get; set; }
-}
+namespace ServerToolsPlugin;
 
 /// <summary>
 /// Track rotation: after a number of races (or minutes) the server restarts itself with the next track and the configured class
 /// (preset "&lt;track&gt;+&lt;class&gt;": cfg/ → presets/tracks/&lt;track&gt;/ → presets/classes/&lt;class&gt;/, see PresetOverlay). Players with CSP get a banner with a countdown to rejoin.
 /// Changes only happen between sessions, never during a race. State in rotation.state, the running preset in current-preset
-/// (read by race-ai/server-supervisor.sh, so a restart continues on the same track).
+/// (read by tools/server-supervisor.sh, so a restart continues on the same track).
 /// </summary>
 public sealed class TrackRotation : BackgroundService
 {
     private readonly ACServerConfiguration _serverConfig;
     private readonly SessionManager _sessionManager;
     private readonly EntryCarManager _entryCarManager;
-    private readonly RaceAiService _service;
-    private readonly RaceAiConfiguration _raceConfig;
+    private readonly IReadOnlyList<IDrivenCars> _drivers;
+    private readonly ServerToolsConfiguration _toolsConfig;
+    private readonly ServerRestart _restart;
     private TrackRotationConfiguration _cfg = new();
     private readonly string _current;
     /// <summary>The rotation entry (Tracks) the running preset belongs to.</summary>
@@ -75,7 +47,8 @@ public sealed class TrackRotation : BackgroundService
     }
 
     public TrackRotation(ACServerConfiguration serverConfig, SessionManager sessionManager, EntryCarManager entryCarManager,
-        RaceAiService service, RaceAiConfiguration raceConfig, CSPServerExtraOptions extraOptions)
+        IEnumerable<IDrivenCars> drivers, ServerToolsConfiguration toolsConfig, ServerRestart restart, CSPServerExtraOptions extraOptions,
+        CSPServerScriptProvider scriptProvider)
     {
         // the welcome message gets a line about the rotation (current and next track)
         extraOptions.WelcomeMessageSending += (_, args) =>
@@ -88,8 +61,10 @@ public sealed class TrackRotation : BackgroundService
         _serverConfig = serverConfig;
         _sessionManager = sessionManager;
         _entryCarManager = entryCarManager;
-        _service = service;
-        _raceConfig = raceConfig;
+        _drivers = drivers.ToList();
+        _toolsConfig = toolsConfig;
+        _restart = restart;
+        TrackChangeBanner.Register(scriptProvider);
         _current = string.IsNullOrEmpty(serverConfig.Preset) ? "default" : serverConfig.Preset;
         _currentEntry = _current;
     }
@@ -101,7 +76,7 @@ public sealed class TrackRotation : BackgroundService
     public int RacesFor(string track) => _cfg.Races.TryGetValue(track, out var n) ? n : _cfg.RacesPerTrack;
     public string Current => _current;
 
-    private string T(string en, string de) => _raceConfig.ChatLanguage == "de" ? de : en;
+    private string T(string en, string de) => _toolsConfig.ChatLanguage == "de" ? de : en;
 
     private static State LoadState()
     {
@@ -122,15 +97,15 @@ public sealed class TrackRotation : BackgroundService
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Race AI: rotation.yml not readable, no track rotation");
+            Log.Error(ex, "Track rotation: rotation.yml not readable, no track rotation");
             return;
         }
         _currentEntry = EntryOf(_current);
         var cls = ConfiguredClass;
         if (!string.IsNullOrWhiteSpace(_cfg.Class) && cls == null)
-            Log.Warning("Race AI: unknown vehicle class {Class} in rotation.yml (known: {Known})", _cfg.Class, string.Join(", ", ClassCatalog.All.Select(c => c.Key)));
+            Log.Warning("Track rotation: unknown vehicle class {Class} in rotation.yml (known: {Known})", _cfg.Class, string.Join(", ", ClassCatalog.All.Select(c => c.Key)));
 
-        // Without race-ai/server-supervisor.sh (e.g. at a game server host whose panel always starts the cfg/ track):
+        // Without tools/server-supervisor.sh (e.g. at a game server host whose panel always starts the cfg/ track):
         // continue with the track that ran last
         string? last = null;
         try { if (File.Exists("current-preset")) last = File.ReadAllText("current-preset").Trim(); } catch { }
@@ -143,22 +118,22 @@ public sealed class TrackRotation : BackgroundService
         if (cls != null) start = PresetFor(EntryOf(start));
         if (start != _current)
         {
-            Log.Information("Race AI: the server was started with {Current}, continuing with {Start}{Why}", _current, start,
+            Log.Information("Track rotation: the server was started with {Current}, continuing with {Start}{Why}", _current, start,
                 cls != null ? $" (class {cls.Label})" : " (the track that ran last)");
             File.WriteAllText("current-preset", start == "default" ? "" : start);
             RestartInto(start == "default" ? null : start);
             return;
         }
         File.WriteAllText("current-preset", _current == "default" ? "" : _current);
-        if (cls != null) Log.Information("Race AI: vehicle class {Class} ({Preset})", cls.Label, _current);
+        if (cls != null) Log.Information("Track rotation: vehicle class {Class} ({Preset})", cls.Label, _current);
         if (!Active) return;
         foreach (var t in _cfg.Tracks.Where(t => !TrackExists(t)))
-            Log.Warning("Race AI: rotation track {Track} has no folder {Folder}", t, PresetOverlay.TrackFolder(PresetOverlay.Split(t).Track));
+            Log.Warning("Track rotation: rotation track {Track} has no folder {Folder}", t, PresetOverlay.TrackFolder(PresetOverlay.Split(t).Track));
         var state = LoadState();
         // a normal restart or a class change (not a track change) continues the race count of this track
         if (state.SwitchTo != _current && state.RacesTrack == _currentEntry) _racesDone = state.RacesDone;
         else if (state.SwitchTo == _current && state.KeepRaces && state.RacesTrack == _currentEntry) _racesDone = state.RacesDone;
-        Log.Information("Race AI: track rotation {Tracks}, now {Current}; change after {Races} race(s){Minutes}{Done}",
+        Log.Information("Track rotation: track rotation {Tracks}, now {Current}; change after {Races} race(s){Minutes}{Done}",
             string.Join(" → ", _cfg.Tracks), _currentEntry, RacesHere, _cfg.MinutesPerTrack > 0 ? $" or {_cfg.MinutesPerTrack} min" : "",
             _racesDone > 0 ? $", {_racesDone} done" : "");
 
@@ -167,11 +142,12 @@ public sealed class TrackRotation : BackgroundService
         // how long this track took to start after a change (for the reconnect of the players next time)
         if (state.SwitchTo == _current && state.SwitchAt > DateTime.MinValue)
         {
-            while (!_service.Enabled && !token.IsCancellationRequested) await Task.Delay(500, token);
+            // ready when every plugin that drives cars has started (loading tracks, calibrating)
+            while (_drivers.Any(d => !d.Ready) && !token.IsCancellationRequested) await Task.Delay(500, token);
             state.StartSeconds[_current] = (DateTime.UtcNow - state.SwitchAt).TotalSeconds;
             state.SwitchTo = null;
             SaveState(state);
-            Log.Information("Race AI: {Track} was ready {Seconds:F0} s after the track change", _current, state.StartSeconds[_current]);
+            Log.Information("Track rotation: {Track} was ready {Seconds:F0} s after the track change", _current, state.StartSeconds[_current]);
         }
 
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
@@ -201,7 +177,7 @@ public sealed class TrackRotation : BackgroundService
             }
             catch (Exception ex)
             {
-                Log.Debug(ex, "Race AI: rotation state not saved");
+                Log.Debug(ex, "Track rotation: rotation state not saved");
             }
         }
         // between sessions: the next one hasn't really started yet
@@ -276,13 +252,7 @@ public sealed class TrackRotation : BackgroundService
     };
 
     /// <summary>Restart the server in this process with a preset (null = cfg/), same ports.</summary>
-    public void RestartInto(string? preset)
-        => AssettoServer.Program.RestartServer(preset, portOverrides: new PortOverrides
-        {
-            TcpPort = _serverConfig.Server.TcpPort,
-            UdpPort = _serverConfig.Server.UdpPort,
-            HttpPort = _serverConfig.Server.HttpPort
-        });
+    public void RestartInto(string? preset) => _restart.RestartInto(preset);
 
     /// <summary>Announce, reconnect the players (CSP) and restart the server with the next track.</summary>
     public bool StartChange(string reason, string? to = null)
@@ -313,11 +283,11 @@ public sealed class TrackRotation : BackgroundService
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Race AI: rotation.yml not written");
+            Log.Error(ex, "Track rotation: rotation.yml not written");
             return T("rotation.yml could not be written.", "rotation.yml konnte nicht geschrieben werden.");
         }
         _cfg.Class = cls.Key;
-        Log.Information("Race AI: vehicle class set to {Class} ({When})", cls.Label, now ? "now" : "next track change");
+        Log.Information("Track rotation: vehicle class set to {Class} ({When})", cls.Label, now ? "now" : "next track change");
 
         string entry = _currentEntry;
         string preset = PresetFor(entry);
@@ -334,7 +304,7 @@ public sealed class TrackRotation : BackgroundService
     /// <summary>Class: in rotation.yml (the line is replaced or added; the file is made when there is none).</summary>
     private static void WriteClass(string key)
     {
-        const string comment = "# Vehicle class for every track (folder in presets/classes/); /raceai_class <class> changes it. Empty = cars of cfg/entry_list.ini\n";
+        const string comment = "# Vehicle class for every track (folder in presets/classes/); /server_class <class> changes it. Empty = cars of cfg/entry_list.ini\n";
         if (!File.Exists("rotation.yml"))
         {
             File.WriteAllText("rotation.yml", "Enabled: false\n" + comment + $"Class: {key}\n");
@@ -361,7 +331,7 @@ public sealed class TrackRotation : BackgroundService
         double start = state.StartSeconds.TryGetValue(preset, out var s) ? s : _cfg.FirstStartSeconds;
         int wait = (int)Math.Clamp(start + 8, 12, 240); // reconnect a little after the new server is ready
         string title = Title(entry);
-        Log.Information("Race AI: change to {Preset} ({Reason}), players reconnect after {Wait} s", preset, reason, wait);
+        Log.Information("Track rotation: change to {Preset} ({Reason}), players reconnect after {Wait} s", preset, reason, wait);
 
         _ = Task.Run(async () =>
         {
@@ -375,7 +345,7 @@ public sealed class TrackRotation : BackgroundService
                     await Task.Delay(announce * 1000);
                 }
                 foreach (var car in _entryCarManager.EntryCars.Where(c => c.Client != null))
-                    _service.SendTrackChange(car.Client!, title, wait);
+                    TrackChangeBanner.Send(car.Client!, title, wait);
                 await Task.Delay(1500);
                 state.SwitchTo = preset;
                 state.SwitchAt = DateTime.UtcNow;
@@ -396,7 +366,7 @@ public sealed class TrackRotation : BackgroundService
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "Race AI: change failed");
+                Log.Error(ex, "Track rotation: change failed");
                 _changing = false;
             }
         });

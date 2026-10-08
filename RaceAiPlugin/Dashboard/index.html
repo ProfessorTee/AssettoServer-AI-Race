@@ -209,7 +209,7 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
         <h3>Fahrzeugklasse</h3>
         <div class="row"><span id="clsInfo" class="muted">–</span></div>
         <div class="row"><select id="clsTarget"></select><button class="btn" id="clsNow">Jetzt wechseln</button><button class="btn" id="clsNext">Ab nächstem Streckenwechsel</button></div>
-        <div class="row"><span class="muted" id="clsMsg">Alle Strecken fahren mit den Autos dieser Klasse (<code>Class:</code> in <code>rotation.yml</code>, Chat: <code>/raceai_class gte</code>).
+        <div class="row"><span class="muted" id="clsMsg">Alle Strecken fahren mit den Autos dieser Klasse (<code>Class:</code> in <code>rotation.yml</code>, Chat: <code>/server_class gte</code>).
           Fehlt einer Strecke die Klasse, legt der Server <code>presets/&lt;strecke&gt;-&lt;klasse&gt;</code> selbst an. „Jetzt“ startet den Server neu.</span></div>
       </div>
       <div class="card">
@@ -594,7 +594,7 @@ function renderLegend() {
 // ---------------------------------------------------------------- AI tab
 const FEATURES = { errors: "Menschliche Fehler", lines: "Linienfehler", spins: "Dreher", grass: "Gras", contacts: "Berührungen", damage: "Schaden",
   blueflags: "Blaue Flagge", yellowflags: "Gelbe Flagge", flash: "Lichthupe", highbeams: "Fernlicht", raincaution: "Vorsicht bei Regen",
-  realweather: "Echtes Wetter", takeover: "Klon übernimmt bei Verbindungsabbruch", yellowchat: "Gelbe Fahne im Chat", overtakechat: "Überholungen im Chat",
+  takeover: "Klon übernimmt bei Verbindungsabbruch", yellowchat: "Gelbe Fahne im Chat", overtakechat: "Überholungen im Chat",
   personallines: "Eigene Linie je Fahrer", realstart: "Realistischer Start (Reaktion, Durchdrehen)" };
 let aiInit = false;
 function syncAi() {
@@ -609,9 +609,10 @@ function syncAi() {
     ["aiStrength", "aiSpread", "aiAggr"].forEach(id => { $(id).oninput = () => upd(); }); upd();
     function upd() { $("aiStrengthV").textContent = $("aiStrength").value + " %"; $("aiSpreadV").textContent = "± " + $("aiSpread").value; $("aiAggrV").textContent = $("aiAggr").value; }
     $("features").innerHTML = Object.entries(FEATURES).map(([k, n]) => `<label class="switch"><span>${n}</span><input type="checkbox" data-f="${k}"></label>`).join("");
-    $("features").querySelectorAll("input").forEach(i => i.onchange = () => act("/raceai/api/ai", { feature: i.dataset.f, on: i.checked }, `${FEATURES[i.dataset.f]}: ${i.checked ? "an" : "aus"}`));
+    $("features").querySelectorAll("input[data-f]").forEach(i => i.onchange = () => act("/raceai/api/ai", { feature: i.dataset.f, on: i.checked }, `${FEATURES[i.dataset.f]}: ${i.checked ? "an" : "aus"}`));
+    if (tools) syncRealWeather();
   }
-  $("features").querySelectorAll("input").forEach(i => { if (document.activeElement !== i) i.checked = !!a.features[i.dataset.f]; });
+  $("features").querySelectorAll("input[data-f]").forEach(i => { if (document.activeElement !== i) i.checked = !!a.features[i.dataset.f]; });
   if (document.activeElement !== $("gridOrder") && a.gridOrder) $("gridOrder").value = a.gridOrder;
 }
 $("gridOrder").onchange = () => act("/raceai/api/ai", { gridOrder: $("gridOrder").value }, "Startaufstellung: " + $("gridOrder").selectedOptions[0].textContent);
@@ -662,9 +663,18 @@ async function runCommand(text) {
 }
 $("cmdRun").onclick = () => { const t = $("cmdText").value.trim(); if (t) runCommand(t); };
 $("cmdText").onkeydown = e => { if (e.key === "Enter") $("cmdRun").onclick(); };
+// track rotation, class, real weather and server restart come from ServerToolsPlugin (/api/tools): hidden without it
+let tools = null;
+function toolCards(on) {
+  ["rotInfo", "clsInfo", "restartServer"].forEach(id => { const c = $(id) && $(id).closest(".card"); if (c) c.style.display = on ? "" : "none"; });
+}
 async function loadRotation() {
   try {
-    const r = await api("/raceai/api/rotation");
+    try { tools = await api("/api/tools/state"); } catch (e) { tools = null; toolCards(false); return; }
+    toolCards(true);
+    syncRealWeather();
+    if (!tools.supervised) { const c = $("restartServer").closest(".card"); if (c) c.style.display = "none"; }
+    const r = tools.rotation;
     showClasses(r);
     if (!r.active) { $("rotInfo").textContent = "Keine Rotation eingerichtet (rotation.yml mit Enabled: true und mindestens zwei Strecken)."; $("rotNow").disabled = true; return; }
     const left = r.racesPerTrack > 0 ? `${Math.max(0, r.racesPerTrack - r.racesDone)} Rennen` : "";
@@ -689,13 +699,23 @@ async function setClass(next) {
   const k = $("clsTarget").value;
   if (!k) return;
   if (!next && !confirm(`Jetzt auf ${$("clsTarget").selectedOptions[0].textContent} wechseln? Der Server startet neu.`)) return;
-  try { const r = await api("/raceai/api/server", { action: "class", text: next ? k + " next" : k }); $("clsMsg").textContent = r.message || "ok"; loadRotation(); }
+  try { const r = await api("/api/tools/action", { action: "class", text: next ? k + " next" : k }); $("clsMsg").textContent = r.message || "ok"; loadRotation(); }
   catch (e) { $("clsMsg").textContent = "Fehler: " + e.message; }
 }
 $("clsNow").onclick = () => setClass(false);
 $("clsNext").onclick = () => setClass(true);
 loadRotation(); setInterval(loadRotation, 15000);
-$("rotNow").onclick = () => { if (confirm(`Jetzt zu ${$("rotTarget").value} wechseln? Der Server startet neu.`)) act("/raceai/api/server", { action: "rotate", text: $("rotTarget").value }, "Streckenwechsel läuft"); };
+$("rotNow").onclick = () => { if (confirm(`Jetzt zu ${$("rotTarget").value} wechseln? Der Server startet neu.`)) act("/api/tools/action", { action: "rotate", text: $("rotTarget").value }, "Streckenwechsel läuft"); };
+function syncRealWeather() {
+  if (!aiInit) return; // the switches are made with the AI tab
+  let sw = $("rwSwitch");
+  if (!sw) {
+    $("features").insertAdjacentHTML("beforeend", `<label class="switch"><span>Echtes Wetter</span><input type="checkbox" id="rwSwitch"></label>`);
+    sw = $("rwSwitch");
+    sw.onchange = () => act("/api/tools/action", { action: "realweather", on: sw.checked }, `Echtes Wetter: ${sw.checked ? "an" : "aus"}`);
+  }
+  if (document.activeElement !== sw) sw.checked = !!tools.realWeather;
+}
 async function loadJoin() {
   try {
     const j = await api("/raceai/api/join");
@@ -715,17 +735,14 @@ async function serverRestart(mode) {
   const text = mode === "update" ? "Neueste Version von GitHub holen, installieren und den Server neu starten?" : "Server neu starten?";
   if (!confirm(text + "\nAlle Spieler werden getrennt.")) return;
   try {
-    await api("/raceai/api/server", { action: "restartserver", text: mode });
+    await api("/api/tools/action", { action: "restartserver", text: mode });
     toast(mode === "update" ? "Update und Neustart laufen …" : "Neustart läuft …");
     $("restartInfo").textContent = "Server startet neu … das Dashboard verbindet sich von selbst wieder.";
   } catch (e) { toast("Fehler: " + e.message); }
 }
 $("restartServer").onclick = () => serverRestart("restart");
 $("updateServer").onclick = () => serverRestart("update");
-// at a game server host the panel starts and stops the server: no server buttons there (only with race-ai/start-server.sh)
-(async () => { try { const p = await api("/raceai/api/ping"); if (!p.supervised) {
-  const card = $("restartServer").closest(".card"); if (card) card.style.display = "none";
-} } catch (e) {} })();
+// at a game server host the panel starts and stops the server: no server buttons there (only with tools/start-server.sh, see loadRotation)
 (async () => { try { const types = await api("/raceai/api/server", { action: "weathertypes" }); $("wType").innerHTML = types.map(t => `<option value="${t}"${t === "Clear" ? " selected" : ""}>${esc(WX[t] ? `${WX[t]} (${t})` : t)}</option>`).join(""); } catch (e) {} })();
 
 // ---------------------------------------------------------------- log

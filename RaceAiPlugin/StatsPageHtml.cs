@@ -87,7 +87,7 @@ function render() {
 }
 async function load() {
   try {
-    data = await (await fetch("/raceai/api/stats")).json();
+    data = await (await fetch("/api/tools/stats")).json();
     if (!track) track = data.current;
     $("sub").textContent = `Strecke jetzt: ${data.current} · Woche ${data.week}`;
     $("weekTitle").textContent = `Diese Woche (${data.week})`;

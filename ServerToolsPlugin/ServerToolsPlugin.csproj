@@ -10,8 +10,8 @@
     </ItemGroup>
 
     <ItemGroup>
-        <EmbeddedResource Include="Dashboard\index.html" LogicalName="RaceAiPlugin.Dashboard.index.html" />
-        <EmbeddedResource Include="Dashboard\driverswap.lua" LogicalName="RaceAiPlugin.Dashboard.driverswap.lua" />
+        <None Remove="lua\trackchange.lua" />
+        <EmbeddedResource Include="lua\trackchange.lua" LogicalName="ServerToolsPlugin.lua.trackchange.lua" />
     </ItemGroup>
 
 </Project>

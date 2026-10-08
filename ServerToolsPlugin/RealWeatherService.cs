@@ -6,7 +6,7 @@ using AssettoServer.Shared.Weather;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 
-namespace RaceAiPlugin;
+namespace ServerToolsPlugin;
 
 /// <summary>
 /// Real weather at the track from Open-Meteo (free, no API key). Sets the CSP WeatherFX type
@@ -17,17 +17,17 @@ public sealed class RealWeatherService : BackgroundService
 {
     private const double NordschleifeLat = 50.3356, NordschleifeLon = 6.9475;
 
-    private readonly RaceAiConfiguration _config;
+    private readonly ServerToolsConfiguration _config;
     private readonly WeatherManager _weatherManager;
     private readonly IWeatherTypeProvider _weatherTypeProvider;
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(20) };
 
-    public RealWeatherService(RaceAiConfiguration config, WeatherManager weatherManager, IWeatherTypeProvider weatherTypeProvider)
+    public RealWeatherService(ServerToolsConfiguration config, WeatherManager weatherManager, IWeatherTypeProvider weatherTypeProvider)
     {
         _config = config;
         _weatherManager = weatherManager;
         _weatherTypeProvider = weatherTypeProvider;
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("AssettoServer-RaceAiPlugin");
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd("AssettoServer-ServerToolsPlugin");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -39,7 +39,7 @@ public sealed class RealWeatherService : BackgroundService
         if (lat == 0 && lon == 0) (lat, lon) = (NordschleifeLat, NordschleifeLon);
         bool announced = false;
 
-        // RealWeather can be switched on and off while the server runs (/raceai_set realweather on|off)
+        // RealWeather can be switched on and off while the server runs (/server_set realweather on|off)
         while (!stoppingToken.IsCancellationRequested)
         {
             if (!_config.RealWeather)
@@ -50,12 +50,12 @@ public sealed class RealWeatherService : BackgroundService
             }
             if (!announced)
             {
-                Log.Information("Race AI: real weather from Open-Meteo for {Lat:F4}, {Lon:F4}, every {Min} min", lat, lon, _config.RealWeatherUpdateMinutes);
+                Log.Information("Real weather: real weather from Open-Meteo for {Lat:F4}, {Lon:F4}, every {Min} min", lat, lon, _config.RealWeatherUpdateMinutes);
                 announced = true;
             }
             try { await UpdateAsync(lat, lon, stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
-            catch (Exception ex) { Log.Warning("Race AI: real weather update failed: {Message}", ex.Message); }
+            catch (Exception ex) { Log.Warning("Real weather: real weather update failed: {Message}", ex.Message); }
 
             // wait for the next update, but notice when it gets switched off
             var until = DateTime.UtcNow.AddMinutes(Math.Max(1, _config.RealWeatherUpdateMinutes));
@@ -94,7 +94,7 @@ public sealed class RealWeatherService : BackgroundService
             RainWater = last.RainWater,
             TrackGrip = last.TrackGrip
         });
-        Log.Information("Race AI: real weather {Type} (WMO {Code}), {Temp:F1} °C, {Hum:F0} %, wind {Wind:F1} m/s, rain {Rain:F1} mm/h",
+        Log.Information("Real weather: real weather {Type} (WMO {Code}), {Temp:F1} °C, {Hum:F0} %, wind {Wind:F1} m/s, rain {Rain:F1} mm/h",
             fx, code, temp, hum, windSpeed, precip);
     }
 
