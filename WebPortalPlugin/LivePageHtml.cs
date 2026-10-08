@@ -301,7 +301,8 @@ function renderCar(f) {
   const rel = (gap, o) => o ? `${fmtGap(gap) ? fmtGap(gap) + " " : ""}${o.n.split(" ").pop()}` : "–";
   $("cAhead").textContent = rel(c.int, ahead);
   $("cBehind").textContent = rel(behind?.int, behind);
-  if (c.tyre != null) { $("cExtraL").firstChild.textContent = "Reifen"; $("cExtra").textContent = `${Math.round(c.tyre)} %, ${c.stops ?? 0} Stopp${c.stops === 1 ? "" : "s"}`; }
+  if (c.tyre != null) { $("cExtraL").firstChild.textContent = "Reifen"; $("cExtra").textContent = `${c.tc ? c.tc + " " : ""}${Math.round(c.tyre)} %, ${c.stops ?? 0} Stopp${c.stops === 1 ? "" : "s"}`; }
+  else if (c.tc) { $("cExtraL").firstChild.textContent = "Reifen"; $("cExtra").textContent = `${c.tc}, Runde ${c.lap}`; }
   else { $("cExtraL").firstChild.textContent = "Runden"; $("cExtra").textContent = c.lap; }
 }
 

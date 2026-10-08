@@ -136,7 +136,16 @@ public static class Simulator
                               $"average {Fmt(cloneProfile.AverageLap)}, errors {cb.Driver.Errors:F2}, offset |avg| {cloneProfile.Offset.Average(MathF.Abs):F2} m, max {cloneProfile.Offset.Max(MathF.Abs):F2} m");
         }
         foreach (var bot in world.Bots)
+        {
             world.ResetCarCondition(bot, hotlap ? 30 : world.FuelForLaps(bot, laps + 0.5f));
+            // --default-tyres: everybody on the car's default compound (as before the compound choice)
+            if (hotlap || o.Has("default-tyres")) continue;
+            world.ChooseTyres(bot, laps);
+            world.SetTyreTemperature(bot, RaceWorld.TyreOptimumOf(bot) - 5);
+        }
+        if (!hotlap)
+            Console.WriteLine("tyres: " + string.Join(", ", world.Bots.GroupBy(b => $"{b.Driver.Personality.Name} {RaceWorld.CompoundName(b)}")
+                .OrderBy(g => g.Key).Select(g => $"{g.Key} x{g.Count()}")));
 
         // optional scripted "human": drives its own line at a fixed pace and ignores the bots
         RaceWorld? playerWorld = null;

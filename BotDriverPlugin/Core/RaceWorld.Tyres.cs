@@ -22,8 +22,66 @@ public sealed partial class RaceWorld
     }
 
     /// <summary>Grip factor at a core temperature from the compound's own curve (street tyres work cooler than slicks), else a GT3 slick.</summary>
-    public static float TyreTempGrip(CarSpec car, float t)
-        => car.TyreTempCurve is { } c ? Math.Clamp(c.At(t), 0.7f, 1f) : TyreTempGrip(t);
+    public static float TyreTempGrip(RaceBot bot, float t)
+        => (bot.Tyres?.TempCurve ?? bot.Car.TyreTempCurve) is { } c ? Math.Clamp(c.At(t), 0.7f, 1f) : TyreTempGrip(t);
+
+    /// <summary>Middle of the working window of the compound on the car.</summary>
+    public static float TyreOptimumOf(RaceBot bot) => bot.Tyres?.Optimum ?? bot.Car.TyreOptimum;
+
+    /// <summary>Grip of the tyres on the car after <paramref name="virtualKm"/> (their wear curve, 1 = new).</summary>
+    public static float WearGrip(RaceBot bot, float virtualKm) => bot.Tyres?.GripAt(virtualKm) ?? bot.Car.TyreGripAt(virtualKm);
+
+    /// <summary>Short name of the compound on the car (S, M, H, SM ...), "" when unknown.</summary>
+    public static string CompoundName(RaceBot bot) => (bot.Tyres ?? bot.Car.DefaultCompound)?.ShortName ?? "";
+
+    /// <summary>
+    /// Picks the compound for the next stint, like a driver with his engineer:
+    /// cars on road tyres (JDM, street cars) take the grippiest one they may use (their best semislicks);
+    /// cars on slicks weigh grip against wear over the stint with the compounds' own wear curves and warm-up windows (a soft is quick
+    /// for a few laps, then drops off; a hard needs more heat), plus the driver's taste: aggressive attackers like a soft, smooth and
+    /// careful drivers a hard. Qualifying: the softest. Only what LEGAL_TYRES allows.
+    /// </summary>
+    public void ChooseTyres(RaceBot bot, float stintLaps, bool coldStart = false)
+    {
+        var car = bot.Car;
+        var legal = string.IsNullOrWhiteSpace(bot.LegalTyres) ? null
+            : bot.LegalTyres.Split(';', ',').Select(x => x.Trim()).Where(x => x != "").ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var options = car.Compounds.Where(c => legal == null || legal.Contains(c.ShortName)).ToList();
+        if (options.Count == 0) { bot.Tyres = null; return; }
+        var dry = options.Where(c => !c.IsWet).ToList();
+        if (dry.Count > 0) options = dry;
+        if (car.DefaultCompound?.IsSlick != true || options.All(c => !c.IsSlick) || Settings.Qualifying)
+        {
+            bot.Tyres = options.MaxBy(c => c.Grip);
+            return;
+        }
+        options = options.Where(c => c.IsSlick).ToList();
+        float minGrip = options.Min(c => c.Grip), maxGrip = options.Max(c => c.Grip);
+        int laps = (int)Math.Clamp(MathF.Round(stintLaps), 1, 60);
+        float vkm = Settings.TyreWearRate > 0 ? TyreVkmPerLap(bot) : 0;
+        var p = bot.Driver.Personality;
+        // taste: +1 likes it soft (attacks, late on the brakes, greedy), -1 likes it hard (smooth, careful, saves the tyres)
+        float taste = Math.Clamp((bot.Driver.Aggression - 0.5f) * 1.2f + (p.Attack - 0.55f) * 0.8f + 0.4f * p.BrakeBehavior - 0.6f * p.Smoothness, -1, 1);
+        float start = coldStart ? ColdTyreTemperature() : float.NaN;
+        Compound? best = null;
+        float bestCost = float.MaxValue;
+        foreach (var c in options)
+        {
+            // share of the lap time lost against perfect tyres, lap by lap through the stint
+            float cost = 0;
+            for (int i = 0; i < laps; i++) cost += 1 - MathF.Sqrt(c.Grip * c.GripAt((i + 0.5f) * vkm) / maxGrip);
+            // out of the pits on cold tyres: about half a lap below the window (a hard needs longer)
+            if (coldStart)
+            {
+                float tg = c.TempCurve is { } curve ? Math.Clamp(curve.At(start), 0.7f, 1f) : TyreTempGrip(start - (c.Optimum - TyreOptimum));
+                cost += 0.5f * (1 - MathF.Sqrt(tg));
+            }
+            float soft = maxGrip > minGrip ? (c.Grip - minGrip) / (maxGrip - minGrip) : 0.5f;
+            cost -= (0.012f * taste + 0.003f * (float)NextGaussian()) * soft * laps;
+            if (cost < bestCost) { bestCost = cost; best = c; }
+        }
+        bot.Tyres = best;
+    }
 
     public void SetTyreTemperature(RaceBot bot, float temperature)
     {
@@ -59,7 +117,7 @@ public sealed partial class RaceWorld
     /// <summary>Grip of the tyres from their temperature (the worse axle counts more).</summary>
     public static float TyreTemperatureGrip(RaceBot bot)
     {
-        float f = TyreTempGrip(bot.Car, bot.TyreTempFront), r = TyreTempGrip(bot.Car, bot.TyreTempRear);
+        float f = TyreTempGrip(bot, bot.TyreTempFront), r = TyreTempGrip(bot, bot.TyreTempRear);
         return 0.6f * MathF.Min(f, r) + 0.4f * (f + r) / 2;
     }
 

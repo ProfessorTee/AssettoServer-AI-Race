@@ -527,7 +527,7 @@ function rowHtml(c) {
   return `<td class="num">${c.pos}</td>`
     + `<td><span class="pers" style="background:${c.bot ? PCOL(c.personality) : "var(--accent)"}"></span><span title="${esc(c.model)}">${esc(c.name)}</span> <span class="muted">#${c.id}</span></td>`
     + `<td class="num">${c.laps}</td><td class="num">${fmtLap(c.best)}</td><td class="num">${fmtLap(c.last)}</td><td class="num">${c.speed}</td>
-    <td class="num">${c.bot ? Math.round(c.fuel) + " l" : ""}</td><td>${c.bot ? bar(c.tyres - 80, 20) + (c.tyreTemp ? ` <span class="muted" title="Reifentemperatur vorne/hinten">${c.tyreTemp[0]}°/${c.tyreTemp[1]}°</span>` : "") : ""}</td><td>${statusTags(c)}</td>`;
+    <td class="num">${c.bot ? Math.round(c.fuel) + " l" : ""}</td><td>${c.bot ? (c.compound ? `<b title="Reifenmischung">${esc(c.compound)}</b> ` : "") + bar(c.tyres - 80, 20) + (c.tyreTemp ? ` <span class="muted" title="Reifentemperatur vorne/hinten">${c.tyreTemp[0]}°/${c.tyreTemp[1]}°</span>` : "") : c.compound ? `<b title="Reifenmischung">${esc(c.compound)}</b>` : ""}</td><td>${statusTags(c)}</td>`;
 }
 function renderField() {
   const body = $("field"), seen = new Set();
@@ -597,7 +597,7 @@ function renderDetail(force) {
 }
 function liveInfo(c) {
   const parts = [`P${c.pos}`, `Sektor ${c.sector}`, `${c.speed} km/h`, `Runde ${c.laps}`];
-  if (c.bot) parts.push(`Stärke ${c.strength} %`, `Fehlerquote ${Math.round(c.errors * 100)} %`, `Sprit ${c.fuel} l`, `Reifen ${c.tyres} %`,
+  if (c.bot) parts.push(`Stärke ${c.strength} %`, `Fehlerquote ${Math.round(c.errors * 100)} %`, `Sprit ${c.fuel} l`, `Reifen ${c.compound ? c.compound + " " : ""}${c.tyres} %`,
     ...(c.tyreTemp ? [`Reifentemp. vorne ${c.tyreTemp[0]} °C / hinten ${c.tyreTemp[1]} °C`] : []),
     `Schaden ${c.damage} % / Aufh. ${c.suspension} %`, `Fehler ${c.mistakes}`, `Dreher ${c.spins}`, `Stopps ${c.stops}`);
   return `<p class="muted">${parts.join(" · ")}</p>`;

@@ -279,6 +279,7 @@ public sealed class LiveFeed
                     w.WriteBoolean("pit", c.InPit);
                     if (c.Kind != "player") w.WriteNumber("stops", c.Stops);
                     if (c.Tyres is { } ty) w.WriteNumber("tyre", ty);
+                    if (c.Compound != null) w.WriteString("tc", c.Compound);
                     if (c.Best is > 0 and < 999999999) w.WriteNumber("best", c.Best); else w.WriteNull("best");
                     if (c.Last is > 0 and < 999999999) w.WriteNumber("last", c.Last); else w.WriteNull("last");
                     w.WriteBoolean("fin", c.Finished);

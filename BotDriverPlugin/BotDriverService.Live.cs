@@ -26,7 +26,7 @@ public sealed partial class BotDriverService
                 Status = slot.Status,
                 InPitLane = b.InPitLane,
                 PitStops = b.PitStops,
-                TyrePercent = MathF.Round(b.Car.TyreGripAt(b.TyreVirtualKm) * 100, 1)
+                TyrePercent = MathF.Round(Core.RaceWorld.WearGrip(b, b.TyreVirtualKm) * 100, 1)
             };
         }
     }

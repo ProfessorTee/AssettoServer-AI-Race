@@ -34,6 +34,8 @@ public sealed class RaceView : BackgroundService
         public bool InPit;
         public int Stops;
         public float? Tyres;
+        /// <summary>Compound on the car (short name: S, M, H, SM ...), players and bots.</summary>
+        public string? Compound;
         // players only (admin page)
         public bool Admin;
         public int Ping;
@@ -171,6 +173,7 @@ public sealed class RaceView : BackgroundService
                     Best = result?.BestLap ?? 0,
                     Last = result?.LastLap ?? 0,
                     Finished = result?.HasCompletedLastLap ?? false,
+                    Compound = string.IsNullOrEmpty(car.Status.CurrentTyreCompound) ? null : car.Status.CurrentTyreCompound,
                 };
                 if (_map != null)
                 {
@@ -273,6 +276,7 @@ public sealed class RaceView : BackgroundService
                 ["progress"] = c.Laps + c.LapFraction,
                 ["sector"] = c.Sector,
                 ["inPit"] = c.InPit,
+                ["compound"] = c.Compound,
             };
             if (c.Kind == "player")
             {

@@ -48,7 +48,7 @@ public sealed partial class RaceWorld
         bot.Fuel = Math.Clamp(fuel, 0, bot.Car.FuelCapacity);
         bot.TyreVirtualKm = 0;
         bot.TyreKm = warmTyres ? 10 : 0;
-        SetTyreTemperature(bot, warmTyres ? bot.Car.TyreOptimum - 5 : ColdTyreTemperature());
+        SetTyreTemperature(bot, warmTyres ? TyreOptimumOf(bot) - 5 : ColdTyreTemperature());
         bot.Pit = PitPhase.None;
         bot.PitReason = "";
         bot.PitStops = 0;
@@ -143,12 +143,12 @@ public sealed partial class RaceWorld
     private void UpdateGrip(RaceBot bot)
     {
         var car = bot.Car;
-        float tyre = Settings.TyreWearRate > 0 ? car.TyreGripAt(bot.TyreVirtualKm) : 1f;
+        float tyre = Settings.TyreWearRate > 0 ? WearGrip(bot, bot.TyreVirtualKm) : 1f;
         float cold = TyreTemperatureGrip(bot);
         float mass = car.ReferenceMass - 25 * FuelDensity + bot.Fuel * FuelDensity;
         bot.MassRatio = Settings.FuelRate > 0 ? Math.Clamp(mass / car.ReferenceMass, 0.8f, 1.3f) : 1f;
         float massGrip = 1 - 0.3f * (bot.MassRatio - 1);
-        bot.CarGrip = tyre * cold * massGrip * (Settings.Damage ? DamageGrip(bot) : 1f) * RainGrip(bot);
+        bot.CarGrip = tyre * cold * massGrip * (bot.Tyres?.Grip ?? 1f) * (Settings.Damage ? DamageGrip(bot) : 1f) * RainGrip(bot);
     }
 
     // ------------------------------------------------------------------ strategy
@@ -200,17 +200,17 @@ public sealed partial class RaceWorld
         float changeAt = bot.Driver.Personality.TyreChangeAt > 0 ? bot.Driver.Personality.TyreChangeAt / 100f : Settings.TyreChangeGrip;
 
         // tyres: compare the time lost on worn tyres until the end with the time a stop costs
-        if (reason == "" && Settings.TyreWearRate > 0 && bot.Car.TyreWear != null)
+        if (reason == "" && Settings.TyreWearRate > 0 && (bot.Tyres?.Wear ?? bot.Car.TyreWear) != null)
         {
             float vkmPerLap = TyreVkmPerLap(bot);
             float stay = 0, fresh = 0;
             for (int i = 1; i <= lapsAfterThis; i++)
             {
-                stay += lapTime * (1 - MathF.Sqrt(bot.Car.TyreGripAt(bot.TyreVirtualKm + i * vkmPerLap)));
-                fresh += lapTime * (1 - MathF.Sqrt(bot.Car.TyreGripAt((i - 0.5f) * vkmPerLap)));
+                stay += lapTime * (1 - MathF.Sqrt(WearGrip(bot, bot.TyreVirtualKm + i * vkmPerLap)));
+                fresh += lapTime * (1 - MathF.Sqrt(WearGrip(bot, (i - 0.5f) * vkmPerLap)));
             }
             float stopCost = 30 + bot.Car.TyreChangeTime; // pit lane + stationary time
-            float gripNextLap = bot.Car.TyreGripAt(bot.TyreVirtualKm + vkmPerLap);
+            float gripNextLap = WearGrip(bot, bot.TyreVirtualKm + vkmPerLap);
             if (openEnd)
             {
                 // practice / qualifying: no race to optimise, drive the set until it's worn out
@@ -232,7 +232,7 @@ public sealed partial class RaceWorld
         if (reason == "" && Settings.PitWindowEnd > Settings.PitWindowStart && !bot.MandatoryPitDone && !openEnd)
         {
             int lap = bot.LapsCompleted + 1;
-            float grip = bot.Car.TyreGripAt(bot.TyreVirtualKm);
+            float grip = WearGrip(bot, bot.TyreVirtualKm);
             if (lap >= Settings.PitWindowStart && lap <= Settings.PitWindowEnd && (lap >= Settings.PitWindowEnd - 1 || grip < 0.985f))
                 reason = "mandatory";
         }
@@ -243,7 +243,7 @@ public sealed partial class RaceWorld
         // a fuel stop only takes new tyres when the old ones wouldn't last the next stint (practice: what a full tank lasts)
         float stint = openEnd ? MathF.Min(lapsAfterThis, bot.Car.FuelCapacity / MathF.Max(0.1f, perLap)) : lapsAfterThis;
         PlanService(bot, changeTyres: reason != "fuel"
-                                      || bot.Car.TyreGripAt(bot.TyreVirtualKm + TyreVkmPerLap(bot) * stint) < MathF.Min(0.97f, changeAt - 0.02f));
+                                      || WearGrip(bot, bot.TyreVirtualKm + TyreVkmPerLap(bot) * stint) < MathF.Min(0.97f, changeAt - 0.02f));
     }
 
     private void PlanService(RaceBot bot, bool changeTyres)
@@ -294,6 +294,9 @@ public sealed partial class RaceWorld
                 bot.FuelAddedThisLap += bot.PitFuelToAdd;
                 if (bot.PitChangeTyres)
                 {
+                    // the next stint: to the flag or as far as the fuel goes
+                    float fuelLaps = bot.Fuel / MathF.Max(0.1f, FuelPerLap(bot));
+                    ChooseTyres(bot, bot.RemainingLaps == int.MaxValue ? MathF.Min(10, fuelLaps) : MathF.Min(bot.RemainingLaps, fuelLaps), coldStart: true);
                     bot.TyreVirtualKm = 0;
                     bot.TyreKm = 0;
                     SetTyreTemperature(bot, ColdTyreTemperature());

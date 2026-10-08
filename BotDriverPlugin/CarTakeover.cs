@@ -69,7 +69,10 @@ public sealed class CarTakeover
             Driver = profile != null
                 ? new DriverProfile { Pace = 1, Aggression = Math.Clamp(Config.AiAggression / 100f, 0, 1), Consistency = 0.97f }
                 : DriverProfile.FromStrength(level, 0, Config.AiAggression),
-            Clone = profile
+            Clone = profile,
+            LegalTyres = car.LegalTyres,
+            // he keeps the tyres he was on
+            Tyres = spec.Compounds.FirstOrDefault(c => c.ShortName == car.Status.CurrentTyreCompound)
         };
         if (profile != null) _field.ApplyClone(bot, profile);
         else _field.ApplyStrength(bot, level, _field.Calibration(spec));

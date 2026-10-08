@@ -192,39 +192,22 @@ public static partial class CarDataLoader
         if (files.ContainsKey("brakes.ini")) spec.BrakeFront = Math.Clamp(Ini(files, "brakes.ini").GetFloat("DATA", "FRONT_SHARE", 0.66f), 0.4f, 0.9f);
 
         var tyres = Ini(files, "tyres.ini");
-        // the default compound (COMPOUND_DEFAULT: street cars come on semislicks), its sections carry the index as a suffix
-        int idx = tyres.GetInt("COMPOUND_DEFAULT", "INDEX", 0);
+        // every compound of the car; the default one (COMPOUND_DEFAULT: street cars come on semislicks) is the base of the car's grip
+        spec.Compounds = ReadCompounds(tyres, files);
+        int idx = Math.Clamp(tyres.GetInt("COMPOUND_DEFAULT", "INDEX", 0), 0, Math.Max(0, spec.Compounds.Count - 1));
         string sfx = idx == 0 ? "" : $"_{idx}";
         string tyreF = $"FRONT{sfx}", tyreR = $"REAR{sfx}";
-        if (!tyres.HasSection(tyreF) || !tyres.HasSection(tyreR)) { tyreF = "FRONT"; tyreR = "REAR"; }
+        if (!tyres.HasSection(tyreF) || !tyres.HasSection(tyreR)) { tyreF = "FRONT"; tyreR = "REAR"; idx = 0; }
+        if (spec.Compounds.Count > 0)
         {
-            // wear curve of the default compound (front and rear averaged)
-            spec.TyreCompound = tyres.Get(tyreF, "NAME") ?? "";
-            // temperature window: thermal sections carry the same suffix as the compound
-            string tsfx = tyreF == "FRONT" ? "" : sfx;
-            var curves = new[] { tyres.Get($"THERMAL_FRONT{tsfx}", "PERFORMANCE_CURVE"), tyres.Get($"THERMAL_REAR{tsfx}", "PERFORMANCE_CURVE") }
-                .Where(n => n != null && files.ContainsKey(n.Trim())).Select(n => Lut.Parse(Encoding.UTF8.GetString(files[n!.Trim()]))).Where(l => l.X.Length > 1).ToList();
-            if (curves.Count > 0)
-            {
-                var c0 = curves[0];
-                var ys = c0.X.Select(x => curves.Average(c => c.At(x))).ToArray();
-                float max = ys.Max();
-                if (max > 0)
-                {
-                    spec.TyreTempCurve = new Lut(c0.X, ys.Select(y => y / max).ToArray());
-                    // the middle of the range at full grip
-                    var top = c0.X.Where((x, k) => ys[k] >= max * 0.999f).ToList();
-                    spec.TyreOptimum = Math.Clamp((top.Min() + top.Max()) / 2, 40, 120);
-                }
-            }
-            var wf = tyres.Get(tyreF, "WEAR_CURVE");
-            var wr = tyres.Get(tyreR, "WEAR_CURVE");
-            if (wf != null && files.TryGetValue(wf, out var fb))
-            {
-                var lf = Lut.Parse(Encoding.UTF8.GetString(fb));
-                var lr = wr != null && files.TryGetValue(wr, out var rb) ? Lut.Parse(Encoding.UTF8.GetString(rb)) : lf;
-                spec.TyreWear = new Lut(lf.X, lf.X.Select(x => (lf.At(x) + lr.At(x)) / 2).ToArray());
-            }
+            var def = spec.Compounds[idx];
+            spec.DefaultCompound = def;
+            spec.TyreCompound = def.Name;
+            spec.TyreTempCurve = def.TempCurve;
+            spec.TyreOptimum = def.Optimum;
+            spec.TyreWear = def.Wear;
+            // grip of every compound relative to the default one (the car's grip and the calibration are the default's)
+            foreach (var c in spec.Compounds) c.Grip = def.RefGrip > 0 && c.RefGrip > 0 ? c.RefGrip / def.RefGrip : 1;
         }
         float rearRadius = tyres.GetFloat(tyreR, "RADIUS", 0.34f);
         float frontRadius = tyres.GetFloat(tyreF, "RADIUS", rearRadius);
@@ -379,6 +362,51 @@ public static partial class CarDataLoader
 
         // crests: cars without much downforce get light earlier
         spec.CrestFactor = hasWings ? 1.35f : 1.2f;
+    }
+
+    /// <summary>
+    /// The compounds of tyres.ini: [FRONT]/[REAR] is compound 0, [FRONT_1]/[REAR_1] compound 1 ... with their grip (DY_REF/DX_REF),
+    /// wear curve (grip over virtual km) and temperature window ([THERMAL_FRONT_n] PERFORMANCE_CURVE).
+    /// </summary>
+    private static List<Compound> ReadCompounds(IniFile tyres, Dictionary<string, byte[]> files)
+    {
+        var list = new List<Compound>();
+        Lut? LutOf(string? name) => name != null && files.TryGetValue(name.Trim(), out var b) ? Lut.Parse(Encoding.UTF8.GetString(b)) : null;
+        for (int i = 0; i < 20; i++)
+        {
+            string sfx = i == 0 ? "" : $"_{i}", f = $"FRONT{sfx}", r = $"REAR{sfx}";
+            if (!tyres.HasSection(f) || !tyres.HasSection(r)) break;
+            var c = new Compound
+            {
+                Index = i,
+                Name = tyres.Get(f, "NAME")?.Trim() ?? $"Compound {i}",
+                ShortName = tyres.Get(f, "SHORT_NAME")?.Trim() ?? "",
+                RefGrip = (tyres.GetFloat(f, "DY_REF", 0) + tyres.GetFloat(r, "DY_REF", 0) + tyres.GetFloat(f, "DX_REF", 0) + tyres.GetFloat(r, "DX_REF", 0)) / 4
+            };
+            var curves = new[] { LutOf(tyres.Get($"THERMAL_FRONT{sfx}", "PERFORMANCE_CURVE")), LutOf(tyres.Get($"THERMAL_REAR{sfx}", "PERFORMANCE_CURVE")) }
+                .Where(l => l is { X.Length: > 1 }).Select(l => l!).ToList();
+            if (curves.Count > 0)
+            {
+                var c0 = curves[0];
+                var ys = c0.X.Select(x => curves.Average(k => k.At(x))).ToArray();
+                float max = ys.Max();
+                if (max > 0)
+                {
+                    c.TempCurve = new Lut(c0.X, ys.Select(y => y / max).ToArray());
+                    // the middle of the range at full grip
+                    var top = c0.X.Where((x, k) => ys[k] >= max * 0.999f).ToList();
+                    c.Optimum = Math.Clamp((top.Min() + top.Max()) / 2, 40, 120);
+                }
+            }
+            // wear: front and rear averaged
+            if (LutOf(tyres.Get(f, "WEAR_CURVE")) is { X.Length: > 0 } lf)
+            {
+                var lr = LutOf(tyres.Get(r, "WEAR_CURVE")) ?? lf;
+                c.Wear = new Lut(lf.X, lf.X.Select(x => (lf.At(x) + lr.At(x)) / 2).ToArray());
+            }
+            list.Add(c);
+        }
+        return list;
     }
 
     /// <summary>Wastegate by rpm from ctrl_turbo&lt;n&gt;.ini (controllers with INPUT=RPMS, ADD or MULT), null when there is none.</summary>

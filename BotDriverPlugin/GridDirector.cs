@@ -77,6 +77,7 @@ public sealed class GridDirector
         _world.Settings.BlueFlags = _config.BlueFlags && _sessionType == SessionType.Race;
         _world.Settings.RaceStartTime = _sessionType == SessionType.Race ? double.PositiveInfinity : double.NegativeInfinity;
         _world.Settings.PitWindowEnd = lapRace ? _serverConfig.Server.PitWindowEnd : 0;
+        _world.Settings.Qualifying = _sessionType == SessionType.Qualifying;
 
         var driving = new List<RaceBot>();
         foreach (var slot in _slots.Where(s => s.Active))
@@ -89,6 +90,12 @@ public sealed class GridDirector
                 _ => _config.PracticeFuelLaps
             };
             _world.ResetCarCondition(slot.Bot, _world.FuelForLaps(slot.Bot, fuelLaps));
+            // tyres for the first stint: as far as the tank goes (and the mandatory stop, if there is one)
+            float stint = MathF.Min(fuelLaps, slot.Bot.Fuel / MathF.Max(0.1f, _world.FuelPerLap(slot.Bot)));
+            if (lapRace && _world.Settings.PitWindowEnd > _world.Settings.PitWindowStart) stint = MathF.Min(stint, _world.Settings.PitWindowEnd);
+            _world.ChooseTyres(slot.Bot, _sessionType == SessionType.Race ? stint : MathF.Min(stint, 10),
+                coldStart: _sessionType != SessionType.Race && _config.SessionStart == BotSessionStart.Pits);
+            _world.SetTyreTemperature(slot.Bot, RaceWorld.TyreOptimumOf(slot.Bot) - 5); // warm like before, in the new compound's window
             ParkInPitBox(slot);
             switch (_sessionType)
             {

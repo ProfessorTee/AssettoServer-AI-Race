@@ -32,7 +32,7 @@ public class BotDriverCommandModule : ACModuleBase
             var b = slot.Bot;
             string best = b.BestLapSeconds < 1e6 ? TimeSpan.FromSeconds(b.BestLapSeconds).ToString(@"m\:ss\.fff") : "-";
             sb.Append($"\n{b.Name} ({slot.EntryCar.Model}) {b.Driver.Level:F0} %, {b.Driver.Personality.Name}, aggr. {b.Driver.Aggression * 100:F0}, laps {b.LapsCompleted}, best {best}, " +
-                      $"fuel {b.Fuel:F0} l, tyres {b.Car.TyreGripAt(b.TyreVirtualKm) * 100:F0} %, stops {b.PitStops}, " +
+                      $"fuel {b.Fuel:F0} l, tyres {Core.RaceWorld.CompoundName(b)} {Core.RaceWorld.WearGrip(b, b.TyreVirtualKm) * 100:F0} %, stops {b.PitStops}, " +
                       $"mistakes {b.MistakeCount}, spins {b.SpinCount}, damage {Core.RaceWorld.BodyDamagePercent(b):F0} %");
         }
         Reply(sb.ToString());

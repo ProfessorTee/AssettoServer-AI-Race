@@ -280,7 +280,8 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
                 Id = entryCar.SessionId,
                 Name = _config.NamePrefix + name,
                 Car = spec,
-                Driver = DriverProfile.FromStrength(strength, 0, aggression)
+                Driver = DriverProfile.FromStrength(strength, 0, aggression),
+                LegalTyres = entryCar.LegalTyres
             };
             bot.Driver.Personality = personality;
             if (!string.IsNullOrWhiteSpace(driverCfg?.Clone))
@@ -557,6 +558,14 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
                 slot.Ghosted = ghost;
                 slot.EntryCar.SetCollisions(!ghost);
                 if (ghost) Log.Information("BotDriver: {Name} stuck for {Seconds:F0} s, ghost for a moment to get out", slot.Bot.Name, _config.GhostAfterSeconds);
+            }
+            // the compound on the car, for the clients (tyre apps, leaderboards) and players who join later
+            string compound = RaceWorld.CompoundName(slot.Bot);
+            if (compound != "" && compound != slot.EntryCar.Status.CurrentTyreCompound)
+            {
+                slot.EntryCar.Status.CurrentTyreCompound = compound;
+                slot.Status.CurrentTyreCompound = compound;
+                _entryCarManager.BroadcastPacket(new TyreCompoundUpdate { SessionId = slot.EntryCar.SessionId, CompoundName = compound });
             }
             if (slot.SentDamageVersion != slot.Bot.DamageVersion)
             {

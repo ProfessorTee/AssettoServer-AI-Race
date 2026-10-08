@@ -200,6 +200,9 @@ public sealed class RaceBot
     public float Fuel { get; set; } = 30f;
     /// <summary>Tyre wear in Kunos "virtual km" of the current set.</summary>
     public float TyreVirtualKm { get; set; }
+    /// <summary>The compound on the car (null = the car's default compound) and the ones the server allows (LEGAL_TYRES, "" = all).</summary>
+    public Compound? Tyres { get; set; }
+    public string LegalTyres { get; set; } = "";
     /// <summary>Real km driven on the current set (for the warm-up of new tyres).</summary>
     public float TyreKm { get; set; } = 10f;
     /// <summary>Core tyre temperatures of the front and rear axle (°C).</summary>
@@ -485,6 +488,8 @@ public sealed class RaceWorldSettings
     public float RoadTemp { get; set; } = 28;
     /// <summary>The current session is a race (no out-lap tyre warming, etc.).</summary>
     public bool IsRace { get; set; } = true;
+    /// <summary>The current session is a qualifying (the cars with slicks go for the softest compound).</summary>
+    public bool Qualifying { get; set; }
     public float Water { get; set; }
     public float RainIntensity { get; set; }
     /// <summary>Server extra_cfg RainTrackGripReductionPercent (0..0.5): the server already lowers the grip for everybody (slicks).</summary>

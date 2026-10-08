@@ -116,13 +116,12 @@ public sealed class CarSpec
     public float BodyRepairTime { get; set; } = 20f;
     public float SuspRepairTime { get; set; } = 30f;
 
-    /// <summary>Grip factor of the tyres after <paramref name="virtualKm"/> (1 = new).</summary>
-    public float TyreGripAt(float virtualKm)
-    {
-        if (TyreWear is not { X.Length: > 0 } lut) return 1f;
-        float max = lut.Max;
-        return max <= 0 ? 1f : Math.Clamp(lut.At(virtualKm) / max, 0.5f, 1f);
-    }
+    /// <summary>All compounds of tyres.ini (empty when unknown) and the default one (the car's grip, wear and temperature above are its).</summary>
+    public List<Compound> Compounds { get; set; } = [];
+    public Compound? DefaultCompound { get; set; }
+
+    /// <summary>Grip factor of the default tyres after <paramref name="virtualKm"/> (1 = new).</summary>
+    public float TyreGripAt(float virtualKm) => Compound.WearGrip(TyreWear, virtualKm);
 
     /// <summary>Part of <see cref="AccelAt"/> that needs the turbo spooled up (0 for cars without turbo).</summary>
     public float TurboAccelAt(float v)
@@ -212,6 +211,40 @@ public sealed class CarSpec
         c.ZoneCd = (float[])ZoneCd.Clone();
         c.ZoneCl = (float[])ZoneCl.Clone();
         c.DamageMinKmh = (float[])DamageMinKmh.Clone();
+        c.Compounds = Compounds.ToList();
         return c;
     }
+}
+
+/// <summary>One tyre compound of a car (tyres.ini): grip relative to the default compound, wear curve and temperature window.</summary>
+public sealed class Compound
+{
+    public int Index { get; init; }
+    public string Name { get; init; } = "";
+    /// <summary>SHORT_NAME (S, M, H, SM, ST ...): what LEGAL_TYRES and the clients' compound packets use.</summary>
+    public string ShortName { get; init; } = "";
+    /// <summary>Mean DY_REF/DX_REF of tyres.ini.</summary>
+    public float RefGrip { get; init; }
+    /// <summary>Grip relative to the car's default compound (1 = the same).</summary>
+    public float Grip { get; set; } = 1;
+    public Lut? Wear { get; set; }
+    public Lut? TempCurve { get; set; }
+    public float Optimum { get; set; } = RaceWorld.TyreOptimum;
+
+    /// <summary>Racing slick (soft / medium / hard), not a semislick or a wet tyre.</summary>
+    public bool IsSlick => Name.Contains("slick", StringComparison.OrdinalIgnoreCase) && !Name.Contains("semi", StringComparison.OrdinalIgnoreCase) && !IsWet;
+    public bool IsWet => Name.Contains("wet", StringComparison.OrdinalIgnoreCase) || Name.Contains("rain", StringComparison.OrdinalIgnoreCase)
+                         || Name.Contains("inter", StringComparison.OrdinalIgnoreCase);
+
+    public float GripAt(float virtualKm) => WearGrip(Wear, virtualKm);
+
+    /// <summary>Grip factor of a wear curve after <paramref name="virtualKm"/> (1 = new).</summary>
+    public static float WearGrip(Lut? wear, float virtualKm)
+    {
+        if (wear is not { X.Length: > 0 } lut) return 1f;
+        float max = lut.Max;
+        return max <= 0 ? 1f : Math.Clamp(lut.At(virtualKm) / max, 0.5f, 1f);
+    }
+
+    public override string ToString() => string.IsNullOrEmpty(ShortName) ? Name : $"{Name} ({ShortName})";
 }

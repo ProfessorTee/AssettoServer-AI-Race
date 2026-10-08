@@ -169,6 +169,9 @@ public static class Program
         {
             var spec = CarDataLoader.Load(cars, model, log: Console.WriteLine);
             PrintSpec(spec);
+            foreach (var c in spec.Compounds)
+                Console.WriteLine($"  {(c == spec.DefaultCompound ? "*" : " ")} {c}: grip x{c.Grip:F3}, best at {c.Optimum:F0} °C, " +
+                                  $"wear 0/20/50/100 vkm {c.GripAt(0):F3}/{c.GripAt(20):F3}/{c.GripAt(50):F3}/{c.GripAt(100):F3}{(c.IsSlick ? ", slick" : c.IsWet ? ", wet" : "")}");
             if (o.Get("track") is { } tr && spec.HasWingSetup)
             {
                 var (trackRoot, layout, _) = ResolvePaths(o);
