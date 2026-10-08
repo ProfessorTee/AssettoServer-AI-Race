@@ -274,6 +274,16 @@ public static class Simulator
         }
         stats.Print(laps);
         if (stats.Behaviour) stats.PrintBehaviour(now);
+        if (!hotlap)
+        {
+            // held up: best race lap against the lap time the bot's strength gives (traffic costs time, the faster drivers stuck in trains most)
+            var loss = world.Bots.Where(b => b.BestLapSeconds < 1e6f && calibrations.ContainsKey(b.Car))
+                .Select(b => (b, l: b.BestLapSeconds - calibrations[b.Car].LapTimeFor(b.Driver.Level))).OrderByDescending(x => x.l).ToList();
+            if (loss.Count > 0)
+                Console.WriteLine($"held up: best lap vs strength target avg +{loss.Average(x => x.l):F2} s, median +{loss[loss.Count / 2].l:F2} s, " +
+                                  $"over 2 s: {loss.Count(x => x.l > 2)} of {loss.Count}; worst " +
+                                  string.Join(", ", loss.Take(4).Select(x => $"{x.b.Name} {x.b.Driver.Level:F0}% {x.b.Driver.Personality.Name} +{x.l:F1}")));
+        }
         net?.Print();
         if (world.MeasureJumps)
         {
