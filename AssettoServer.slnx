@@ -23,5 +23,6 @@
   <Project Path="TimeDilationPlugin\TimeDilationPlugin.csproj" />
   <Project Path="VotingPresetPlugin\VotingPresetPlugin.csproj" />
   <Project Path="VotingWeatherPlugin\VotingWeatherPlugin.csproj" />
+  <Project Path="WebPortalPlugin\WebPortalPlugin.csproj" />
   <Project Path="WordFilterPlugin\WordFilterPlugin.csproj" />
 </Solution>

@@ -1,6 +1,6 @@
-namespace RaceAiPlugin;
+namespace WebPortalPlugin;
 
-/// <summary>Public statistics page (http://SERVER:HTTP_PORT/raceai/stats): best laps of the week / all time, safety ratings, profiles.</summary>
+/// <summary>Public statistics page (http://SERVER:HTTP_PORT/stats): best laps of the week / all time, safety ratings, profiles.</summary>
 internal static class StatsPageHtml
 {
     public const string Html = """
@@ -87,7 +87,9 @@ function render() {
 }
 async function load() {
   try {
-    data = await (await fetch("/api/tools/stats")).json();
+    const r = await fetch("/api/tools/stats");
+    if (r.status === 404) { $("sub").textContent = "Auf diesem Server gibt es keine Statistik (ServerToolsPlugin ist nicht installiert)."; return; }
+    data = await r.json();
     if (!track) track = data.current;
     $("sub").textContent = `Strecke jetzt: ${data.current} · Woche ${data.week}`;
     $("weekTitle").textContent = `Diese Woche (${data.week})`;

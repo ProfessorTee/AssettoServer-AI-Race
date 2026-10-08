@@ -20,6 +20,7 @@ public class ServerToolsModule : AssettoServerModule<ServerToolsConfiguration>
         builder.RegisterType<RealWeatherService>().AsSelf().As<IHostedService>().SingleInstance();
         builder.RegisterType<PlayerStats>().AsSelf().As<IPlayerRating>().As<IHostedService>().SingleInstance();
         builder.RegisterType<ServerRestart>().AsSelf().SingleInstance();
+        builder.RegisterType<RaceResults>().AsSelf().As<IHostedService>().SingleInstance();
     }
 }
 

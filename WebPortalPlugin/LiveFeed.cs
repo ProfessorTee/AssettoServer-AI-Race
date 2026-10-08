@@ -4,18 +4,18 @@ using System.Threading.Channels;
 using AssettoServer.Server.Extensions;
 using Serilog;
 
-namespace RaceAiPlugin;
+namespace WebPortalPlugin;
 
 /// <summary>
-/// Public live timing for /raceai/live: builds one frame a few times per second (only while somebody watches), works out positions
+/// Public live timing for /live: builds one frame a few times per second (only while somebody watches), works out positions
 /// and time gaps (timing points every ~20 m), and pushes the same bytes to every viewer as Server-Sent Events.
 /// No admin data in here (no Steam IDs, no AI internals).
 /// </summary>
 public sealed class LiveFeed
 {
-    private readonly RaceAiService _service;
+    private readonly RaceView _view;
     private readonly IReadOnlyList<IPlayerRating> _ratings;
-    private readonly RaceAiConfiguration _config;
+    private readonly WebPortalConfiguration _config;
     private readonly object _lock = new();
     private readonly List<Channel<byte[]>> _subscribers = [];
     private bool _running;
@@ -23,9 +23,9 @@ public sealed class LiveFeed
     private DateTime _latestAt = DateTime.MinValue;
     private const int MaxViewers = 100;
 
-    public LiveFeed(RaceAiService service, IEnumerable<IPlayerRating> ratings, RaceAiConfiguration config)
+    public LiveFeed(RaceView view, IEnumerable<IPlayerRating> ratings, WebPortalConfiguration config)
     {
-        _service = service;
+        _view = view;
         _ratings = ratings.ToList();
         _config = config;
     }
@@ -93,7 +93,7 @@ public sealed class LiveFeed
                 try { json = BuildJson(); }
                 catch (Exception ex)
                 {
-                    Log.Debug(ex, "Race AI: live frame failed");
+                    Log.Debug(ex, "Web portal: live frame failed");
                     continue;
                 }
                 var sse = Encoding.UTF8.GetBytes("data: ").Concat(json).Concat("\n\n"u8.ToArray()).ToArray();
@@ -132,7 +132,7 @@ public sealed class LiveFeed
     private int _markers = 500;
     private byte _leader = 255;
 
-    private void Event(RaceAiService.LiveFrame f, string text)
+    private void Event(RaceView.LiveFrame f, string text)
     {
         long ms = Math.Max(0, f.ServerMs - f.SessionStart);
         _events.Add((TimeSpan.FromMilliseconds(ms).ToString(ms >= 3600_000 ? @"h\:mm\:ss" : @"mm\:ss"), text));
@@ -143,10 +143,10 @@ public sealed class LiveFeed
 
     private byte[] BuildJson()
     {
-        var f = _service.LiveSnapshot();
+        var f = _view.Snapshot();
         double now = f.ServerMs / 1000.0;
         bool race = f.SessionType == "Race";
-        float length = _service.TrackLengthMeters;
+        float length = _view.Map?.Line.Length ?? 0;
         _markers = (int)Math.Clamp(length / 20, 50, 2500);
 
         lock (_timing)
@@ -254,7 +254,7 @@ public sealed class LiveFeed
                 w.WriteEndObject();
 
                 w.WriteStartArray("cars");
-                RaceAiService.LiveCar? first = cars.Count > 0 ? cars[0] : null;
+                RaceView.LiveCar? first = cars.Count > 0 ? cars[0] : null;
                 for (int i = 0; i < cars.Count; i++)
                 {
                     var c = cars[i];
@@ -318,7 +318,7 @@ public sealed class LiveFeed
     }
 
     /// <summary>Time behind <paramref name="ahead"/>: when it passed the timing point <paramref name="c"/> is at now; whole laps when lapped.</summary>
-    private void WriteGap(Utf8JsonWriter w, string name, RaceAiService.LiveCar ahead, RaceAiService.LiveCar c, Dictionary<byte, double> progress, double now)
+    private void WriteGap(Utf8JsonWriter w, string name, RaceView.LiveCar ahead, RaceView.LiveCar c, Dictionary<byte, double> progress, double now)
     {
         double pa = progress[ahead.Id], pc = progress[c.Id];
         if (pa - pc >= 1)

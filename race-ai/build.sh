@@ -7,10 +7,10 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 RID="${1:-linux-x64}"
 export PATH="$HOME/.dotnet:$PATH"
 cd "$REPO"
-for p in AssettoServer RaceAiPlugin DriverRecorderPlugin ServerToolsPlugin; do
+for p in AssettoServer RaceAiPlugin DriverRecorderPlugin ServerToolsPlugin WebPortalPlugin; do
   # MinVer takes the version from git tags, which this fork has none of
   dotnet publish "$p/$p.csproj" -c Release -r "$RID" -nologo -v q -p:MinVerVersionOverride="0.0.55-raceai+$(git rev-parse --short HEAD)"
 done
 cp -f "AssettoServer/bin/Release/net11.0/$RID/AssettoServer.dll" race-ai/server-build/
-for p in RaceAiPlugin DriverRecorderPlugin ServerToolsPlugin; do cp -f "out-$RID/plugins/$p/$p.dll" race-ai/server-build/; done
+for p in RaceAiPlugin DriverRecorderPlugin ServerToolsPlugin WebPortalPlugin; do cp -f "out-$RID/plugins/$p/$p.dll" race-ai/server-build/; done
 echo "built: out-$RID/  (server-build/ refreshed)"

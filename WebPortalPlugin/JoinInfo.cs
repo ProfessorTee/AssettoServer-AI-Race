@@ -2,28 +2,32 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using AssettoServer.Server.Configuration;
+using AssettoServer.Server.Extensions;
 
-namespace RaceAiPlugin;
+namespace WebPortalPlugin;
 
 /// <summary>Addresses and links to join the server (Content Manager link, IP and ports), for the dashboard and the public join page.</summary>
 public sealed class JoinInfo
 {
     private readonly ACServerConfiguration _serverConfig;
-    private readonly RaceAiConfiguration _config;
+    private readonly WebPortalConfiguration _config;
+    private readonly IReadOnlyList<ISharedSettings> _shared;
     private string? _publicIp;
     private DateTime _publicIpAt = DateTime.MinValue;
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(4) };
 
-    public JoinInfo(ACServerConfiguration serverConfig, RaceAiConfiguration config)
+    public JoinInfo(ACServerConfiguration serverConfig, WebPortalConfiguration config, IEnumerable<ISharedSettings> shared)
     {
         _serverConfig = serverConfig;
         _config = config;
+        _shared = shared.ToList();
     }
 
     public async Task<object> GetAsync()
     {
         var s = _serverConfig.Server;
-        string? publicHost = string.IsNullOrWhiteSpace(_config.PublicAddress) ? await PublicIpAsync() : _config.PublicAddress.Trim();
+        string address = SharedSettings.PublicAddress(_shared, _config.PublicAddress);
+        string? publicHost = string.IsNullOrWhiteSpace(address) ? await PublicIpAsync() : address.Trim();
         string? lan = _config.JoinShowLan ? LanIp() : null;
         return new
         {

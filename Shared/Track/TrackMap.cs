@@ -29,6 +29,10 @@ public sealed class TrackMap
         return string.IsNullOrEmpty(layout) ? track : $"{track}-{layout}";
     }
 
+    /// <summary>"&lt;track key&gt;-grid.json" (see <see cref="Key"/>) from the top configuration layer that has one, else null.</summary>
+    public static string? FindGridFile(IEnumerable<string> layers, string key)
+        => layers.Reverse().Select(l => Path.Join(l, key + "-grid.json")).FirstOrDefault(File.Exists);
+
     /// <summary>Content folders to search: the server's own content folder first, then the game installation.</summary>
     public static List<string> ContentRoots(string? assettoCorsaPath, Action<string>? warn = null)
     {

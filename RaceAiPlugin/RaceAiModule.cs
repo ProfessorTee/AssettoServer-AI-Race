@@ -22,17 +22,8 @@ public class RaceAiModule : AssettoServerModule<RaceAiConfiguration>
     protected override void Load(ContainerBuilder builder)
     {
         builder.RegisterType<RaceAiService>().AsSelf().As<IHostedService>().As<IDrivenCars>().SingleInstance();
-        builder.RegisterType<DashboardAccess>().As<IAdminWebAccess>().SingleInstance();
         builder.RegisterType<RaceAiSlotFilter>().As<IOpenSlotFilter>().SingleInstance();
-        builder.RegisterType<JoinInfo>().AsSelf().SingleInstance();
-        builder.RegisterType<LiveFeed>().AsSelf().SingleInstance();
     }
-}
-
-/// <summary>Remote access to the admin pages of all plugins (DashboardRemoteAccess).</summary>
-public sealed class DashboardAccess(RaceAiConfiguration config) : IAdminWebAccess
-{
-    public bool RemoteAccess => config.DashboardRemoteAccess;
 }
 
 /// <summary>Settings a plugin shares with the others (<see cref="ISharedSettings"/>): own value when set, else the shared one.</summary>

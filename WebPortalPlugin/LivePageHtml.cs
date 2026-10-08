@@ -1,6 +1,6 @@
-namespace RaceAiPlugin;
+namespace WebPortalPlugin;
 
-/// <summary>Public live page (http://SERVER:HTTP_PORT/raceai/live): track map, timing tower with gaps, telemetry of one car.</summary>
+/// <summary>Public live page (http://SERVER:HTTP_PORT/live): track map, timing tower with gaps, telemetry of one car.</summary>
 internal static class LivePageHtml
 {
     public const string Html = """

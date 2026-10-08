@@ -4,13 +4,12 @@
 
     <ItemGroup>
         <Compile Include="..\Shared\Track\*.cs" Link="Shared\Track\%(Filename)%(Extension)" />
-        <Compile Include="..\Shared\Presets\*.cs" Link="Shared\Presets\%(Filename)%(Extension)" />
         <Compile Include="..\Shared\Web\*.cs" Link="Shared\Web\%(Filename)%(Extension)" />
-        <Compile Include="..\Shared\Config\*.cs" Link="Shared\Config\%(Filename)%(Extension)" />
     </ItemGroup>
 
     <ItemGroup>
-        <EmbeddedResource Include="Dashboard\driverswap.lua" LogicalName="RaceAiPlugin.Dashboard.driverswap.lua" />
+        <None Remove="Pages\admin.html" />
+        <EmbeddedResource Include="Pages\admin.html" LogicalName="WebPortalPlugin.Pages.admin.html" />
     </ItemGroup>
 
 </Project>

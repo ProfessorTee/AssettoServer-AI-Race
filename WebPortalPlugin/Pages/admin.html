@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Race AI Server</title>
+<title>Server-Admin</title>
 <style>
 :root {
   --bg: #0f1216; --panel: #161b21; --panel2: #1c232b; --line: #2a333d; --text: #e6e9ed; --muted: #8b96a3;
@@ -80,7 +80,7 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
 </head>
 <body>
 <header>
-  <h1 id="title">Race AI Server</h1>
+  <h1 id="title">Server-Admin</h1>
   <span class="chip"><span class="dot" id="conn"></span><span id="connText">verbinde …</span></span>
   <span class="chip" id="sessionChip">Session –</span>
   <span class="chip" id="weatherChip">Wetter –</span>
@@ -171,9 +171,10 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
         <div class="row"><label>Regen</label><input type="range" id="rInt" min="0" max="1" step="0.05" value="0"><span class="val" id="rIntV"></span></div>
         <div class="row"><label>Nässe</label><input type="range" id="rWet" min="0" max="1" step="0.05" value="0"><span class="val" id="rWetV"></span></div>
         <div class="row"><label>Wasser</label><input type="range" id="rWat" min="0" max="1" step="0.05" value="0"><span class="val" id="rWatV"></span></div>
-        <div class="row"><button class="btn" id="rSet">Regen setzen</button><span class="muted">Echtes Wetter (KI → Funktionen) sonst wieder aus</span></div>
+        <div class="row"><button class="btn" id="rSet">Regen setzen</button><span class="muted">Echtes Wetter vorher ausschalten, sonst setzt es den Regen zurück</span></div>
+        <div class="row" id="rwRow" style="display:none"><label class="switch" style="flex:1"><span>Echtes Wetter (Open-Meteo, ServerTools)</span><input type="checkbox" id="rwSwitch"></label></div>
         <div class="row"><label>Luft °C</label><input type="number" id="tAir" step="0.5" style="width:80px"><label style="min-width:0">Strecke °C</label><input type="number" id="tRoad" step="0.5" style="width:80px"><button class="btn" id="tempSet">Setzen</button></div>
-        <div class="row"><span class="muted">Echtes Wetter setzt die Temperaturen alle paar Minuten neu – dafür unter KI → Funktionen „Echtes Wetter“ aus.</span></div>
+        <div class="row"><span class="muted">Echtes Wetter setzt die Temperaturen alle paar Minuten neu – dafür oben „Echtes Wetter“ aus.</span></div>
         <div class="row"><label>Grip</label><input type="range" id="gGrip" min="0" max="1" step="0.01" value="0"><span class="val" id="gGripV"></span><button class="btn" id="gSet">Setzen</button></div>
       </div>
       <div class="card">
@@ -189,13 +190,13 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
       <div class="card">
         <h3>Beitreten</h3>
         <div class="row"><a class="btn primary" id="joinCm" href="#" target="_blank" rel="noopener">In Content Manager beitreten</a>
-          <a class="btn" id="joinPage" href="/raceai/join" target="_blank" rel="noopener">Seite für Freunde</a>
-          <a class="btn" href="/raceai/live" target="_blank" rel="noopener">Live-Timing</a>
-          <a class="btn" href="/raceai/stats" target="_blank" rel="noopener">Bestzeiten &amp; Fahrer</a></div>
+          <a class="btn" id="joinPage" href="/join" target="_blank" rel="noopener">Seite für Freunde</a>
+          <a class="btn" href="/live" target="_blank" rel="noopener">Live-Timing</a>
+          <a class="btn" href="/stats" target="_blank" rel="noopener">Bestzeiten &amp; Fahrer</a></div>
         <div class="row"><label>Adresse</label><code id="joinAddr">–</code><button class="btn" data-copy="joinAddr">Kopieren</button></div>
         <div class="row"><label>CM-Link</label><code id="joinLink" style="overflow-wrap:anywhere;flex:1">–</code><button class="btn" data-copy="joinLink">Kopieren</button></div>
         <div class="row" id="joinLanRow" hidden><label>Im WLAN</label><code id="joinLan">–</code></div>
-        <div class="row"><span class="muted">Die „Seite für Freunde“ (<code>/raceai/join</code>) braucht kein Passwort: Content-Manager-Link, Adresse und eine Anleitung
+        <div class="row"><span class="muted">Die „Seite für Freunde“ (<code>/join</code>) braucht kein Passwort: Content-Manager-Link, Adresse und eine Anleitung
           für den Original-Launcher (der Server lässt sich dort nicht per Link öffnen, nur über Online → Favoriten).</span></div>
       </div>
       <div class="card">
@@ -251,7 +252,7 @@ async function api(path, body) {
   if (r.status === 403) {
     let why = "";
     try { why = (await r.json()).reason || ""; } catch (e) {}
-    $("pwErr").textContent = why === "remote" ? "Zugriff von außen ist aus (DashboardRemoteAccess in plugin_race_ai_cfg.yml)."
+    $("pwErr").textContent = why === "remote" ? "Zugriff von außen ist aus (DashboardRemoteAccess in plugin_web_portal_cfg.yml)."
       : why === "nopassword" ? "Auf dem Server ist kein ADMIN_PASSWORD gesetzt."
       : password ? "Passwort falsch. Es muss genau ADMIN_PASSWORD aus der server_cfg.ini sein, die der Server gerade benutzt (nach dem Ändern neu starten). Der Server liest nur Zeichen ohne Umlaute/€/ß." : "";
     $("login").style.display = "flex"; throw new Error("forbidden");
@@ -330,7 +331,7 @@ let loadedTrack = "";
 async function loadTrack() {
   loadTrack.busy = true;
   try {
-    track = await api("/raceai/api/track");
+    track = await api("/api/admin/track");
     if (!track.available) { loadedTrack = ""; return; }
     trackKey = "";
     bounds = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
@@ -436,9 +437,27 @@ const WX = { Clear: "klar", FewClouds: "leicht bewölkt", ScatteredClouds: "bew�
   Fog: "Nebel", Mist: "Dunst", LightRain: "leichter Regen", Rain: "Regen", HeavyRain: "Starkregen", LightDrizzle: "Niesel", Drizzle: "Niesel",
   HeavyDrizzle: "starker Niesel", Thunderstorm: "Gewitter", LightThunderstorm: "Gewitter", HeavyThunderstorm: "schweres Gewitter", Windy: "windig" };
 
+// bots come from the bot plugin's API (/api/bots/state) and are merged into the cars by id; without it the KI tab is hidden
+let botsAvail = true, botsProbeAt = 0;
+async function loadBots() {
+  if (!botsAvail && performance.now() < botsProbeAt) return null;
+  try { const b = await api("/api/bots/state"); botsAvail = true; return b; }
+  catch (e) { if (e.message !== "forbidden") { botsAvail = false; botsProbeAt = performance.now() + 30000; } return null; }
+}
+function showBotTab(on) {
+  const b = document.querySelector('nav button[data-tab="ai"]');
+  if (b) b.style.display = on ? "" : "none";
+  if (!on && b && b.classList.contains("active")) document.querySelector('nav button[data-tab="field"]').click();
+}
 async function poll() {
   try {
-    const s = await api("/raceai/api/state");
+    const [s, b] = await Promise.all([api("/api/admin/state"), loadBots()]);
+    s.ai = b ? b.ai : null;
+    if (b) {
+      for (const c of s.cars) { const x = b.bots[c.id]; if (x) Object.assign(c, x); }
+      Object.assign(s.health, b.health);
+    }
+    showBotTab(!!b);
     state = s;
     // track rotation (or the track data became ready): load the new map
     if (s.track && s.track !== loadedTrack && !loadTrack.busy) { loadedTrack = s.track; loadTrack(); }
@@ -465,11 +484,11 @@ async function poll() {
     const h = s.health;
     if (h) {
       const de = (v, d = 1) => Number(v).toFixed(d).replace(".", ",");
-      $("healthChip").innerHTML = `Takt <b>${de(h.tickMs, 2)}</b>/${de(h.tickMaxMs, 1)} ms · CPU <b>${de(h.cpu)} %</b> (${h.cores} Kerne) · RAM <b>${h.ramMb} MB</b>`;
+      $("healthChip").innerHTML = (h.tickMs != null ? `Takt <b>${de(h.tickMs, 2)}</b>/${de(h.tickMaxMs, 1)} ms · ` : "") + `CPU <b>${de(h.cpu)} %</b> (${h.cores} Kerne) · RAM <b>${h.ramMb} MB</b>`;
       $("calChip").style.display = h.calibration ? "" : "none";
       if (h.calibration) $("calChip").textContent = "⚙ " + h.calibration;
     }
-    renderField(); renderLegend(); syncAi(); renderLastRace();
+    renderField(); renderLegend(); if (s.ai) syncAi(); renderLastRace();
   } catch (e) {
     $("conn").classList.remove("on"); $("connText").textContent = "keine Verbindung";
   }
@@ -551,18 +570,18 @@ function renderDetail(force) {
       <div class="row"><button class="btn" id="dPitP">In die Box setzen</button><button class="btn" id="dLights">Licht erzwingen</button><button class="btn" id="dFollowP">Auf der Karte folgen</button>
         <button class="btn danger" id="dKick">Kicken</button><button class="btn danger" id="dBan">Bannen</button></div>
       <pre id="dOut" class="muted" style="white-space:pre-wrap;margin:6px 0 0"></pre></div>`;
-    const cmd = async t => { try { const r = await api("/raceai/api/server", { action: "command", text: t }); $("dOut").textContent = r.output || "OK"; } catch (e) { $("dOut").textContent = "Fehler: " + e.message; } };
+    const cmd = async t => { try { const r = await api("/api/admin/server", { action: "command", text: t }); $("dOut").textContent = r.output || "OK"; } catch (e) { $("dOut").textContent = "Fehler: " + e.message; } };
     $("dBalSet").onclick = () => cmd(`ballast ${c.id} ${+$("dBal").value}`);
     $("dResSet").onclick = () => cmd(`restrict ${c.id} ${+$("dRes").value}`);
     $("dPitP").onclick = () => cmd(`pit ${c.id}`);
     let lightsOn = false;
     $("dLights").onclick = () => { lightsOn = !lightsOn; cmd(`forcelights ${lightsOn ? "on" : "off"} ${c.id}`); $("dLights").textContent = lightsOn ? "Licht nicht mehr erzwingen" : "Licht erzwingen"; };
     $("dFollowP").onclick = () => { follow = true; $("btnFollow").textContent = "◎ Folgen: an"; if (view.scale < 1.5) view.scale = 1.5; };
-    $("dKick").onclick = () => { if (confirm(`${c.name} kicken?`)) act("/raceai/api/server", { action: "kick", id: c.id }, "gekickt"); };
+    $("dKick").onclick = () => { if (confirm(`${c.name} kicken?`)) act("/api/admin/server", { action: "kick", id: c.id }, "gekickt"); };
     $("dBan").onclick = () => { if (confirm(`${c.name} bannen? Er kommt nicht mehr auf den Server.`)) cmd(`ban ${c.id} Ban aus dem Dashboard`); };
     return;
   }
-  const opts = state.ai.personalities.map(p => `<option${p === c.personality ? " selected" : ""}>${esc(p)}</option>`).join("");
+  const opts = (state.ai ? state.ai.personalities : []).map(p => `<option${p === c.personality ? " selected" : ""}>${esc(p)}</option>`).join("");
   box.innerHTML = `<div class="card"><h3><span class="pers" style="background:${PCOL(c.personality)}"></span>${esc(c.name)} <span class="muted">${esc(c.model)}</span></h3>
     <div id="dLive">${liveInfo(c)}</div>
     <div class="row"><label>Stärke</label><input type="range" id="dStr" min="60" max="105" step="0.5" value="${c.strength}"><span class="val" id="dStrV">${c.strength} %</span></div>
@@ -571,8 +590,8 @@ function renderDetail(force) {
     <div class="row"><button class="btn primary" id="dApply">Übernehmen</button><button class="btn" id="dPit">In die Box schicken</button><button class="btn" id="dFollow">Auf der Karte folgen</button></div></div>`;
   $("dStr").oninput = e => $("dStrV").textContent = e.target.value + " %";
   $("dAgg").oninput = e => $("dAggV").textContent = e.target.value;
-  $("dApply").onclick = () => act(`/raceai/api/bot/${c.id}`, { strength: +$("dStr").value, aggression: +$("dAgg").value, personality: $("dPers").value }, `${c.name} angepasst`);
-  $("dPit").onclick = () => act(`/raceai/api/bot/${c.id}`, { pit: true }, `${c.name} kommt an die Box`);
+  $("dApply").onclick = () => act(`/api/bots/bot/${c.id}`, { strength: +$("dStr").value, aggression: +$("dAgg").value, personality: $("dPers").value }, `${c.name} angepasst`);
+  $("dPit").onclick = () => act(`/api/bots/bot/${c.id}`, { pit: true }, `${c.name} kommt an die Box`);
   $("dFollow").onclick = () => { follow = true; $("btnFollow").textContent = "◎ Folgen: an"; if (view.scale < 1.5) view.scale = 1.5; };
 }
 function liveInfo(c) {
@@ -605,21 +624,20 @@ function syncAi() {
     $("aiRubber").value = a.rubber || 0;
     const rv = () => $("aiRubberV").textContent = +$("aiRubber").value ? $("aiRubber").value + " %" : "aus";
     $("aiRubber").oninput = rv; rv();
-    $("aiRubber").onchange = () => act("/raceai/api/ai", { rubber: +$("aiRubber").value }, "Gummiband " + (+$("aiRubber").value ? $("aiRubber").value + " %" : "aus"));
+    $("aiRubber").onchange = () => act("/api/bots/ai", { rubber: +$("aiRubber").value }, "Gummiband " + (+$("aiRubber").value ? $("aiRubber").value + " %" : "aus"));
     ["aiStrength", "aiSpread", "aiAggr"].forEach(id => { $(id).oninput = () => upd(); }); upd();
     function upd() { $("aiStrengthV").textContent = $("aiStrength").value + " %"; $("aiSpreadV").textContent = "± " + $("aiSpread").value; $("aiAggrV").textContent = $("aiAggr").value; }
     $("features").innerHTML = Object.entries(FEATURES).map(([k, n]) => `<label class="switch"><span>${n}</span><input type="checkbox" data-f="${k}"></label>`).join("");
-    $("features").querySelectorAll("input[data-f]").forEach(i => i.onchange = () => act("/raceai/api/ai", { feature: i.dataset.f, on: i.checked }, `${FEATURES[i.dataset.f]}: ${i.checked ? "an" : "aus"}`));
-    if (tools) syncRealWeather();
+    $("features").querySelectorAll("input[data-f]").forEach(i => i.onchange = () => act("/api/bots/ai", { feature: i.dataset.f, on: i.checked }, `${FEATURES[i.dataset.f]}: ${i.checked ? "an" : "aus"}`));
   }
   $("features").querySelectorAll("input[data-f]").forEach(i => { if (document.activeElement !== i) i.checked = !!a.features[i.dataset.f]; });
   if (document.activeElement !== $("gridOrder") && a.gridOrder) $("gridOrder").value = a.gridOrder;
 }
-$("gridOrder").onchange = () => act("/raceai/api/ai", { gridOrder: $("gridOrder").value }, "Startaufstellung: " + $("gridOrder").selectedOptions[0].textContent);
-$("aiApply").onclick = () => act("/raceai/api/ai", { strength: +$("aiStrength").value, spread: +$("aiSpread").value, aggression: +$("aiAggr").value }, "Stärke verteilt");
+$("gridOrder").onchange = () => act("/api/bots/ai", { gridOrder: $("gridOrder").value }, "Startaufstellung: " + $("gridOrder").selectedOptions[0].textContent);
+$("aiApply").onclick = () => act("/api/bots/ai", { strength: +$("aiStrength").value, spread: +$("aiSpread").value, aggression: +$("aiAggr").value }, "Stärke verteilt");
 async function loadClones() {
   try {
-    const list = await api("/raceai/api/clones");
+    const list = await api("/api/bots/clones");
     $("cloneRows").innerHTML = list.length ? list.map(c => `<tr><td>${esc(c.name)}</td><td>${esc(c.car)}</td><td class="num">${c.clean}/${c.all}</td>
       <td class="num">${fmtLap(c.best)}</td><td class="num">${fmtLap(c.average)}</td></tr>`).join("")
       : `<tr><td colspan="5" class="muted">Noch niemand aufgezeichnet.</td></tr>`;
@@ -627,20 +645,20 @@ async function loadClones() {
 }
 $("cloneRefresh").onclick = loadClones;
 document.querySelector('nav button[data-tab="ai"]').addEventListener("click", loadClones);
-$("lightTest").onclick = () => act("/raceai/api/ai", { lightTest: true }, "Licht-Test läuft");
+$("lightTest").onclick = () => act("/api/bots/ai", { lightTest: true }, "Licht-Test läuft");
 
 // ---------------------------------------------------------------- server tab
-$("sNext").onclick = () => act("/raceai/api/server", { action: "next" }, "nächste Session");
-$("sRestart").onclick = () => act("/raceai/api/server", { action: "restart" }, "Session neu gestartet");
-$("tSet").onclick = () => act("/raceai/api/server", { action: "time", text: $("tTime").value }, "Zeit gesetzt");
-$("wSet").onclick = () => act("/raceai/api/server", { action: "cspweather", text: $("wType").value, a: +$("wDur").value }, "Wetter gesetzt");
+$("sNext").onclick = () => act("/api/admin/server", { action: "next" }, "nächste Session");
+$("sRestart").onclick = () => act("/api/admin/server", { action: "restart" }, "Session neu gestartet");
+$("tSet").onclick = () => act("/api/admin/server", { action: "time", text: $("tTime").value }, "Zeit gesetzt");
+$("wSet").onclick = () => act("/api/admin/server", { action: "cspweather", text: $("wType").value, a: +$("wDur").value }, "Wetter gesetzt");
 [["rInt", "rIntV"], ["rWet", "rWetV"], ["rWat", "rWatV"]].forEach(([i, v]) => { $(i).oninput = () => $(v).textContent = Math.round($(i).value * 100) + " %"; $(i).oninput(); });
-$("rSet").onclick = () => act("/raceai/api/server", { action: "rain", a: +$("rInt").value, b: +$("rWet").value, c: +$("rWat").value }, "Regen gesetzt");
+$("rSet").onclick = () => act("/api/admin/server", { action: "rain", a: +$("rInt").value, b: +$("rWet").value, c: +$("rWat").value }, "Regen gesetzt");
 $("gGrip").oninput = () => $("gGripV").textContent = +$("gGrip").value === 0 ? "dyn." : Math.round($("gGrip").value * 100) + " %"; $("gGrip").oninput();
-$("gSet").onclick = () => act("/raceai/api/server", { action: "grip", a: +$("gGrip").value }, "Grip gesetzt");
-$("chatSend").onclick = () => { const t = $("chatText").value; if (t.trim()) act("/raceai/api/server", { action: "chat", text: t }, "gesendet").then(() => $("chatText").value = ""); };
+$("gSet").onclick = () => act("/api/admin/server", { action: "grip", a: +$("gGrip").value }, "Grip gesetzt");
+$("chatSend").onclick = () => { const t = $("chatText").value; if (t.trim()) act("/api/admin/server", { action: "chat", text: t }, "gesendet").then(() => $("chatText").value = ""); };
 $("chatText").onkeydown = e => { if (e.key === "Enter") $("chatSend").onclick(); };
-$("tempSet").onclick = () => act("/raceai/api/server", { action: "temperature", a: +$("tAir").value, b: +$("tRoad").value }, "Temperatur gesetzt");
+$("tempSet").onclick = () => act("/api/admin/server", { action: "temperature", a: +$("tAir").value, b: +$("tRoad").value }, "Temperatur gesetzt");
 const COMMANDS = [
   ["", "— Befehl wählen (ID = Nummer des Autos, siehe Fahrerfeld) —"],
   ["next_session", "Nächste Session"], ["restart_session", "Session neu starten"],
@@ -658,7 +676,7 @@ const COMMANDS = [
 $("cmdTpl").innerHTML = COMMANDS.map(([c, d]) => `<option value="${esc(c)}">${c ? esc(c) + "  –  " : ""}${esc(d)}</option>`).join("");
 $("cmdTpl").onchange = () => { $("cmdText").value = $("cmdTpl").value; $("cmdText").focus(); };
 async function runCommand(text) {
-  try { const r = await api("/raceai/api/server", { action: "command", text }); $("cmdOut").textContent = "/" + text + "\n" + (r.output || "(keine Antwort)"); }
+  try { const r = await api("/api/admin/server", { action: "command", text }); $("cmdOut").textContent = "/" + text + "\n" + (r.output || "(keine Antwort)"); }
   catch (e) { $("cmdOut").textContent = "Fehler: " + e.message; }
 }
 $("cmdRun").onclick = () => { const t = $("cmdText").value.trim(); if (t) runCommand(t); };
@@ -707,18 +725,14 @@ $("clsNext").onclick = () => setClass(true);
 loadRotation(); setInterval(loadRotation, 15000);
 $("rotNow").onclick = () => { if (confirm(`Jetzt zu ${$("rotTarget").value} wechseln? Der Server startet neu.`)) act("/api/tools/action", { action: "rotate", text: $("rotTarget").value }, "Streckenwechsel läuft"); };
 function syncRealWeather() {
-  if (!aiInit) return; // the switches are made with the AI tab
-  let sw = $("rwSwitch");
-  if (!sw) {
-    $("features").insertAdjacentHTML("beforeend", `<label class="switch"><span>Echtes Wetter</span><input type="checkbox" id="rwSwitch"></label>`);
-    sw = $("rwSwitch");
-    sw.onchange = () => act("/api/tools/action", { action: "realweather", on: sw.checked }, `Echtes Wetter: ${sw.checked ? "an" : "aus"}`);
-  }
+  const sw = $("rwSwitch");
+  $("rwRow").style.display = "";
+  if (!sw.onchange) sw.onchange = () => act("/api/tools/action", { action: "realweather", on: sw.checked }, `Echtes Wetter: ${sw.checked ? "an" : "aus"}`);
   if (document.activeElement !== sw) sw.checked = !!tools.realWeather;
 }
 async function loadJoin() {
   try {
-    const j = await api("/raceai/api/join");
+    const j = await api("/api/web/join");
     $("joinAddr").textContent = j.publicHost ? `${j.publicHost}:${j.httpPort}` : "öffentliche IP unbekannt";
     $("joinLink").textContent = j.cmLink || "–";
     if (j.cmLink) $("joinCm").href = j.cmLink;
@@ -743,7 +757,7 @@ async function serverRestart(mode) {
 $("restartServer").onclick = () => serverRestart("restart");
 $("updateServer").onclick = () => serverRestart("update");
 // at a game server host the panel starts and stops the server: no server buttons there (only with tools/start-server.sh, see loadRotation)
-(async () => { try { const types = await api("/raceai/api/server", { action: "weathertypes" }); $("wType").innerHTML = types.map(t => `<option value="${t}"${t === "Clear" ? " selected" : ""}>${esc(WX[t] ? `${WX[t]} (${t})` : t)}</option>`).join(""); } catch (e) {} })();
+(async () => { try { const types = await api("/api/admin/server", { action: "weathertypes" }); $("wType").innerHTML = types.map(t => `<option value="${t}"${t === "Clear" ? " selected" : ""}>${esc(WX[t] ? `${WX[t]} (${t})` : t)}</option>`).join(""); } catch (e) {} })();
 
 // ---------------------------------------------------------------- log
 let logLines = [], logFile = "", logOffset = -1;
@@ -751,7 +765,7 @@ async function loadLog() {
   if (!$("tab-log").classList.contains("active") || !$("logFollow").checked) return;
   try {
     // only what's new since the last call
-    const r = await api(`/raceai/api/log?lines=400&file=${encodeURIComponent(logFile)}&offset=${logOffset}`);
+    const r = await api(`/api/admin/log?lines=400&file=${encodeURIComponent(logFile)}&offset=${logOffset}`);
     logFile = r.file || ""; logOffset = r.offset ?? -1;
     if (r.append) { if (r.lines.length) { logLines = logLines.concat(r.lines).slice(-1000); renderLog(); } }
     else if (r.lines) { logLines = r.lines; renderLog(); }

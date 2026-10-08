@@ -1,99 +1,96 @@
-using System.Net;
 using System.Text;
-using System.Text.Json;
 using AssettoServer.Commands;
 using AssettoServer.Server;
 using AssettoServer.Server.Configuration;
+using AssettoServer.Server.Extensions;
 using AssettoServer.Server.Weather;
 using AssettoServer.Shared.Weather;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Hosting;
-using AssettoServer.Server.Extensions;
 using SharedWeb;
 
-namespace RaceAiPlugin;
+namespace WebPortalPlugin;
 
 /// <summary>
-/// Dashboard for the desktop GUI: http://127.0.0.1:HTTP_PORT/raceai
-/// Only from this computer unless DashboardRemoteAccess is on (then the admin password is needed).
+/// Pages: / (landing), /join, /live, /stats (public), /admin (this computer, or with the admin password when DashboardRemoteAccess is on).
+/// APIs: /api/web/join and /api/live/... (public), /api/admin/... (admin). Bots and server tools have their own APIs (/api/bots, /api/tools).
 /// </summary>
 [ApiController]
-public class RaceAiDashboardController : ControllerBase
+public class WebPortalController : ControllerBase
 {
-    private readonly RaceAiService _service;
+    private readonly RaceView _view;
+    private readonly LiveFeed _live;
+    private readonly JoinInfo _joinInfo;
+    private readonly WebPortalConfiguration _config;
     private readonly SessionManager _sessionManager;
     private readonly WeatherManager _weatherManager;
     private readonly EntryCarManager _entryCarManager;
     private readonly ACServerConfiguration _serverConfig;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly ChatService _chatService;
-    private readonly JoinInfo _joinInfo;
     private readonly IEnumerable<IAdminWebAccess> _access;
-    private readonly LiveFeed _live;
-    private readonly RaceAiConfiguration _config;
 
-    public RaceAiDashboardController(RaceAiService service, SessionManager sessionManager, WeatherManager weatherManager,
-        EntryCarManager entryCarManager, ACServerConfiguration serverConfig, IHostApplicationLifetime lifetime, ChatService chatService, JoinInfo joinInfo, IEnumerable<IAdminWebAccess> access,
-        LiveFeed live, RaceAiConfiguration config)
+    public WebPortalController(RaceView view, LiveFeed live, JoinInfo joinInfo, WebPortalConfiguration config, SessionManager sessionManager,
+        WeatherManager weatherManager, EntryCarManager entryCarManager, ACServerConfiguration serverConfig, IHostApplicationLifetime lifetime,
+        ChatService chatService, IEnumerable<IAdminWebAccess> access)
     {
-        _config = config;
+        _view = view;
         _live = live;
-        _access = access;
         _joinInfo = joinInfo;
-        _chatService = chatService;
-        _service = service;
+        _config = config;
         _sessionManager = sessionManager;
         _weatherManager = weatherManager;
         _entryCarManager = entryCarManager;
         _serverConfig = serverConfig;
         _lifetime = lifetime;
+        _chatService = chatService;
+        _access = access;
     }
 
     private bool IsLocal => AdminAccess.IsLocal(HttpContext);
     private bool Allowed() => AdminAccess.Allowed(HttpContext, _serverConfig, _access);
     private IActionResult Denied() => AdminAccess.Denied(HttpContext, _serverConfig, _access);
+    private IActionResult Html(string html) => Content(html, "text/html; charset=utf-8");
 
-    [HttpGet("/raceai")]
-    public IActionResult Page()
-    {
-        if (!IsLocal && !_service.DashboardRemoteAccess) return Denied();
-        return Content(DashboardPage.Html, "text/html; charset=utf-8");
-    }
+    // ------------------------------------------------------------------ pages
 
-    /// <summary>Join links (public, no password: the same data a server list shows).</summary>
-    [HttpGet("/raceai/api/join")]
-    public async Task<IActionResult> Join() => Ok(await _joinInfo.GetAsync());
-
-    /// <summary>Public statistics: best laps of the week / all time, safety ratings (no password, like a leaderboard).</summary>
-    [HttpGet("/raceai/stats")]
-    public IActionResult StatsPage() => Content(StatsPageHtml.Html, "text/html; charset=utf-8");
-
-
-    /// <summary>Landing page: the server's address alone (http://SERVER:HTTP_PORT/) opens the join or the live page (LandingPage).</summary>
+    /// <summary>The server's address alone (http://SERVER:HTTP_PORT/) opens the join or the live page (LandingPage).</summary>
     [HttpGet("/")]
     public IActionResult Landing() => _config.LandingPage.Trim().ToLowerInvariant() switch
     {
-        "live" when _live.Enabled => Redirect("/raceai/live"),
+        "live" when _live.Enabled => Redirect("/live"),
         "none" => NotFound(),
-        _ => Redirect("/raceai/join")
+        _ => Redirect("/join")
     };
 
-    /// <summary>Public page for friends: Content Manager link, IP and ports.</summary>
-    [HttpGet("/raceai/join")]
-    public IActionResult JoinPage() => Content(JoinPageHtml.Html, "text/html; charset=utf-8");
+    [HttpGet("/join")]
+    public IActionResult JoinPage() => Html(JoinPageHtml.Html);
 
-    // ---- public live page: map, timing, telemetry (no admin data)
-    [HttpGet("/raceai/live")]
-    public IActionResult LivePage() => _live.Enabled ? Content(LivePageHtml.Html, "text/html; charset=utf-8") : NotFound();
+    [HttpGet("/live")]
+    public IActionResult LivePage() => _live.Enabled ? Html(LivePageHtml.Html) : NotFound();
 
-    [HttpGet("/raceai/api/live/track")]
-    public IActionResult LiveTrack() => _live.Enabled ? Ok(_service.TrackOutline()) : NotFound();
+    /// <summary>Best laps and safety ratings (data from ServerToolsPlugin; the page says so when it isn't there).</summary>
+    [HttpGet("/stats")]
+    public IActionResult StatsPage() => Html(StatsPageHtml.Html);
 
-    [HttpGet("/raceai/api/live/state")]
+    /// <summary>The admin page itself has no data; its APIs check the access.</summary>
+    [HttpGet("/admin")]
+    public IActionResult AdminPage() => Html(DashboardPage.Html);
+
+    // ------------------------------------------------------------------ public APIs
+
+    /// <summary>Join links (the same data a server list shows).</summary>
+    [HttpGet("/api/web/join")]
+    public async Task<IActionResult> Join() => Ok(await _joinInfo.GetAsync());
+
+    [HttpGet("/api/live/track")]
+    public IActionResult LiveTrack() => _live.Enabled ? Ok(_view.TrackOutline()) : NotFound();
+
+    [HttpGet("/api/live/state")]
     public IActionResult LiveState() => _live.Enabled ? File(_live.Latest(), "application/json") : NotFound();
 
     /// <summary>Server-Sent Events: the live frames pushed a few times per second.</summary>
-    [HttpGet("/raceai/api/live/stream")]
+    [HttpGet("/api/live/stream")]
     public async Task LiveStream()
     {
         if (!_live.Enabled) { Response.StatusCode = 404; return; }
@@ -122,27 +119,22 @@ public class RaceAiDashboardController : ControllerBase
         }
     }
 
-    [HttpGet("/raceai/api/ping")]
-    public IActionResult Ping() => Ok(new { ok = true, server = _service.ServerName, local = IsLocal, supervised = Supervised });
+    // ------------------------------------------------------------------ admin APIs
 
-    /// <summary>Started by race-ai/server-supervisor.sh, which starts the server again after a restart request.</summary>
-    private static bool Supervised => Environment.GetEnvironmentVariable("RACEAI_SUPERVISED") == "1";
+    [HttpGet("/api/admin/ping")]
+    public IActionResult Ping() => Ok(new { ok = true, server = _serverConfig.Server.Name, local = IsLocal, bots = _view.HasDrivenCars });
 
-    [HttpGet("/raceai/api/state")]
-    public IActionResult State() => Allowed() ? Ok(_service.State()) : Denied();
+    [HttpGet("/api/admin/state")]
+    public IActionResult State() => Allowed() ? Ok(_view.AdminState()) : Denied();
 
-
-    [HttpGet("/raceai/api/clones")]
-    public IActionResult Clones() => Allowed() ? Ok(_service.CloneList()) : Denied();
-
-    [HttpGet("/raceai/api/track")]
-    public IActionResult Track() => Allowed() ? Ok(_service.TrackOutline()) : Denied();
+    [HttpGet("/api/admin/track")]
+    public IActionResult Track() => Allowed() ? Ok(_view.TrackOutline()) : Denied();
 
     /// <summary>
     /// Log lines. The first call gets the last <paramref name="lines"/> lines; with the <c>file</c> and <c>offset</c> of the previous
     /// answer only what was written since then (a few hundred bytes instead of ~50 KB every 2 s).
     /// </summary>
-    [HttpGet("/raceai/api/log")]
+    [HttpGet("/api/admin/log")]
     public IActionResult Log([FromQuery] int lines = 200, [FromQuery] string? file = null, [FromQuery] long offset = -1)
     {
         if (!Allowed()) return Denied();
@@ -173,46 +165,6 @@ public class RaceAiDashboardController : ControllerBase
         }
     }
 
-    public sealed class BotRequest
-    {
-        public float? Strength { get; set; }
-        public float? Aggression { get; set; }
-        public string? Personality { get; set; }
-        public bool Pit { get; set; }
-    }
-
-    [HttpPost("/raceai/api/bot/{id:int}")]
-    public IActionResult Bot(int id, [FromBody] BotRequest req)
-    {
-        if (!Allowed()) return Denied();
-        return _service.UpdateBot(id, req.Strength, req.Aggression, req.Personality, req.Pit) ? Ok(new { ok = true }) : NotFound(new { error = "no such bot" });
-    }
-
-    public sealed class AiRequest
-    {
-        public float? Strength { get; set; }
-        public float? Spread { get; set; }
-        public float? Aggression { get; set; }
-        public string? Feature { get; set; }
-        public bool On { get; set; }
-        public bool LightTest { get; set; }
-        public string? GridOrder { get; set; }
-        public float? Rubber { get; set; }
-    }
-
-    [HttpPost("/raceai/api/ai")]
-    public IActionResult Ai([FromBody] AiRequest req)
-    {
-        if (!Allowed()) return Denied();
-        if (req.Strength is { } st) _service.SetGlobalStrength(st, req.Spread ?? 0);
-        if (req.Aggression is { } ag) _service.SetGlobalAggression(ag);
-        if (!string.IsNullOrEmpty(req.Feature) && !_service.SetDashboardFeature(req.Feature, req.On)) return BadRequest(new { error = "unknown feature" });
-        if (req.LightTest) _service.StartSignalTest();
-        if (req.Rubber is { } rb) _service.SetRubberBand(rb);
-        if (!string.IsNullOrEmpty(req.GridOrder) && !_service.SetGridOrder(req.GridOrder)) return BadRequest(new { error = "unknown grid order" });
-        return Ok(new { ok = true });
-    }
-
     public sealed class ServerRequest
     {
         public string Action { get; set; } = "";
@@ -223,7 +175,7 @@ public class RaceAiDashboardController : ControllerBase
         public int Id { get; set; }
     }
 
-    [HttpPost("/raceai/api/server")]
+    [HttpPost("/api/admin/server")]
     public async Task<IActionResult> Server([FromBody] ServerRequest req)
     {
         if (!Allowed()) return Denied();
@@ -252,7 +204,7 @@ public class RaceAiDashboardController : ControllerBase
                 return Ok(new { ok = true });
             case "chat":
                 if (string.IsNullOrWhiteSpace(req.Text)) return BadRequest(new { error = "empty" });
-                _service.Chat(req.Text.Trim());
+                _entryCarManager.BroadcastChat(req.Text.Trim());
                 return Ok(new { ok = true });
             case "kick":
             {
@@ -277,7 +229,7 @@ public class RaceAiDashboardController : ControllerBase
                 if (string.IsNullOrWhiteSpace(req.Text)) return BadRequest(new { error = "empty" });
                 var context = new DashboardCommandContext(_entryCarManager, HttpContext.RequestServices);
                 string command = req.Text.Trim().TrimStart('/');
-                Serilog.Log.Information("Race AI dashboard command: /{Command}", command);
+                Serilog.Log.Information("Admin page command: /{Command}", command);
                 await _chatService.ProcessCommandAsync(context, command);
                 return Ok(new { ok = true, output = context.Output.ToString().Trim() });
             }

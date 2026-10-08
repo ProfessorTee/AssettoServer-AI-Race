@@ -1,6 +1,6 @@
-namespace RaceAiPlugin;
+namespace WebPortalPlugin;
 
-/// <summary>Public join page (http://SERVER:HTTP_PORT/raceai/join): links and addresses for friends.</summary>
+/// <summary>Public join page (http://SERVER:HTTP_PORT/join): links and addresses for friends.</summary>
 internal static class JoinPageHtml
 {
     public const string Html = """
@@ -68,7 +68,7 @@ ol { padding-left: 20px; margin: 6px 0 0; }
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
-fetch("/raceai/api/join").then(r => r.json()).then(j => {
+fetch("/api/web/join").then(r => r.json()).then(j => {
   $("name").textContent = j.name;
   $("sub").textContent = j.track;
   document.title = j.name + " – beitreten";

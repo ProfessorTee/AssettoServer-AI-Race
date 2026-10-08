@@ -29,6 +29,10 @@ public class ServerToolsConfiguration
     [YamlMember(Description = "Seconds a weather change takes")]
     public int RealWeatherTransitionSeconds { get; set; } = 120;
 
+    // ---- race
+    [YamlMember(Description = "Final classification of every race in the chat (the game's result screen doesn't always list bots)")]
+    public bool AnnounceRaceResult { get; set; } = true;
+
     // ---- statistics
     [YamlMember(Description = "Player statistics, best laps and safety rating (stats/players.json, /top, /profile)")]
     public bool PlayerStats { get; set; } = true;

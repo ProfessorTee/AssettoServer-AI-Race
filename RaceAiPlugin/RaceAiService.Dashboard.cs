@@ -6,165 +6,53 @@ using RaceAiPlugin.Core;
 
 namespace RaceAiPlugin;
 
-/// <summary>Data and actions for the dashboard (desktop GUI).</summary>
+/// <summary>Data and actions for the admin page (WebPortalPlugin) and the bot API (/api/bots).</summary>
 public sealed partial class RaceAiService
 {
-    public string ServerName => _serverConfig.Server.Name;
-    public string AdminPassword => _serverConfig.Server.AdminPassword ?? "";
-    public bool DashboardRemoteAccess => _config.DashboardRemoteAccess;
 
-    /// <summary>Racing line, pit lane, start line, sector splits and section names in world X/Z (for the map).</summary>
-    public object TrackOutline()
+    /// <summary>
+    /// The bots for the admin page (/api/bots/state): settings and per bot what only the bot plugin knows. The page gets everything
+    /// else (session, weather, positions, laps) from the web portal and merges the bots in by car id.
+    /// </summary>
+    public object BotState()
     {
         lock (_lock)
         {
-            if (_track == null) return new { available = false };
-            var line = _track.Line;
-            var pts = new List<float[]>();
-            for (float s = 0; s < line.Length; s += 8)
+            var bots = new Dictionary<string, Dictionary<string, object?>>();
+            foreach (var slot in _slots)
             {
-                var p = line.PositionAt(s, 0);
-                var i = line.IndexAt(s);
-                var l = line.PositionAt(s, -line.RoomMinus[i]);
-                var r = line.PositionAt(s, line.RoomPlus[i]);
-                pts.Add([R(p.X), R(p.Z), R(l.X), R(l.Z), R(r.X), R(r.Z)]);
-            }
-            var pit = new List<float[]>();
-            if (_track.PitLane is { } lane)
-                for (float s = 0; s < lane.Length; s += 6)
+                if (!slot.Active) continue;
+                var b = slot.Bot;
+                bots[slot.EntryCar.SessionId.ToString()] = new Dictionary<string, object?>
                 {
-                    var p = lane.PositionAt(s, 0);
-                    pit.Add([R(p.X), R(p.Z)]);
-                }
-            var marks = new List<object>();
-            var start = line.PositionAt(_track.StartLineS, 0);
-            marks.Add(new { kind = "start", x = R(start.X), z = R(start.Z), name = "Start/Ziel" });
-            int n = 2;
-            foreach (var split in _sectorSplits)
-            {
-                var p = line.PositionAt(line.WrapS(split + _track.StartLineS), 0);
-                marks.Add(new { kind = "sector", x = R(p.X), z = R(p.Z), name = $"S{n++}" });
-            }
-            foreach (var sec in _track.Info.Sections)
-            {
-                float mid = (sec.Start + sec.End) / 2;
-                if (sec.End < sec.Start) mid = (sec.Start + sec.End + 1) / 2 % 1;
-                var p = line.PositionAt(line.WrapS(mid * line.Length + _track.StartLineS), 0);
-                marks.Add(new { kind = "section", x = R(p.X), z = R(p.Z), name = sec.Name });
-            }
-            return new { available = true, track = _serverConfig.Server.Track, length = line.Length, line = pts, pit, marks };
-        }
-    }
-
-    private static float R(float v) => MathF.Round(v, 1);
-    private static float? Lap(uint ms) => ms is 0 or >= 999999999 ? null : ms / 1000f;
-
-    /// <summary>Everything the dashboard shows, polled a few times per second.</summary>
-    public object State()
-    {
-        var health = Health(); // outside the lock: reads /proc, the main loop must not wait for it
-        lock (_lock)
-        {
-            var session = _sessionManager.CurrentSession;
-            var weather = _weatherManager.CurrentWeather;
-            var line = _track?.Line;
-            var cars = new List<Dictionary<string, object?>>();
-
-            foreach (var car in _entryCarManager.EntryCars)
-            {
-                _slotsBySessionId.TryGetValue(car.SessionId, out var slot);
-                bool bot = slot is { Active: true };
-                var client = car.Client;
-                if (!bot && client == null) continue;
-
-                var result = session.Results != null && session.Results.TryGetValue(car.SessionId, out var r) ? r : null;
-                var carStatus = slot is { Active: true } ? slot.Status : car.Status;
-                var pos = carStatus.Position;
-                float s = line != null ? line.WrapS(line.Project(pos).S - _track!.StartLineS) : 0;
-                var d = new Dictionary<string, object?>
-                {
-                    ["id"] = car.SessionId,
-                    ["name"] = bot ? slot!.Bot.Name : client!.Name,
-                    ["model"] = car.Model,
-                    ["bot"] = bot,
-                    ["x"] = R(pos.X), ["z"] = R(pos.Z),
-                    ["speed"] = MathF.Round(carStatus.Velocity.Length() * 3.6f),
-                    ["vx"] = MathF.Round(carStatus.Velocity.X, 1), ["vz"] = MathF.Round(carStatus.Velocity.Z, 1),
-                    ["laps"] = result?.NumLaps ?? 0,
-                    ["best"] = Lap(result?.BestLap ?? 0),
-                    ["last"] = Lap(result?.LastLap ?? 0),
-                    ["finished"] = result?.HasCompletedLastLap ?? false,
-                    ["progress"] = line != null ? (result?.NumLaps ?? 0) + s / line.Length : 0,
-                    ["sector"] = line != null ? SectorAt(line.WrapS(s + _track!.StartLineS)) : 0,
+                    ["strength"] = MathF.Round(b.Driver.Level, 1),
+                    ["aggression"] = MathF.Round(b.Driver.Aggression * 100),
+                    ["personality"] = b.Driver.Personality.Name,
+                    ["errors"] = MathF.Round(b.Driver.Errors, 2),
+                    ["phase"] = b.Phase.ToString(),
+                    ["pit"] = b.Pit.ToString(),
+                    ["fuel"] = MathF.Round(b.Fuel, 1),
+                    ["fuelCapacity"] = b.Car.FuelCapacity,
+                    ["tyres"] = MathF.Round(b.Car.TyreGripAt(b.TyreVirtualKm) * 100, 1),
+                    ["tyreTemp"] = new[] { MathF.Round(b.TyreTempFront), MathF.Round(b.TyreTempRear) },
+                    ["clone"] = b.Clone?.PlayerName,
+                    ["duel"] = slot == _duelSlot,
+                    ["boost"] = MathF.Round(b.PaceBoost * 1000) / 10, // rubber band, % pace
+                    ["takeover"] = slot.TakeoverGuid != null,
+                    ["damage"] = MathF.Round(RaceWorld.BodyDamagePercent(b)),
+                    ["suspension"] = MathF.Round(b.Suspension * 100),
+                    ["mistake"] = b.Mistake == MistakeKind.None ? null : b.Mistake.ToString(),
+                    ["mistakes"] = b.MistakeCount,
+                    ["spins"] = b.SpinCount,
+                    ["stops"] = b.PitStops,
+                    ["ghost"] = b.GhostUntil > Now,
+                    ["weaving"] = b.Weaving,
+                    ["pressure"] = MathF.Round(b.Pressure, 2),
+                    ["impatience"] = MathF.Round(b.Impatience, 2),
                 };
-                if (bot)
-                {
-                    var b = slot!.Bot;
-                    d["strength"] = MathF.Round(b.Driver.Level, 1);
-                    d["aggression"] = MathF.Round(b.Driver.Aggression * 100);
-                    d["personality"] = b.Driver.Personality.Name;
-                    d["errors"] = MathF.Round(b.Driver.Errors, 2);
-                    d["phase"] = b.Phase.ToString();
-                    d["pit"] = b.Pit.ToString();
-                    d["fuel"] = MathF.Round(b.Fuel, 1);
-                    d["fuelCapacity"] = b.Car.FuelCapacity;
-                    d["tyres"] = MathF.Round(b.Car.TyreGripAt(b.TyreVirtualKm) * 100, 1);
-                    d["tyreTemp"] = new[] { MathF.Round(b.TyreTempFront), MathF.Round(b.TyreTempRear) };
-                    d["clone"] = b.Clone?.PlayerName;
-                    d["duel"] = slot == _duelSlot;
-                    d["boost"] = MathF.Round(b.PaceBoost * 1000) / 10; // rubber band, % pace
-                    d["takeover"] = slot.TakeoverGuid != null;
-                    d["damage"] = MathF.Round(RaceWorld.BodyDamagePercent(b));
-                    d["suspension"] = MathF.Round(b.Suspension * 100);
-                    d["mistake"] = b.Mistake == MistakeKind.None ? null : b.Mistake.ToString();
-                    d["mistakes"] = b.MistakeCount;
-                    d["spins"] = b.SpinCount;
-                    d["stops"] = b.PitStops;
-                    d["ghost"] = b.GhostUntil > Now;
-                    d["weaving"] = b.Weaving;
-                    d["pressure"] = MathF.Round(b.Pressure, 2);
-                    d["impatience"] = MathF.Round(b.Impatience, 2);
-                }
-                else
-                {
-                    d["admin"] = client!.IsAdministrator;
-                    d["ping"] = car.Ping;
-                    d["jitter"] = MathF.Round(car.PingJitter);
-                    d["guid"] = client.Guid.ToString();
-                }
-                cars.Add(d);
             }
-
-            // order: race by progress, otherwise by best lap
-            List<Dictionary<string, object?>> ordered = _sessionType == SessionType.Race
-                ? cars.OrderByDescending(c => (float)c["progress"]!).ToList()
-                : cars.OrderBy(c => (float?)c["best"] ?? float.MaxValue).ToList();
-            for (int i = 0; i < ordered.Count; i++) ordered[i]["pos"] = i + 1;
-
             return new
             {
-                server = _serverConfig.Server.Name,
-                track = _track == null ? "" : TrackKey(),
-                session = new
-                {
-                    name = session.Configuration.Name,
-                    type = _sessionType.ToString(),
-                    timeLeft = session.Configuration.Laps > 0 && _sessionType == SessionType.Race ? (int?)null : session.TimeLeftMilliseconds / 1000,
-                    laps = session.Configuration.Laps,
-                    leaderLap = session.LeaderLapCount,
-                    raceStarted = _raceStarted
-                },
-                weather = new
-                {
-                    type = weather.Type.WeatherFxType.ToString(),
-                    ambient = MathF.Round(weather.TemperatureAmbient, 1),
-                    road = MathF.Round(weather.TemperatureRoad, 1),
-                    rain = MathF.Round(weather.RainIntensity, 2),
-                    wetness = MathF.Round(weather.RainWetness, 2),
-                    water = MathF.Round(weather.RainWater, 2),
-                    grip = MathF.Round(weather.TrackGrip, 3),
-                    time = _weatherManager.CurrentDateTime.TimeOfDay.ToString("HH:mm", null)
-                },
                 ai = new
                 {
                     enabled = _world != null,
@@ -176,9 +64,8 @@ public sealed partial class RaceAiService
                     features = FeatureStates(),
                     personalities = _personalities.Select(p => p.Personality.Name).DefaultIfEmpty("Balanced").ToList()
                 },
-                cars = ordered,
-                lastRace = _lastRace == null ? null : new { at = _lastRaceAt.ToString("HH:mm"), rows = _lastRace },
-                health
+                bots,
+                health = new { tickMs = Math.Round(_lastTickAvg, 2), tickMaxMs = Math.Round(_lastTickMax, 2), calibration = CalibrationStatus }
             };
         }
     }
@@ -188,10 +75,6 @@ public sealed partial class RaceAiService
     private int _tickCount;
     private double _lastTickAvg, _lastTickMax;
     private long _tickWindowStart = System.Diagnostics.Stopwatch.GetTimestamp();
-    private TimeSpan _lastCpu;
-    private long _lastCpuAt;
-    private double _cpuPercent;
-
     private void RecordTick(double ms)
     {
         _tickSum += ms;
@@ -205,46 +88,6 @@ public sealed partial class RaceAiService
             _tickCount = 0;
             _tickWindowStart = System.Diagnostics.Stopwatch.GetTimestamp();
         }
-    }
-
-    private readonly object _healthLock = new();
-
-    private object Health()
-    {
-        lock (_healthLock) return HealthLocked();
-    }
-
-    private object HealthLocked()
-    {
-        using var p = System.Diagnostics.Process.GetCurrentProcess();
-        long now = System.Diagnostics.Stopwatch.GetTimestamp();
-        var cpu = p.TotalProcessorTime;
-        if (_lastCpuAt != 0)
-        {
-            double wall = System.Diagnostics.Stopwatch.GetElapsedTime(_lastCpuAt, now).TotalSeconds;
-            if (wall >= 1) // average over at least a second
-            {
-                _cpuPercent = (cpu - _lastCpu).TotalSeconds / wall / Environment.ProcessorCount * 100;
-                _lastCpu = cpu;
-                _lastCpuAt = now;
-            }
-        }
-        else
-        {
-            _lastCpu = cpu;
-            _lastCpuAt = now;
-        }
-        return new
-        {
-            tickMs = Math.Round(_lastTickAvg, 2),
-            tickMaxMs = Math.Round(_lastTickMax, 2),
-            cpu = Math.Round(_cpuPercent, 1),
-            cores = Environment.ProcessorCount,
-            ramMb = p.WorkingSet64 / 1048576,
-            heapMb = Math.Round(GC.GetTotalMemory(false) / 1048576.0, 1),
-            uptimeMin = (int)(DateTime.Now - p.StartTime).TotalMinutes,
-            calibration = CalibrationStatus
-        };
     }
 
     private Dictionary<string, bool> FeatureStates()
@@ -351,5 +194,4 @@ public sealed partial class RaceAiService
         _configWriter.Set("AiAggression", _config.AiAggression);
     }
 
-    public void Chat(string message) => _entryCarManager.BroadcastChat(message);
 }
