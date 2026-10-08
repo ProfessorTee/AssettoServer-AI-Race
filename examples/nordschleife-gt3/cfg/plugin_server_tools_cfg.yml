@@ -1,0 +1,12 @@
+# Your Assetto Corsa folder: car data (data.acd), racing line (fast_lane.ai), ai_hints.ini, sections.ini and the start grid are read from here
+# when they are not in the server's content folder
+AssettoCorsaPath: /mnt/GameDrive/SteamLibrary/steamapps/common/assettocorsa
+# Chat messages (de or en), yellow flag message when a car spins, crashes or stops on the track
+ChatLanguage: en
+# Address friends join with, shown on the join page /join (e.g. a DynDNS name). Empty = public IP looked up automatically
+PublicAddress: ""
+# Real weather at the track from Open-Meteo (free, no API key), shown by Sol/Pure via CSP WeatherFX.
+# Set EnableWeatherFx: true (default) and for the real time of day EnableRealTime: true in extra_cfg.yml
+RealWeather: false
+RealWeatherUpdateMinutes: 10
+RealWeatherTransitionSeconds: 120

@@ -32,6 +32,13 @@ public sealed class RealWeatherService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // stopping (server restart, track change) cancels the waits: that's not an error
+        try { await RunAsync(stoppingToken); }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
+    }
+
+    private async Task RunAsync(CancellationToken stoppingToken)
+    {
         await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
 
         double lat = _weatherManager.TrackParams?.Latitude ?? NordschleifeLat;

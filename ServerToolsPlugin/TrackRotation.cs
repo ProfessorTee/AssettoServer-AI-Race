@@ -89,6 +89,13 @@ public sealed class TrackRotation : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken token)
     {
+        // stopping (server restart, track change) cancels the waits: that's not an error
+        try { await RunAsync(token); }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    private async Task RunAsync(CancellationToken token)
+    {
         try
         {
             if (File.Exists("rotation.yml"))

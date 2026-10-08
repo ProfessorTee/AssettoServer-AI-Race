@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <Import Project="..\Plugin.props" />
+
+    <ItemGroup>
+        <!-- the offline test tool has its own project in Tool/ -->
+        <Compile Remove="Tool\**" />
+        <None Remove="Tool\**" />
+        <Compile Include="..\Shared\Track\*.cs" Link="Shared\Track\%(Filename)%(Extension)" />
+        <Compile Include="..\Shared\Presets\*.cs" Link="Shared\Presets\%(Filename)%(Extension)" />
+        <Compile Include="..\Shared\Web\*.cs" Link="Shared\Web\%(Filename)%(Extension)" />
+        <Compile Include="..\Shared\Config\*.cs" Link="Shared\Config\%(Filename)%(Extension)" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Remove="lua\driverswap.lua" />
+        <EmbeddedResource Include="lua\driverswap.lua" LogicalName="BotDriverPlugin.lua.driverswap.lua" />
+    </ItemGroup>
+
+</Project>

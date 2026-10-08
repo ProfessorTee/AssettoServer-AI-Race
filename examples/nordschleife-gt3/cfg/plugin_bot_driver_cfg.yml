@@ -1,0 +1,174 @@
+# Race AI plugin - Nordschleife (without GP track) with GT3 cars
+# Empty = every entry with AI=fixed in entry_list.ini is a bot (here CAR_4 .. CAR_19)
+BotSlots: []
+# AI strength in % of the best possible lap (100 % = median best lap of the bot cars, see server log).
+# 94 % on the Nordschleife ≈ 7:18. Your strength = 100 % time / your best lap (e.g. 6:52 / 7:17 ≈ 94 %)
+AiStrength: 94
+# +/- range spread evenly over the bots: 94 +/- 3 -> bots from 91 % to 97 %
+AiStrengthSpread: 3
+# Even = the spread is divided into equal steps (94 +/- 3 with 16 bots: 91.0, 91.4, ... 97.0), randomly assigned to the bots.
+# Random = every bot gets a random value inside the range. (There is no "Odd": Even means evenly spaced.)
+AiStrengthDistribution: Even
+# Field = same % means the same lap time in every car; Car = % of each car's own best lap
+AiStrengthReference: Field
+AiAggression: 55
+AiAggressionVariation: 15
+# Weaker bots lose their time in corners (later throttle on exit, earlier braking), not on the straights
+# Where the players start in a race that doesn't follow a qualifying: Default, First, Last, Middle, Random
+PlayerGridPosition: Middle
+# Bot order on the race grid: Qualifying (result, like real racing), SlowestFirst (weakest in front, strongest at the back), Random
+BotGridOrder: Qualifying
+RandomizeBotGrid: true
+Practice: Drive
+Qualifying: Drive
+# Practice / qualifying: bots leave their pit boxes one after the other (Pits) or start spread over the track (Track)
+SessionStart: Pits
+# players first: seconds before the first bot leaves the pits, and between two bots
+QualifyingBotDelaySeconds: 30
+PracticeBotDelaySeconds: 10
+PitReleaseIntervalSeconds: 6
+# when practice / qualifying time is up: estimate the bots' running laps, don't wait for them
+EstimateLapsAtSessionEnd: true
+GridFile: cfg/ks_nordschleife-nordschleife-grid.json
+UseTrackHints: true
+# Multipliers: 1.0 = 100 % (normal), 0.5 = half, 2.0 = double
+SlipstreamStrength: 1.0
+EdgeMargin: 0.4
+SideMargin: 0.5
+HeightOffset: 0
+# Height correction for bots parked in the pit box (m, + = higher)
+ParkHeightAdjust: 0
+CoolDownPace: 0.6
+DaytimeLights: false
+# Endurance: fuel (FUEL_RATE), tyre wear (TYRE_WEAR_RATE), pit stops, mandatory stop (RACE_PIT_WINDOW_START/END)
+Fuel: true
+TyreWear: true
+TyreWearFactor: 1.0
+TyreChangeGrip: 0.95
+PitStops: true
+PitSpeedKmh: 80
+PracticeFuelLaps: 4
+QualifyingFuelLaps: 2
+AnnouncePitStops: true
+# Players can pick every car: if all player slots of a car are taken, a bot leaves and comes back when the player leaves
+PlayersCanTakeBotSlots: true
+# Human behaviour (each can be switched off; admins can also use /bots_set <feature> on|off)
+# Weaker bots (below HumanErrorsBelow %) make mistakes: braking too late / too early, too much throttle on the exit
+HumanErrors: true
+HumanErrorsBelow: 87
+HumanErrorsFull: 75
+# A bad slide can end in a spin (hazards on, waits for a gap, rejoins)
+Spins: true
+# Imprecise lines: missed apex, early turn-in and running wide, braking too early, hesitating on the throttle
+LineErrors: true
+# Two wheels on the grass now and then
+GrassMoments: true
+# Light touches in close fights
+BotContacts: true
+# Damage from contacts (uses DAMAGE_MULTIPLIER), repaired in the pits; 1.0 = 100 %
+BotDamage: true
+BotDamageFactor: 1.0
+# In the wet: more careful, more mistakes, a rain line away from standing water, aquaplaning
+RainCaution: true
+# High beams at night when nobody is ahead
+HighBeams: true
+# ... when nobody is within this distance ahead (m)
+HighBeamRange: 85
+# Driver personalities: every bot gets one (random by Share, or Drivers[].Personality). The strength (lap time) stays the same,
+# the personality decides HOW the bot gets there. You can change these, delete some or add your own (any Name).
+#
+#   Share          how often it is picked, relative to the others (40/20/20/20 = 40 %, 20 %, ...)
+#   Aggression     -100..100, added to AiAggression: how readily it attacks and defends
+#   BrakeBehavior  -1..1:  -1 = smooth and careful (brakes earlier, squeezes the pedal, rolls into the corner)
+#                            0 = normal
+#                            1 = extremely late, stamps on the brakes, dives from far back when attacking, sometimes too late
+#   InsideLine     0..1:   attacks and defends on the inside; 0.5 and above never tries round the outside
+#   Smoothness     0..1:   0 = normal, 1 = very smooth: gentle on brake pedal and throttle, brakes earlier and softer, lift and coast;
+#                          saves tyres (up to 30 %) and fuel (up to 8 %), costs a little time. (Hard, late braking: BrakeBehavior 1)
+#   Composure      0..1:   calm when somebody sits in the slipstream for long (0 = gets nervous, more mistakes; 1 = ice cold)
+#   Weaving        0..1:   weaves behind the car in front after a while in its slipstream
+#   Patience       0..1:   behind a slower car: 0 = impatient, flashes the lights after a few seconds; 1 = waits long, hardly ever flashes
+#   Mistakes       x       multiplier for mistakes (braking too late, slides, spins, grass); 1 = normal
+#   LineErrors     x       multiplier for line errors (missed apex, running wide, early braking points); 1 = normal
+#   TyreWear       x       tyre wear multiplier (1.25 = 25 % more wear)
+#   TyreChangeAt   %       wants new tyres when worn tyres would have less grip than this (95 = early, 90 = runs long); 0 = TyreChangeGrip
+#   FuelUse        x       fuel use multiplier (0.85 = 15 % less fuel)
+UsePersonalities: true
+Personalities:
+  - Name: Balanced        # the normal driver
+    Share: 40
+    TyreChangeAt: 93
+    BrakeBehavior: 0
+    Patience: 0.5
+  - Name: DiveBomber      # late on the brakes, always down the inside, impatient, hard on the tyres
+    Share: 20
+    TyreChangeAt: 95
+    Aggression: 25
+    BrakeBehavior: 1
+    InsideLine: 1
+    TyreWear: 1.25
+    FuelUse: 1.05
+    Composure: 0.4
+    Weaving: 0.9
+    Patience: 0.1
+    Mistakes: 1.2
+    LineErrors: 1.1
+    GrassPass: 1         # overtakes with two wheels on the grass, also mid-corner
+  - Name: Chill           # smooth and patient, keeps the tyres in the green
+    Share: 20
+    TyreChangeAt: 90
+    Aggression: -20
+    BrakeBehavior: -0.6
+    TyreWear: 0.75
+    FuelUse: 0.97
+    Smoothness: 0.5
+    Composure: 0.9
+    Weaving: 0.1
+    Patience: 0.9
+    Mistakes: 0.8
+    LineErrors: 0.8
+    CornerPass: 0        # passes on the straights (slipstream), in corners only past a car off its line
+  - Name: FuelSaver       # lift and coast, careful on the brakes
+    Share: 20
+    TyreChangeAt: 91
+    Aggression: -10
+    BrakeBehavior: -0.4
+    TyreWear: 0.9
+    FuelUse: 0.85
+    Smoothness: 0.7
+    Composure: 0.7
+    Weaving: 0.2
+    Patience: 0.7
+    LineErrors: 0.9
+    CornerPass: 0.3
+YellowFlagChat: true
+# Stuck cars: after UnstuckSeconds the front car of a jam goes first and the others go round;
+# emergency: after GhostAfterSeconds (20-40 recommended, 0 = off) the bot is a ghost for a few seconds (CSP 0.2.8+)
+UnstuckSeconds: 4
+GhostAfterSeconds: 25
+# Clones of recorded players (DriverRecorderPlugin, players agree with /rec on): folder of the recordings,
+# and whether a player's clone drives his car on when he loses the connection during a race (until he's back)
+RecordingsFolder: recordings
+TakeOverDisconnectedPlayers: true
+TakeoverNameSuffix: " (KI)"
+# Race craft
+# Seconds stuck behind a slower car until a bot is fully impatient (tries harder to overtake, follows closer, flashes its lights)
+ImpatienceSeconds: 25
+# No flashing in the first seconds of a race (the field is bunched up after the start)
+FlashStartDelaySeconds: 90
+# Flash the headlights when impatient (high beam at night; FlashLightsDaytime: also switch the lights on during the day)
+FlashLights: true
+FlashLightsDaytime: true
+# Headlights flash in the pit lane while the pit limiter is on (like real GT3 cars and the players' cars with CSP)
+PitLimiterFlash: true
+# Lapped bots move to the side with the indicator on and let the leader through (race only)
+BlueFlags: true
+# Bots slow down near a stopped car and switch the hazard lights on
+YellowFlags: true
+# Wet track: bots lose grip like the players with CSP rain physics (1.0 = normal, 0 = off)
+RainGripLoss: 1.0
+AnnounceOvertakes: true
+LogLaps: true
+NamePrefix: 'AI-'
+Names: []
+Drivers: []

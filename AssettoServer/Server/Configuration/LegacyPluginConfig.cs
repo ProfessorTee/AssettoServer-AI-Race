@@ -17,7 +17,8 @@ public static class LegacyPluginConfig
 {
     public const string LegacyPlugin = "RaceAiPlugin";
     public const string LegacyConfigFile = "plugin_race_ai_cfg.yml";
-    public static readonly string[] Successors = ["ServerToolsPlugin", "WebPortalPlugin", "BotDriverPlugin"];
+    public const string BotSuccessor = "BotDriverPlugin";
+    public static readonly string[] Successors = ["ServerToolsPlugin", "WebPortalPlugin", BotSuccessor];
 
     /// <summary>EnablePlugins with "RaceAiPlugin" replaced by its installed successors (and itself while it's still installed).</summary>
     public static List<string> ExpandPluginNames(IEnumerable<string> enabled, Func<string, bool> isAvailable)
@@ -30,7 +31,10 @@ public static class LegacyPluginConfig
                 if (!result.Contains(name)) result.Add(name);
                 continue;
             }
-            if (isAvailable(name) && !result.Contains(name)) result.Add(name);
+            // the old plugin only while its successor isn't installed (an old plugins/RaceAiPlugin/ folder left on the server would
+            // otherwise run a second set of bots)
+            if (isAvailable(name) && !isAvailable(BotSuccessor) && !result.Contains(name)) result.Add(name);
+            else if (isAvailable(name)) Log.Warning("{Legacy} is replaced by {Plugin}: the old plugins/{Legacy} folder isn't loaded and can be deleted", LegacyPlugin, BotSuccessor, LegacyPlugin);
             foreach (var s in Successors.Where(s => isAvailable(s) && !result.Contains(s) && !enabled.Contains(s)))
             {
                 result.Add(s);
@@ -41,19 +45,20 @@ public static class LegacyPluginConfig
     }
 
     /// <summary>
-    /// When no layer has <paramref name="fileName"/> yet: writes it next to every plugin_race_ai_cfg.yml with the keys
+    /// Writes <paramref name="fileName"/> next to every plugin_race_ai_cfg.yml of a layer that doesn't have it yet, with the keys
     /// <paramref name="configType"/> has. Returns true when a file was written.
     /// </summary>
     public static bool Migrate(IReadOnlyList<string> layers, string fileName, Type configType)
     {
-        if (fileName == LegacyConfigFile || layers.Any(l => File.Exists(Path.Join(l, fileName)))) return false;
+        if (fileName == LegacyConfigFile) return false;
         var keys = configType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.CanWrite).Select(p => p.Name).ToHashSet();
         bool written = false;
         foreach (var layer in layers)
         {
+            // every layer on its own: cfg/ may already have been taken over while a track's layer is used for the first time now
             var legacy = Path.Join(layer, LegacyConfigFile);
-            if (!File.Exists(legacy)) continue;
+            if (!File.Exists(legacy) || File.Exists(Path.Join(layer, fileName))) continue;
             try
             {
                 var stream = new YamlStream();

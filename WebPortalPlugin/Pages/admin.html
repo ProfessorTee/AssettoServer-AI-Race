@@ -670,8 +670,8 @@ const COMMANDS = [
   ["setcspweather HeavyRain 30", "CSP-Wetter mit Übergang (s)"], ["cspweather", "Liste der CSP-Wetter"],
   ["setrain 0.5 0.5 0.1", "Regen, Nässe, Wasser (0–1)"], ["setgrip 0.95", "Grip der Strecke (0–1)"],
   ["say Nachricht", "Nachricht als CONSOLE an alle"], ["set KEY WERT", "Konfigurationswert ändern (z. B. Server.SleepTime)"],
-  ["raceai", "Bots mit Stärke, Sprit, Reifen …"], ["raceai_strength 90 5", "Stärke ± Streuung"], ["raceai_aggression 60", "Aggressivität"],
-  ["raceai_set spins off", "KI-Funktion an/aus"], ["raceai_rubber 50", "Gummiband 0–100 % (0 = aus)"], ["raceai_grid SlowestFirst", "Startaufstellung: Qualifying / SlowestFirst / Random"], ["raceai_lighttest", "Licht-Test"]
+  ["bots", "Bots mit Stärke, Sprit, Reifen …"], ["bots_strength 90 5", "Stärke ± Streuung"], ["bots_aggression 60", "Aggressivität"],
+  ["bots_set spins off", "KI-Funktion an/aus"], ["bots_rubber 50", "Gummiband 0–100 % (0 = aus)"], ["bots_grid SlowestFirst", "Startaufstellung: Qualifying / SlowestFirst / Random"], ["bots_lighttest", "Licht-Test"]
 ];
 $("cmdTpl").innerHTML = COMMANDS.map(([c, d]) => `<option value="${esc(c)}">${c ? esc(c) + "  –  " : ""}${esc(d)}</option>`).join("");
 $("cmdTpl").onchange = () => { $("cmdText").value = $("cmdTpl").value; $("cmdText").focus(); };
