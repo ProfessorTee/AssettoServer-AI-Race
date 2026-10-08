@@ -45,7 +45,7 @@ public sealed partial class BotDriverService
             _duelSlot = slot;
             b.Clone = profile;
             b.ClonePace = Math.Clamp(pacePercent, 80, 110) / 100f;
-            ApplyClone(b, profile);
+            _field.ApplyClone(b, profile);
             b.Name = _config.NamePrefix + T($"{profile.PlayerName} (duel)", $"{profile.PlayerName} (Duell)");
             slot.EntryCar.AiName = b.Name;
             _entryCarManager.BroadcastPacket(new CarConnected { SessionId = slot.EntryCar.SessionId, Name = b.Name, Nation = slot.Nation });

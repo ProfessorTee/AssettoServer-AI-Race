@@ -66,7 +66,7 @@ public sealed partial class BotDriverService
             if (_slotsBySessionId.TryGetValue(r.SessionId, out var slot) && !slot.Active && !slot.Benched && slot.EntryCar.Client == null)
             {
                 TakeSlot(slot, broadcast: true);
-                PlaceForCurrentSession(slot, late: true);
+                _grid.PlaceForCurrentSession(slot, late: true);
             }
         }
     }

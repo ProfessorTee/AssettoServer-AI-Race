@@ -61,11 +61,11 @@ public sealed partial class BotDriverService
                     aggression = _config.AiAggression,
                     rubber = _config.RubberBanding,
                     gridOrder = _config.BotGridOrder.ToString(),
-                    features = FeatureStates(),
-                    personalities = _personalities.Select(p => p.Personality.Name).DefaultIfEmpty("Balanced").ToList()
+                    features = _field.FeatureStates(),
+                    personalities = _field.PersonalityNames
                 },
                 bots,
-                health = new { tickMs = Math.Round(_lastTickAvg, 2), tickMaxMs = Math.Round(_lastTickMax, 2), calibration = CalibrationStatus }
+                health = new { tickMs = Math.Round(_lastTickAvg, 2), tickMaxMs = Math.Round(_lastTickMax, 2), calibration = _field.CalibrationStatus }
             };
         }
     }
@@ -90,30 +90,6 @@ public sealed partial class BotDriverService
         }
     }
 
-    private Dictionary<string, bool> FeatureStates()
-    {
-        var s = _world?.Settings;
-        return new Dictionary<string, bool>
-        {
-            ["errors"] = s?.HumanErrors ?? false,
-            ["spins"] = s?.Spins ?? false,
-            ["grass"] = s?.GrassMoments ?? false,
-            ["takeover"] = _config.TakeOverDisconnectedPlayers,
-            ["lines"] = s?.LineErrors ?? false,
-            ["contacts"] = s?.BotContacts ?? false,
-            ["damage"] = s?.Damage ?? false,
-            ["blueflags"] = _config.BlueFlags,
-            ["yellowflags"] = s?.YellowFlags ?? false,
-            ["flash"] = _config.FlashLights,
-            ["highbeams"] = _config.HighBeams,
-            ["raincaution"] = s?.RainCaution ?? false,
-            ["yellowchat"] = _config.YellowFlagChat,
-            ["overtakechat"] = _config.AnnounceOvertakes,
-            ["personallines"] = s?.PersonalLines ?? _config.PersonalLines,
-            ["realstart"] = s?.RealisticStart ?? _config.RealisticStart,
-        };
-    }
-
     /// <summary>Recorded players on this track (DriverRecorder), with their profile once it has been built.</summary>
     public object CloneList()
     {
@@ -129,69 +105,4 @@ public sealed partial class BotDriverService
             };
         }).ToList();
     }
-
-    public bool SetDashboardFeature(string feature, bool on)
-    {
-        lock (_lock)
-        {
-            switch (feature)
-            {
-                case "yellowchat": _config.YellowFlagChat = on; _configWriter.Set("YellowFlagChat", on); return true;
-                case "overtakechat": _config.AnnounceOvertakes = on; _configWriter.Set("AnnounceOvertakes", on); return true;
-                case "takeover": _config.TakeOverDisconnectedPlayers = on; _configWriter.Set("TakeOverDisconnectedPlayers", on); return true;
-            }
-        }
-        return SetFeature(feature, on);
-    }
-
-    /// <summary>Changes one bot. Null values stay as they are.</summary>
-    public bool UpdateBot(int id, float? strength, float? aggression, string? personality, bool pit)
-    {
-        lock (_lock)
-        {
-            if (_world == null || !_slotsBySessionId.TryGetValue((byte)id, out var slot) || !slot.Active) return false;
-            var bot = slot.Bot;
-            if (strength is { } st && _calibrations.TryGetValue(bot.Car, out var cal))
-                ApplyStrength(bot, Math.Clamp(st, 50, 110), cal);
-            if (aggression is { } ag) bot.Driver.Aggression = Math.Clamp(ag / 100f, 0, 1);
-            if (!string.IsNullOrWhiteSpace(personality))
-            {
-                if (_personalities.Count == 0) PickPersonality(null);
-                var p = _personalities.FirstOrDefault(x => x.Personality.Name.Equals(personality, StringComparison.OrdinalIgnoreCase)).Personality;
-                if (p != null) { bot.Driver.Personality = p; _world?.ResetStyle(bot); }
-            }
-            if (pit) _world.RequestPitStop(bot, "admin");
-            Serilog.Log.Information("BotDriver: dashboard changed {Name}: strength {Strength:F1} %, aggression {Aggression:F0}, {Personality}{Pit}",
-                bot.Name, bot.Driver.Level, bot.Driver.Aggression * 100, bot.Driver.Personality.Name, pit ? ", to the pits" : "");
-            return true;
-        }
-    }
-
-    public float CurrentSpread => _config.AiStrengthSpread;
-
-    public void SetGlobalStrength(float strength, float spread)
-    {
-        _config.AiStrength = Math.Clamp(strength, 50, 110);
-        _config.AiStrengthSpread = Math.Clamp(spread, 0, 30);
-        SetStrength(_config.AiStrength, _config.AiStrengthSpread);
-        _configWriter.Set("AiStrength", _config.AiStrength);
-        _configWriter.Set("AiStrengthSpread", _config.AiStrengthSpread);
-    }
-
-    public bool SetGridOrder(string order)
-    {
-        if (!Enum.TryParse<BotGridOrder>(order, true, out var o)) return false;
-        _config.BotGridOrder = o;
-        _configWriter.Set("BotGridOrder", o);
-        Serilog.Log.Information("BotDriver: grid order for the next race: {Order}", o);
-        return true;
-    }
-
-    public void SetGlobalAggression(float aggression)
-    {
-        _config.AiAggression = Math.Clamp(aggression, 0, 100);
-        SetAggression(_config.AiAggression);
-        _configWriter.Set("AiAggression", _config.AiAggression);
-    }
-
 }

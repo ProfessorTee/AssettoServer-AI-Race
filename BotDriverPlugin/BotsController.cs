@@ -43,7 +43,7 @@ public class BotsController : ControllerBase
     public IActionResult Bot(int id, [FromBody] BotRequest req)
     {
         if (!Allowed()) return Denied();
-        return _service.UpdateBot(id, req.Strength, req.Aggression, req.Personality, req.Pit) ? Ok(new { ok = true }) : NotFound(new { error = "no such bot" });
+        return _service.Field.UpdateBot(id, req.Strength, req.Aggression, req.Personality, req.Pit) ? Ok(new { ok = true }) : NotFound(new { error = "no such bot" });
     }
 
     public sealed class AiRequest
@@ -62,12 +62,12 @@ public class BotsController : ControllerBase
     public IActionResult Ai([FromBody] AiRequest req)
     {
         if (!Allowed()) return Denied();
-        if (req.Strength is { } st) _service.SetGlobalStrength(st, req.Spread ?? 0);
-        if (req.Aggression is { } ag) _service.SetGlobalAggression(ag);
-        if (!string.IsNullOrEmpty(req.Feature) && !_service.SetDashboardFeature(req.Feature, req.On)) return BadRequest(new { error = "unknown feature" });
+        if (req.Strength is { } st) _service.Field.SetGlobalStrength(st, req.Spread ?? 0);
+        if (req.Aggression is { } ag) _service.Field.SetGlobalAggression(ag);
+        if (!string.IsNullOrEmpty(req.Feature) && !_service.Field.SetDashboardFeature(req.Feature, req.On)) return BadRequest(new { error = "unknown feature" });
         if (req.LightTest) _service.StartSignalTest();
-        if (req.Rubber is { } rb) _service.SetRubberBand(rb);
-        if (!string.IsNullOrEmpty(req.GridOrder) && !_service.SetGridOrder(req.GridOrder)) return BadRequest(new { error = "unknown grid order" });
+        if (req.Rubber is { } rb) _service.Field.SetRubberBand(rb);
+        if (!string.IsNullOrEmpty(req.GridOrder) && !_service.Grid.SetGridOrder(req.GridOrder)) return BadRequest(new { error = "unknown grid order" });
         return Ok(new { ok = true });
     }
 }

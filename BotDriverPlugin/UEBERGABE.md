@@ -303,3 +303,6 @@ Mit dem .NET 11 SDK (`~/.dotnet`): `tools/build.sh` → kompletter Server in `ou
 - Altbestand: `LegacyPluginConfig` im Kern erweitert `RaceAiPlugin` in EnablePlugins, lädt den alten Ordner nicht neben BotDriver,
   übernimmt Schlüssel aus `plugin_race_ai_cfg.yml` je Ebene.
 - APIs: `/api/admin/*`, `/api/live/*`, `/api/web/join` (WebPortal), `/api/bots/*` (BotDriver), `/api/tools/*` (ServerTools).
+- `BotDriverService` aufgeteilt (2026-10-08): gemeinsamer Zustand `BotRace` (World, Track, Slots, Session, Lock);
+  `GridDirector` (Sessions, Startaufstellung, Boxen, Session-Ende), `FieldStrength` (Stärke, Persönlichkeiten, Schalter,
+  Kalibrierung), `RaceAnnouncer` (Chat-Meldungen). Offen: `PlayerStandIn` (Übernahme, Rejoin, Fahrerwechsel).

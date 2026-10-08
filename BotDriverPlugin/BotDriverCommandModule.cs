@@ -42,7 +42,7 @@ public class BotDriverCommandModule : ACModuleBase
     public void SetStrength(float strength, float spread = -1)
     {
         strength = Math.Clamp(strength, 50, 110);
-        _service.SetGlobalStrength(strength, spread >= 0 ? spread : _service.CurrentSpread);
+        _service.Field.SetGlobalStrength(strength, spread >= 0 ? spread : _service.Field.CurrentSpread);
         Reply($"Bot strength set to {strength:F0} %" + (spread >= 0 ? $" +/- {spread:F0} %" : ""));
     }
 
@@ -60,7 +60,7 @@ public class BotDriverCommandModule : ACModuleBase
     public void SetFeature(string feature, string value)
     {
         bool on = value.ToLowerInvariant() is "on" or "1" or "true" or "an" or "ein";
-        Reply(_service.SetFeature(feature.ToLowerInvariant(), on)
+        Reply(_service.Field.SetFeature(feature.ToLowerInvariant(), on)
             ? $"BotDriver: {feature} {(on ? "on" : "off")}"
             : "Unknown feature. Use: errors, lines, spins, grass, contacts, damage, blueflags, yellowflags, flash, highbeams, raincaution");
     }
@@ -84,7 +84,7 @@ public class BotDriverCommandModule : ACModuleBase
     [Command("bots_grid", "raceai_grid"), RequireAdmin]
     public void SetGrid(string order)
     {
-        Reply(_service.SetGridOrder(order)
+        Reply(_service.Grid.SetGridOrder(order)
             ? $"BotDriver: bot grid order {order} from the next race"
             : "Use: /bots_grid Qualifying | SlowestFirst | Random");
     }
@@ -136,14 +136,14 @@ public class BotDriverCommandModule : ACModuleBase
     [Command("bots_rubber", "raceai_rubber", "raceai_rubberband"), RequireAdmin]
     public void Rubber(float percent)
     {
-        Reply(_service.SetRubberBand(percent));
+        Reply(_service.Field.SetRubberBand(percent));
     }
 
     [Command("bots_aggression", "raceai_aggression"), RequireAdmin]
     public void SetAggression(float aggression)
     {
         aggression = Math.Clamp(aggression, 0, 100);
-        _service.SetGlobalAggression(aggression);
+        _service.Field.SetGlobalAggression(aggression);
         Reply($"Bot aggression set to {aggression:F0}");
     }
 }

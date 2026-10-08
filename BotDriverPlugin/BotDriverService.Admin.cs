@@ -42,7 +42,7 @@ public sealed partial class BotDriverService
                 {
                     slot.Benched = false;
                     TakeSlot(slot, broadcast: true);
-                    PlaceForCurrentSession(slot, late: true);
+                    _grid.PlaceForCurrentSession(slot, late: true);
                 }
                 on++;
             }
@@ -51,7 +51,7 @@ public sealed partial class BotDriverService
                 if (slot.Active)
                 {
                     ReleaseSlot(slot);
-                    _pitQueue.Remove(slot.Bot);
+                    _grid.Unqueue(slot.Bot);
                     _entryCarManager.BroadcastPacket(new CarDisconnected { SessionId = slot.EntryCar.SessionId });
                 }
                 slot.Benched = true;
