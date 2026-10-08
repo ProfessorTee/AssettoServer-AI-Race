@@ -508,7 +508,7 @@ function statusTags(c) {
     else if (c.mistake) t.push(`<span class="tag warn">${{ LateBrake: "verbremst", Slide: "Rutscher", Grass: "Gras" }[c.mistake] || c.mistake}</span>`);
     if (c.ghost) t.push(`<span class="tag bad">Geist</span>`);
     if (c.duel) t.push(`<span class="tag info">Duell</span>`);
-    else if (c.takeover) t.push(`<span class="tag info">Klon übernimmt</span>`);
+    else if (c.takeover) t.push(`<span class="tag info">übernommen</span>`);
     else if (c.clone) t.push(`<span class="tag info">Klon</span>`);
     if (c.weaving) t.push(`<span class="tag">pendelt</span>`);
     if (c.pressure > 0.3) t.push(`<span class="tag warn">unter Druck</span>`);
@@ -613,7 +613,7 @@ function renderLegend() {
 // ---------------------------------------------------------------- AI tab
 const FEATURES = { errors: "Menschliche Fehler", lines: "Linienfehler", spins: "Dreher", grass: "Gras", contacts: "Berührungen", damage: "Schaden",
   blueflags: "Blaue Flagge", yellowflags: "Gelbe Flagge", flash: "Lichthupe", highbeams: "Fernlicht", raincaution: "Vorsicht bei Regen",
-  takeover: "Klon übernimmt bei Verbindungsabbruch", yellowchat: "Gelbe Fahne im Chat", overtakechat: "Überholungen im Chat",
+  takeover: "Bot übernimmt bei Verbindungsabbruch", yellowchat: "Gelbe Fahne im Chat", overtakechat: "Überholungen im Chat",
   personallines: "Eigene Linie je Fahrer", realstart: "Realistischer Start (Reaktion, Durchdrehen)" };
 let aiInit = false;
 function syncAi() {

@@ -5,7 +5,7 @@ Repo: Fork von AssettoServer (AGPL-3.0) mit vier eigenen Plugins. Antworten auf 
 ## Aufteilung (jede Sitzung arbeitet in ihrem Ordner)
 | Ordner | Zuständig für |
 |---|---|
-| `BotDriverPlugin/` | Bots: Fahrphysik, Racecraft, Fehler, Pit, Duelle, Klone, Fahrerwechsel. Test-Tool `BotDriverPlugin/Tool` |
+| `BotDriverPlugin/` | Bots: Fahrphysik, Racecraft, Fehler, Pit, Duelle, Klone, Übernahme bei Verbindungsabbruch. Test-Tool `BotDriverPlugin/Tool` |
 | `WebPortalPlugin/` | Seiten `/join` `/live` `/stats` `/admin`, Live-Feed, Admin-API `/api/admin/*` |
 | `ServerToolsPlugin/` | Rotation, Klassen, Statistik/Safety Rating, Echtwetter, Neustart, gemeinsame Einstellungen, Skripte |
 | `DriverRecorderPlugin/` | Aufzeichnung (`/rec`), CSP-Skript |

@@ -37,16 +37,16 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
     private readonly GridDirector _grid;
     /// <summary>Grid, pit boxes and the bots' way into and out of a session.</summary>
     public GridDirector Grid => _grid;
+    private readonly CarTakeover _takeover;
     private object _lock => _race.Lock;
     private ConfigWriter _configWriter = null!;
     private readonly ConcurrentQueue<(byte BotSessionId, byte OtherSessionId, Vector3 OtherPosition, float Speed)> _contacts = new();
     private Dictionary<byte, BotSlot> _slotsBySessionId => _race.SlotsBySessionId;
     private List<BotSlot> _slots => _race.Slots;
     private Random _rng => _race.Rng;
-    private readonly Dictionary<(string, float, int), CarSpec> _specCache = new();
+    private Dictionary<(string, float, int), CarSpec> _specCache => _race.SpecCache;
     private List<string> _carRoots { get => _race.CarRoots; set => _race.CarRoots = value; }
     private CloneLibrary? _clones;
-    private readonly CSPServerScriptProvider _scriptProvider;
 
     private static string FormatLap(float seconds) => TimeSpan.FromSeconds(seconds).ToString(@"m\:ss\.fff");
 
@@ -71,8 +71,6 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         SharedSettingsResolver.Resolve(config, sharedSettings);
         _race = new BotRace(config, serverConfig, entryCarManager, sessionManager);
         _announcer = new RaceAnnouncer(_race);
-        _scriptProvider = scriptProvider;
-        AddSwapScript();
         _config = config;
         _serverConfig = serverConfig;
         _entryCarManager = entryCarManager;
@@ -82,10 +80,10 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         _configWriter = new ConfigWriter(serverConfig, "plugin_bot_driver_cfg.yml", "BotDriver");
         _field = new FieldStrength(_race, _configWriter);
         _grid = new GridDirector(_race, _field, _configWriter);
+        _takeover = new CarTakeover(_race, _field, () => _clones);
         // duels: a player's lap against the recorded clone
         _entryCarManager.ClientConnected += (c, _) => c.LapCompleted += OnDuelLap;
         _entryCarManager.ClientDisconnected += (c, _) => c.LapCompleted -= OnDuelLap;
-        SetupRejoin();
     }
 
     /// <summary>Entry list slots that are bots, as configured (also used by the slot filter before the service has started).</summary>
@@ -397,35 +395,22 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
     private void OnClientConnected(ACTcpClient client, EventArgs args)
     {
         client.Collision += OnCollision;
-        // build the player's clone profile now (if he was recorded), so a takeover is instant when he disconnects
+        // build the player's clone profile now (if he was recorded), so a takeover drives like him at once
         if (_clones is { } clones && _config.TakeOverDisconnectedPlayers)
         {
             string guid = client.Guid.ToString(), model = client.EntryCar.Model;
             _ = Task.Run(() => { try { clones.Get(guid, model, anyCar: true); } catch (Exception ex) { Log.Debug(ex, "BotDriver: clone preload failed"); } });
         }
-        lock (_lock) { OnSwapWatcherConnected(client); OnRejoined(client); }
         if (_slotsBySessionId.TryGetValue(client.SessionId, out var slot))
         {
             lock (_lock)
             {
                 if (slot.TakeoverGuid != null)
                 {
-                    // back in his own car: at the driver change, or on his way to a spare car to watch from
-                    if (client.Guid == slot.TakeoverGuid && slot.Swap != SwapPhase.Handover && ArriveForWatching(client, slot)) return;
-                    // driver change started early: the clone drives on into the box while his game loads, and leaves when he's in
-                    if (client.Guid == slot.TakeoverGuid && slot.Swap == SwapPhase.Handover && slot.EarlyReconnect)
-                    {
-                        slot.LoadingOwner = client;
-                        Log.Information("BotDriver: {Player} is loading into his car, the clone drives on until he's in", client.Name);
-                        return;
-                    }
-                    EndTakeover(slot, client.Guid == slot.TakeoverGuid
-                        ? T($"{client.Name} is back and takes over from his clone", $"{client.Name} ist zurück und übernimmt wieder von seinem Klon")
-                        : null);
-                    if (client.Guid == slot.TakeoverGuid) { byte c0 = slot.EntryCar.SessionId; Later(client, () => SendSwap(client, 0, c0, 0, 0, 0)); }
+                    // somebody joins a car a bot took over from a player who left: the bot makes room
+                    _takeover.End(slot);
                     return;
                 }
-                if (OnSeatJoined(client, slot)) return; // watching his clone from this bot's car, the bot drives on
                 if (slot.Active)
                 {
                     Log.Information("BotDriver: {Player} took over bot slot {Slot} ({Model}), bot {Bot} left", client.Name, client.SessionId, slot.EntryCar.Model, slot.Bot.Name);
@@ -441,9 +426,10 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         client.Collision -= OnCollision;
         lock (_lock)
         {
-            OnSwapClientDisconnected(client);
+            // racing when he left: a bot drives his car on (needs his last position, before it is removed)
+            _takeover.TryTakeOver(client);
             _world?.RemoveExternal(client.SessionId);
-            if (_slotsBySessionId.TryGetValue(client.SessionId, out var slot) && !slot.Active && !slot.Benched && !_rejoins.ContainsKey(client.Guid))
+            if (_slotsBySessionId.TryGetValue(client.SessionId, out var slot) && !slot.Active && !slot.Benched)
             {
                 TakeSlot(slot, broadcast: true);
                 _grid.PlaceForCurrentSession(slot, late: true);
@@ -454,7 +440,6 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
 
     private void OnCollision(ACTcpClient sender, CollisionEventArgs args)
     {
-        if (_slots.Any(s => s.Watcher == sender)) return; // parked in the pits watching his clone: the others don't see this car
         if (args.TargetCar != null && _slotsBySessionId.ContainsKey(args.TargetCar.SessionId))
             _contacts.Enqueue((args.TargetCar.SessionId, sender.SessionId, sender.EntryCar.Status.Position, args.Speed / 3.6f));
     }
@@ -472,22 +457,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
     private void SetupSession(SessionState session, SessionState? previous)
     {
         if (_world == null) return;
-        foreach (var t in _slots.Where(s => s.TakeoverGuid != null).ToList())
-            EndTakeover(t, null);
-        // players still watching from a bot's car: back into their own car, the bot keeps its car
-        foreach (var lent in _slots.Where(s => s.LentTo != null).ToList())
-        {
-            if (lent.EntryCar.Client is { } watcher)
-            {
-                SendSwap(watcher, 3, watcher.SessionId, 0, 0, 2, watcher.EntryCar.Model);
-                Tell(watcher, "New session: you're put back into your own car.", "Neue Session: du wirst wieder in dein eigenes Auto gesetzt.");
-            }
-            else
-            {
-                lent.EndLend();
-            }
-        }
-        ClearRejoins();
+        _takeover.EndAll();
         _announcer.NewSession();
         _grid.SetupSession(session, previous);
     }
@@ -574,9 +544,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
             slot.Bot.RemainingLaps = _grid.RemainingLaps(slot, session);
 
         _grid.ReleaseFromPits(world, now);
-        UpdateDriverSwaps(world, now);
         DebugTick(world, now);
-        ExpireRejoins();
         _grid.FinishSessionEarly(session);
         world.Advance(now);
 
@@ -678,127 +646,6 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         };
 
     // ------------------------------------------------------------------ admin
-
-    // ------------------------------------------------------------------ takeover by the player's clone
-
-    /// <summary>Is <paramref name="entryCar"/> a player's car his clone drives right now; and whose.</summary>
-    public ulong? TakeoverOwner(EntryCar entryCar)
-    {
-        lock (_lock) return _slotsBySessionId.TryGetValue(entryCar.SessionId, out var s) && s.TakeoverGuid != null ? s.TakeoverGuid : null;
-    }
-
-    /// <summary>The car of a player his clone drives right now (to send him back into it).</summary>
-    public EntryCar? TakeoverCarOf(ulong guid)
-    {
-        lock (_lock) return _slots.FirstOrDefault(s => s.TakeoverGuid == guid)?.EntryCar;
-    }
-
-    /// <summary>A recorded player left during the race: his clone drives on from where he was.</summary>
-    private BotSlot? TryTakeOver(ACTcpClient client, bool fromBox = false)
-    {
-        var world = _world;
-        if (world == null || _clones == null || _track == null) return null;
-        if (!fromBox && !_config.TakeOverDisconnectedPlayers) return null;
-        if (_sessionType != SessionType.Race || !_raceStarted) return null;
-        var car = client.EntryCar;
-        if (_slotsBySessionId.ContainsKey(car.SessionId)) return null; // a bot slot: the bot comes back anyway
-        if (_slots.Any(s => s.TakeoverGuid == client.Guid)) return null; // left the spare car he watched from
-        var session = _sessionManager.CurrentSession;
-        if (session.Results == null || !session.Results.TryGetValue(car.SessionId, out var result) || result.HasCompletedLastLap) return null;
-        var ext = world.Externals.FirstOrDefault(e => e.Id == car.SessionId);
-        if (!fromBox && (ext is not { Valid: true } || MathF.Abs(ext.Offset) > 15)) return null; // not on the track (pits, off somewhere)
-
-        var profile = _clones.Get(client.Guid.ToString(), car.Model, anyCar: true);
-        if (profile == null) return null;
-
-        var key = (car.Model, car.Ballast, car.Restrictor);
-        if (!_specCache.TryGetValue(key, out var spec))
-        {
-            var root = _carRoots.FirstOrDefault(r => Directory.Exists(Path.Join(r, car.Model))) ?? _carRoots.FirstOrDefault() ?? "content/cars";
-            spec = CarDataLoader.LoadForTrack(root, car.Model, _track!.Line, car.Ballast, car.Restrictor, msg => Log.Warning("BotDriver: {Message}", msg));
-            _specCache[key] = spec;
-        }
-
-        string playerName = client.Name ?? profile.PlayerName;
-        var bot = new RaceBot
-        {
-            Id = car.SessionId,
-            Name = playerName + _config.TakeoverNameSuffix,
-            Car = spec,
-            Driver = new DriverProfile { Pace = 1, Aggression = Math.Clamp(_config.AiAggression / 100f, 0, 1), Consistency = 0.97f },
-            Clone = profile
-        };
-        _field.ApplyClone(bot, profile);
-        world.Bots.Add(bot);
-        if (_track.Info.PitBoxes.FirstOrDefault(p => p.Index == car.SessionId) is var box && box.Index == car.SessionId && _track.Info.PitBoxes.Count > 0)
-            world.SetPitBox(bot, box.Position);
-
-        // where he was: same lap, same place, same speed
-        var line = _track.Line;
-        int laps = (int)result.NumLaps;
-        world.ResetCarCondition(bot, world.FuelForLaps(bot, RemainingLapsFor(bot, session) + 0.5f));
-        float fromStart;
-        if (fromBox && world.ReleaseFromPitBox(bot))
-        {
-            // driver change in the box: the clone drives off down the pit lane
-            fromStart = line.WrapS((float)bot.Distance - _track.StartLineS);
-            bot.Distance = _track.StartLineS + (double)laps * line.Length + fromStart;
-        }
-        else
-        {
-            if (ext == null) return null;
-            fromStart = line.WrapS(ext.S - _track.StartLineS);
-            world.PlaceAt(bot, _track.StartLineS + (double)laps * line.Length + fromStart, ext.Offset, BotPhase.Racing);
-            bot.Speed = ext.Speed;
-        }
-        bot.LapsCompleted = laps;
-        bot.LapIndex = laps;
-        bot.StartCrossed = true;
-        bot.TimingValid = true;
-        bot.RaceStartTime = world.Settings.RaceStartTime;
-        bot.LapStartTime = Now - fromStart / line.Length * profile.AverageLap;
-        bot.CautiousUntil = Now + 1;
-
-        var slot = new BotSlot(car, bot, "") { TakeoverGuid = client.Guid, TakeoverPlayer = playerName };
-        _slots.Add(slot);
-        _slotsBySessionId[car.SessionId] = slot;
-        car.AiName = playerName; // the results keep his name
-        car.ExternalAiController = slot;
-        car.AiControlled = true;
-        slot.Active = true;
-        _entryCarManager.BroadcastPacket(new CarConnected { SessionId = car.SessionId, Name = bot.Name, Nation = client.NationCode ?? "" });
-        _entryCarManager.BroadcastChat(fromBox
-            ? T($"Driver change: {playerName}'s clone takes over (lap {laps + 1})", $"Fahrerwechsel: der Klon von {playerName} übernimmt (Runde {laps + 1})")
-            : T($"{playerName} lost the connection, his clone drives on (lap {laps + 1})",
-                $"{playerName} hat die Verbindung verloren, sein Klon fährt weiter (Runde {laps + 1})"));
-        Log.Information("BotDriver: {Player} {How} in lap {Lap}, his clone ({Laps} recorded laps, average {Avg}) drives his {Car} on",
-            playerName, fromBox ? "handed over in the pits" : "disconnected", laps + 1, profile.LapsUsed, FormatLap(profile.AverageLap), car.Model);
-        return slot;
-    }
-
-    private int RemainingLapsFor(RaceBot bot, SessionState session)
-    {
-        var cfg = session.Configuration;
-        if (!cfg.IsTimedRace) return Math.Max(1, cfg.Laps - bot.LapsCompleted);
-        double timeLeft = session.TimeLeftMilliseconds / 1000.0;
-        return Math.Max(1, (int)Math.Ceiling(timeLeft / Math.Max(60, bot.Clone?.AverageLap ?? 480)) + 1);
-    }
-
-    /// <summary>The player is back (or the session is over): his clone leaves the car.</summary>
-    private void EndTakeover(BotSlot slot, string? chat)
-    {
-        slot.Active = false;
-        slot.EntryCar.ExternalAiController = null;
-        slot.EntryCar.AiControlled = false;
-        slot.EntryCar.AiName = null;
-        _world?.Bots.Remove(slot.Bot);
-        _slots.Remove(slot);
-        _slotsBySessionId.Remove(slot.EntryCar.SessionId);
-        if (slot.EntryCar.Client == null)
-            _entryCarManager.BroadcastPacket(new CarDisconnected { SessionId = slot.EntryCar.SessionId });
-        if (chat != null) _entryCarManager.BroadcastChat(chat);
-        Log.Information("BotDriver: clone of {Player} left car {Slot}", slot.TakeoverPlayer, slot.EntryCar.SessionId);
-    }
 
     public string TrackKeyName => TrackKey();
     public float TrackLengthMeters => _track?.Line.Length ?? 0;

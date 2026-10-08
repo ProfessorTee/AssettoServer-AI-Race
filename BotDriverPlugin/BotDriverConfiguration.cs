@@ -272,14 +272,13 @@ public class BotDriverConfiguration : IValidateConfiguration<BotDriverConfigurat
     [YamlMember(Description = "Folder of the DriverRecorder plugin with the recorded laps of the players (for clones)")]
     public string RecordingsFolder { get; set; } = "recordings";
 
-    [YamlMember(Description = "A player who loses the connection during a race may rejoin into his car for this many seconds (his laps count on). " +
-                              "The race doesn't end in that time even if he was the only player. 0 = off")]
+    [YamlMember(Description = "No longer used (rejoining into the own car was removed); kept so older configuration files still load")]
     public int RejoinSeconds { get; set; } = 60;
 
-    [YamlMember(Description = "When a recorded player disconnects during a race, his clone drives his car on until he comes back (needs clean recorded laps on this track)")]
+    [YamlMember(Description = "When a player disconnects during a race, a bot drives his car to the flag (like him when he was recorded, else as fast as his best lap)")]
     public bool TakeOverDisconnectedPlayers { get; set; } = true;
 
-    [YamlMember(Description = "Added to the player's name while his clone drives")]
+    [YamlMember(Description = "Added to the player's name while a bot drives his car")]
     public string TakeoverNameSuffix { get; set; } = " (KI)";
 
     [YamlMember(Description = "No flashing of the lights in the first seconds of a race, while the field is bunched up")]

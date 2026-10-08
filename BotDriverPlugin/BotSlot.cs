@@ -8,18 +8,6 @@ using BotDriverPlugin.Core;
 namespace BotDriverPlugin;
 
 /// <summary>One entry list slot driven by the racing AI. Writes the bot's pose into the slot's <see cref="EntryCar.Status"/>.</summary>
-public enum SwapPhase
-{
-    /// <summary>Clone drives, the player is away.</summary>
-    Away,
-    /// <summary>Clone drives, the player watches from a spare car.</summary>
-    Watching,
-    /// <summary>Clone drives into the pits for the driver change.</summary>
-    PitRequested,
-    /// <summary>Clone waits in the box, the player is being reconnected into his car.</summary>
-    Handover
-}
-
 public sealed class BotSlot : IExternalAiController
 {
     public EntryCar EntryCar { get; }
@@ -37,23 +25,9 @@ public sealed class BotSlot : IExternalAiController
     /// <summary>Last <see cref="RaceBot.DamageVersion"/> sent to the clients.</summary>
     public int SentDamageVersion { get; set; } = -1;
 
-    /// <summary>Set when this is a player's car his clone drives while he's gone (the Steam ID of the player).</summary>
+    /// <summary>Set when this is a player's car a bot took over when he lost the connection (the Steam ID of the player).</summary>
     public ulong? TakeoverGuid { get; init; }
     public string TakeoverPlayer { get; init; } = "";
-    /// <summary>Driver swap state while the clone drives (see BotDriverService.DriverSwap.cs).</summary>
-    public SwapPhase Swap { get; set; }
-    /// <summary>The player, connected in a spare car, watching his clone.</summary>
-    public AssettoServer.Network.Tcp.ACTcpClient? Watcher { get; set; }
-    /// <summary>When the player comes back, the clone comes into the pits for him at once (false after /bot: he takes a break).</summary>
-    public bool ReturnOnJoin { get; set; } = true;
-    public double HandoverSince { get; set; }
-    /// <summary>The player was sent into his car before the clone reached the box (his game needs time to load).</summary>
-    public bool EarlyReconnect { get; set; }
-    /// <summary>Takeover slot: the car (same model) the player is sent to, to watch his clone from.</summary>
-    public EntryCar? WatchSeat { get; set; }
-    /// <summary>The player is loading into his car while the clone still drives it; the clone leaves when he's in.</summary>
-    public AssettoServer.Network.Tcp.ACTcpClient? LoadingOwner { get; set; }
-
     /// <summary>Collisions switched off for the clients (emergency ghost).</summary>
     public bool Ghosted { get; set; }
 
@@ -65,57 +39,13 @@ public sealed class BotSlot : IExternalAiController
     }
 
     /// <summary>
-    /// Where the pose goes: the slot's status, or for a player's car driven by his clone an own status object
-    /// (the player may sit in the car for a moment on his way to a spare car, his updates must not move the clone).
+    /// Where the pose goes: the slot's status, or for a taken-over player's car an own status object (his last updates, still on their
+    /// way, must not move the bot).
     /// </summary>
     private readonly CarStatus _standInStatus = new();
-    public CarStatus Status => TakeoverGuid != null || LentTo != null ? _standInStatus : EntryCar.Status;
-
-    /// <summary>
-    /// A bot's slot lent to a player as his seat to watch his clone from (same model as his own car): the bot drives on,
-    /// the player's game sits in this car in the pits and nobody else sees it. Steam ID of that player.
-    /// </summary>
-    public ulong? LentTo { get; private set; }
-    public DateTime LentSince { get; private set; }
-    /// <summary>The bot's race result, kept while the player sits in the slot (the server would start a new one for him).</summary>
-    public AssettoServer.Shared.Model.EntryCarResult? SavedResult { get; set; }
-
-    public void Lend(ulong guid)
-    {
-        if (LentTo == guid) return;
-        CopyPose(EntryCar.Status, _standInStatus);
-        LentTo = guid;
-        LentSince = DateTime.UtcNow;
-    }
-
-    public void EndLend()
-    {
-        if (LentTo == null) return;
-        CopyPose(_standInStatus, EntryCar.Status);
-        LentTo = null;
-        SavedResult = null;
-    }
-
-    private static void CopyPose(CarStatus from, CarStatus to)
-    {
-        to.Timestamp = from.Timestamp;
-        to.Position = from.Position;
-        to.Rotation = from.Rotation;
-        to.Velocity = from.Velocity;
-        to.NormalizedPosition = from.NormalizedPosition;
-        for (int i = 0; i < 4; i++) to.TyreAngularSpeed[i] = from.TyreAngularSpeed[i];
-        to.WheelAngle = from.WheelAngle;
-        to.SteerAngle = from.SteerAngle;
-        to.EngineRpm = from.EngineRpm;
-        to.Gear = from.Gear;
-        to.Gas = from.Gas;
-        to.StatusFlag = from.StatusFlag;
-    }
+    public CarStatus Status => TakeoverGuid != null ? _standInStatus : EntryCar.Status;
 
     public CarStatus? GetStatusForCar(EntryCar toCar) => Active ? Status : null;
-
-    /// <summary>A player's clone keeps the race going while he's away, and he may come back even when the session is closed.</summary>
-    public ulong? StandsInFor => Active ? TakeoverGuid : null;
 
     public void WriteStatus(in BotPose pose, long serverTimeMs, CarStatusFlags lights, CarStatusFlags wipers, bool flashLights = true, bool flashDaytime = true,
         bool highBeams = true)

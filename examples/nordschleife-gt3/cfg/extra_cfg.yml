@@ -4,7 +4,7 @@ EnableAi: false
 # Short info shown in Content Manager's server list
 ServerDescription: "GT3 gegen Race AI: 16 KI-Fahrer mit Charakter und Fahrfehlern, Training/Quali/Rennen, Reifen und Boxenstopps. Fahrweise aufzeichnen mit /rec on, dein Klon fährt weiter bei Verbindungsabbruch (/bot, /play). Wetter mit CSP, Strecken-Rotation."
 EnablePlugins:
-  # the bots (driving, duels, clones, driver swap)
+  # the bots (driving, duels, clones, a bot takes over the car of a player who left)
   - BotDriverPlugin
   # web pages: join, live timing with map, best laps, admin page
   - WebPortalPlugin

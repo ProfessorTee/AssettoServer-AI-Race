@@ -31,6 +31,8 @@ public sealed class FieldStrength
     private readonly Dictionary<CarSpec, StrengthCalibration> _calibrations = new();
     private readonly List<(Personality Personality, float Share)> _personalities = [];
     private float? _referenceBestLap;
+    /// <summary>The lap time of 100 % (median of the bot cars), null when every car has its own.</summary>
+    public float? ReferenceBestLap => _referenceBestLap;
 
     public FieldStrength(BotRace race, ConfigWriter configWriter)
     {

@@ -305,4 +305,6 @@ Mit dem .NET 11 SDK (`~/.dotnet`): `tools/build.sh` → kompletter Server in `ou
 - APIs: `/api/admin/*`, `/api/live/*`, `/api/web/join` (WebPortal), `/api/bots/*` (BotDriver), `/api/tools/*` (ServerTools).
 - `BotDriverService` aufgeteilt (2026-10-08): gemeinsamer Zustand `BotRace` (World, Track, Slots, Session, Lock);
   `GridDirector` (Sessions, Startaufstellung, Boxen, Session-Ende), `FieldStrength` (Stärke, Persönlichkeiten, Schalter,
-  Kalibrierung), `RaceAnnouncer` (Chat-Meldungen). Offen: `PlayerStandIn` (Übernahme, Rejoin, Fahrerwechsel).
+  Kalibrierung), `RaceAnnouncer` (Chat-Meldungen). Fahrerwechsel (/bot, /play), Rejoin und Klon-Übernahme entfernt (nicht nahtlos ohne
+  Eingriffe ins Spiel); dafür `CarTakeover`: verliert ein Spieler im Rennen die Verbindung, fährt ein Bot (Klon, falls aufgezeichnet,
+  sonst Stärke nach seiner Bestzeit) sein Auto ins Ziel, ohne Rückgabe.

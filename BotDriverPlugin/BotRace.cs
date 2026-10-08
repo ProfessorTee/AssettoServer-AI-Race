@@ -36,6 +36,8 @@ public sealed class BotRace
     public bool RaceStarted { get; set; }
     /// <summary>Folders with car data (content/cars of the server and of the AC installation).</summary>
     public List<string> CarRoots { get; set; } = [];
+    /// <summary>Car data by (model, ballast, restrictor).</summary>
+    public Dictionary<(string, float, int), CarSpec> SpecCache { get; } = new();
 
     public double Now => SessionManager.ServerTimeMilliseconds / 1000.0;
 

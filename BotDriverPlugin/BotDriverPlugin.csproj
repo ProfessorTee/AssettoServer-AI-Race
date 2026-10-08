@@ -12,9 +12,4 @@
         <Compile Include="..\Shared\Config\*.cs" Link="Shared\Config\%(Filename)%(Extension)" />
     </ItemGroup>
 
-    <ItemGroup>
-        <None Remove="lua\driverswap.lua" />
-        <EmbeddedResource Include="lua\driverswap.lua" LogicalName="BotDriverPlugin.lua.driverswap.lua" />
-    </ItemGroup>
-
 </Project>

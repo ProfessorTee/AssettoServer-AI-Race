@@ -24,10 +24,6 @@ Skripte: `scripts/server-supervisor.sh` (Neustart/Update), `scripts/add-track-pr
 - **Safety Rating 0–5:** Vorfälle je 10 km (Kontakt mit einem Auto 2–6 Punkte je nach Tempo, Streckenrand 1–2, Cut 1),
   neuere Kilometer zählen mehr (Halbwertszeit 300 km). A ab 4,0 · B ab 3,0 · C ab 2,0 · D ab 1,0 · R darunter; bewertet ab 20 km.
 - Öffentliche Seite ohne Passwort: `http://<IP>:<HTTP_PORT>/stats` (Link auch im Dashboard unter „Beitreten“).
-- **Wiedereinstieg:** Verliert ein Spieler im Rennen die Verbindung, bleibt sein Auto `RejoinSeconds` (60 s) für ihn frei und
-  das Rennen läuft weiter, auch wenn er der einzige Spieler war. Er kann in dieser Zeit über Content Manager wieder beitreten,
-  obwohl das Rennen schon läuft. Hat er Aufzeichnungen, fährt stattdessen sein Klon weiter (wie bisher). `RejoinSeconds: 0` schaltet das ab.
-
 ## Name in der Server-Liste
 
 Mit Bots zeigt die Server-Liste (Content Manager, CSP, Kunos-Lobby) automatisch `Bots:16,Player:2 - <Name aus server_cfg.ini>`.

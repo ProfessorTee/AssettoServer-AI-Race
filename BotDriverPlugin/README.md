@@ -161,16 +161,12 @@ Chat-Befehle:
 - Als Admin (`/admin <Passwort>`):
   - `/bots_strength <%> [spread]` und `/bots_aggression <0-100>`
   - `/bots_grid Qualifying|SlowestFirst|Random`: Startaufstellung der Bots ab dem nächsten Rennen
-- Für alle Spieler (mit aufgezeichnetem Klon, siehe DriverRecorderPlugin):
-  - `/bot` oder `!bot`: Fahrerwechsel an den eigenen Klon beim nächsten Halt in der eigenen Box (Pause), man schaut aus einem Ersatzauto zu;
-    während der Klon zur Box fährt: er fährt weiter
-  - `/play` oder `!play`: der Klon kommt an die Box, dann übernimmt man wieder
   - `/bots_set <Funktion> on|off` schaltet bis zum Neustart ein und aus: `errors`, `lines`, `spins`, `grass`, `contacts`, `damage`,
-    `blueflags`, `yellowflags`, `flash`, `highbeams`, `raincaution`, `realweather`
+    `blueflags`, `yellowflags`, `flash`, `highbeams`, `raincaution` (echtes Wetter: `/server_set realweather`, ServerToolsPlugin)
   - `/bots_lighttest`: Licht-Test. Alle Bots zeigen nacheinander je etwa 6 s linken Blinker, rechten Blinker, Warnblinker,
     Lichthupe, Bremslicht und Fernlicht, mit eingeschaltetem Licht. Für Nacht vorher `/settime 22:00`.
   - Regen zum Testen (Befehle von AssettoServer): `/setcspweather HeavyRain 30`, direkt nass mit `/setrain 0.8 0.8 0.3`
-    (Intensität, Nässe, Wasser). Vorher `/bots_set realweather off`, sonst holt sich der Server wieder das echte Wetter.
+    (Intensität, Nässe, Wasser). Vorher `/server_set realweather off`, sonst holt sich der Server wieder das echte Wetter.
 
 ## Admin-Befehle (Chat oder Dashboard-Befehlszeile)
 

@@ -117,10 +117,10 @@ public sealed partial class BotDriverService
         {
             var b = slot.Bot;
             Log.Information("BotDriver debug: #{Id} {Name}{State} phase {Phase} pit {Pit} lap {Lap} s {S:F0} v {V:F0}/{T:F0} km/h off {Off:F1}->{Tgt:F1} " +
-                            "tyres {Tf:F0}/{Tr:F0} °C fuel {Fuel:F1} mistake {Mistake} ot {Ot} swap {Swap}",
+                            "tyres {Tf:F0}/{Tr:F0} °C fuel {Fuel:F1} mistake {Mistake} ot {Ot} car {Swap}",
                 slot.EntryCar.SessionId, b.Name, slot.Benched ? " (off)" : slot.Active ? "" : " (player)", b.Phase, b.Pit, b.LapsCompleted,
                 world.Line.WrapS((float)b.Distance), b.Speed * 3.6f, b.TargetSpeed * 3.6f, b.Offset, b.TargetOffset, b.TyreTempFront, b.TyreTempRear,
-                b.Fuel, b.Mistake, b.OvertakeTargetId, slot.TakeoverGuid != null ? slot.Swap.ToString() : "-");
+                b.Fuel, b.Mistake, b.OvertakeTargetId, slot.TakeoverGuid != null ? "taken over" : "-");
         }
     }
 }

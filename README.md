@@ -44,7 +44,7 @@ Vier Plugins, jedes läuft allein und ergänzt die anderen, wenn sie da sind (Sc
 | Pfad | Inhalt |
 |---|---|
 | `AssettoServer/…` | **Core-Patch**: externe KI-Slots, offizielle Runden für Bots, Preset-Ebenen, Uhr-Sync, Plugin-Schnittstellen, Übernahme alter Konfiguration |
-| [`BotDriverPlugin/`](BotDriverPlugin/README.md) | Die Bots: Fahren, Duelle, Klone, Fahrerwechsel. `Core/` ist die KI ohne AssettoServer-Abhängigkeit, `Tool/` das Offline-Werkzeug |
+| [`BotDriverPlugin/`](BotDriverPlugin/README.md) | Die Bots: Fahren, Duelle, Klone, Übernahme bei Verbindungsabbruch. `Core/` ist die KI ohne AssettoServer-Abhängigkeit, `Tool/` das Offline-Werkzeug |
 | [`WebPortalPlugin/`](WebPortalPlugin/README.md) | Webseiten: `/join`, `/live`, `/stats`, `/admin` |
 | [`ServerToolsPlugin/`](ServerToolsPlugin/README.md) | Rotation, Klassen, Statistik/Safety Rating, echtes Wetter, Neustart, gemeinsame Einstellungen |
 | [`DriverRecorderPlugin/`](DriverRecorderPlugin/README.md) | Zeichnet Spieler mit Zustimmung auf (`/rec on`), Grundlage der Fahrer-Klone |
