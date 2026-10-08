@@ -28,6 +28,9 @@ public class BotsController : ControllerBase
     [HttpGet("/api/bots/state")]
     public IActionResult State() => Allowed() ? Ok(_service.BotState()) : Denied();
 
+    [HttpGet("/api/bots/incidents")]
+    public IActionResult Incidents() => Allowed() ? Ok(_service.Incidents()) : Denied();
+
     [HttpGet("/api/bots/clones")]
     public IActionResult Clones() => Allowed() ? Ok(_service.CloneList()) : Denied();
 

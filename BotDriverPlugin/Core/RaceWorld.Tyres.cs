@@ -80,6 +80,7 @@ public sealed partial class RaceWorld
             if (cost < bestCost) { bestCost = cost; best = c; }
         }
         bot.Tyres = best;
+        if (best != null) RaiseIncident(bot.Id, -1, "tyres", $"{best} for {laps} lap(s)");
     }
 
     public void SetTyreTemperature(RaceBot bot, float temperature)
@@ -102,8 +103,10 @@ public sealed partial class RaceWorld
         float slide = bot.Mistake is MistakeKind.Slide or MistakeKind.Spin ? 1.2f : 0f;
         float lock_ = bot.FrontLock ? 1.2f : 0f;
         const float h = 0.061f;
-        float heatF = h * v * (0.2f + 1.2f * MathF.Max(latUsage, brakeUsage) + lock_);
-        float heatR = h * v * (0.2f + 1.2f * MathF.Max(latUsage, driveUsage) + slide);
+        // in dirty air the car slides more in the corners: hotter tyres
+        float wake = 1 + 0.25f * bot.DirtyAir * latUsage;
+        float heatF = h * v * (0.2f + 1.2f * MathF.Max(latUsage, brakeUsage) + lock_) * wake;
+        float heatR = h * v * (0.2f + 1.2f * MathF.Max(latUsage, driveUsage) + slide) * wake;
         // cooling: towards the road temperature, faster at speed (air flow) and a lot faster in the wet
         float cool = 0.02f * (1 + v / 50f) * (1 + 1.5f * wet);
 

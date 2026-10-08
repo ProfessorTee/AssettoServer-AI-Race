@@ -190,6 +190,8 @@ public static class Simulator
         var trace = hotlap ? new SpeedTrace(line, info) : null;
         // --dump file.csv: the hot lap's second lap, sample by sample (to compare with a player's recording)
         using var dump = o.Get("dump") is { } dumpPath ? new StreamWriter(dumpPath) : null;
+        // --rec <folder with a player's laps>: the hot lap compared with his best lap corner by corner
+        var botLap = new List<(float S, float V, float Brake)>();
         var cloneCmp = new SortedDictionary<int, (float V, float O, int N)>();
         float dt = 1f / tickHz;
         double maxTime = hotlap ? 60 * 20 : laps * 60 * 12 + 120;
@@ -234,6 +236,8 @@ public static class Simulator
             net?.SendBots(world, now);
             stats.Sample(now);
             trace?.Sample(world.Bots[0]);
+            if (hotlap && world.Bots[0].LapsCompleted == 1)
+                botLap.Add((line.WrapS((float)world.Bots[0].Distance), world.Bots[0].Speed, world.Bots[0].Brake));
             if (dump != null && world.Bots[0].LapsCompleted == 1)
             {
                 var db = world.Bots[0];
@@ -283,6 +287,7 @@ public static class Simulator
         }
         stats.Print(laps);
         if (stats.Behaviour) stats.PrintBehaviour(now);
+        if (hotlap && o.Get("rec") is { } recDir) CompareCorners(line, info, settings.StartLineS, recDir, botLap);
         if (!hotlap)
         {
             // held up: best race lap against the lap time the bot's strength gives (traffic costs time, the faster drivers stuck in trains most)
@@ -394,6 +399,62 @@ public static class Simulator
                               $"avg {(_frames > 0 ? _sumDepth / _frames : 0):F2} m), jumps > 0.25 m: {_snaps} ({_nearSnaps} near him, max {_maxNearSnap:F2} m), " +
                               $"average prediction error {(_nSnap > 0 ? _sumSnap / _nSnap * 100 : 0):F1} cm");
             foreach (var e in _events) Console.WriteLine(e);
+        }
+    }
+
+    /// <summary>
+    /// Where the bot brakes and how fast it goes through each corner against the player's best recorded lap: the braking point is the
+    /// last speed peak before the corner, the corner speed the lowest speed around it.
+    /// </summary>
+    private static void CompareCorners(RacingLine line, TrackInfo info, float startLineS, string recDir, List<(float S, float V, float Brake)> botLap)
+    {
+        var lap = LoadRecordedLaps(recDir).Where(l => l.Valid && l.Samples.Count > 50).MinBy(l => l.LapTime);
+        if (lap == null || botLap.Count < 50) { Console.WriteLine("corners: no valid recorded lap or no bot lap"); return; }
+        const float bin = 5;
+        int n = (int)(line.Length / bin) + 1;
+        float[] Profile(IEnumerable<(float S, float V)> samples)
+        {
+            var v = Enumerable.Repeat(float.NaN, n).ToArray();
+            foreach (var (s, sp) in samples)
+            {
+                int i = (int)(line.WrapS(s) / bin) % n;
+                v[i] = float.IsNaN(v[i]) ? sp : MathF.Min(v[i], sp);
+            }
+            for (int k = 0; k < 2 * n; k++) // fill the gaps from the neighbours
+                if (float.IsNaN(v[k % n])) v[k % n] = v[(k + n - 1) % n];
+            return v;
+        }
+        int hint = -1;
+        var player = Profile(lap.Samples.Select(smp =>
+        {
+            var p = line.Project(smp.Position, hint);
+            hint = p.Index;
+            return (p.S, smp.Speed);
+        }));
+        var bot = Profile(botLap.Select(b => (b.S, b.V)));
+        float At(float[] v, int i) => v[((i % n) + n) % n];
+        Console.WriteLine($"Corners against the player's best lap ({TimeSpan.FromSeconds(lap.LapTime).ToString(@"m\:ss\.fff")}): braking point (+ = bot brakes later), slowest speed");
+        int last = -1000;
+        for (int i = 0; i < n; i++)
+        {
+            float vi = At(player, i);
+            if (float.IsNaN(vi) || i - last < 20) continue;
+            bool isMin = true;
+            for (int k = -8; k <= 8 && isMin; k++) if (At(player, i + k) < vi) isMin = false;
+            float peak = 0;
+            int peakAt = i;
+            for (int k = 1; k <= 80; k++) if (At(player, i - k) > peak) { peak = At(player, i - k); peakAt = i - k; }
+            if (!isMin || peak - vi < 15 / 3.6f) continue;
+            last = i;
+            // the bot's slowest point near the player's, and its last peak before it
+            int bMin = i;
+            for (int k = -12; k <= 12; k++) if (At(bot, i + k) < At(bot, bMin)) bMin = i + k;
+            int bPeak = bMin;
+            float bp = 0;
+            for (int k = 1; k <= 80; k++) if (At(bot, bMin - k) > bp) { bp = At(bot, bMin - k); bPeak = bMin - k; }
+            float s = i * bin;
+            string where = info.SectionAt(line.WrapS(s - startLineS) / line.Length) ?? "";
+            Console.WriteLine($"  {s,6:F0} m {where,-22} brake {(bPeak - peakAt) * bin,+5:F0} m   min {vi * 3.6f,4:F0} / {At(bot, bMin) * 3.6f,4:F0} km/h ({(At(bot, bMin) - vi) * 3.6f,+4:F0})");
         }
     }
 

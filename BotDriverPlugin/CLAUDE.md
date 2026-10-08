@@ -4,5 +4,5 @@ aggressive Fahrer nutzen die ganze Breite und verlieren Plätze nur durch eigene
 absolut sicher ist und sie sonst deutlich aufgehalten würden.
 - Nur in `BotDriverPlugin/` arbeiten (Core/ = KI ohne Server-Abhängigkeit, Tool/ = Simulator). Andere Plugins nicht ändern.
 - Vor/nach Fahrverhalten-Änderungen messen: `sim` (z. B. Trial Mountain + Nordschleife, `--style --seed N`), Selftest muss OK sein.
-- Aufnahmen echter Runden des Nutzers: `~/Downloads/Server_Files/<datum>/recordings/...` (`sim --hotlap --dump` zum Vergleich).
+- Aufnahmen echter Runden des Nutzers: `~/Downloads/Server_Files/<datum>/recordings/...` (`sim --hotlap --rec <ordner>` vergleicht Bremspunkte und Kurventempo pro Kurve, `--dump` schreibt die Runde als CSV).
 - AC-Pfad: /mnt/GameDrive/SteamLibrary/steamapps/common/assettocorsa. Doku: README.md, UEBERGABE.md.

@@ -157,6 +157,20 @@ public sealed class RaceBot
     /// </summary>
     internal bool Diving;
     internal float DiveLane, DiveApexS;
+    /// <summary>
+    /// After a long fight without getting by: the corner (track s) where <see cref="AttackSpotTarget"/> is attacked most readily (the
+    /// biggest braking zone ahead), NaN = none; for a couple of minutes from <see cref="AttackSpotSetAt"/>.
+    /// </summary>
+    internal float AttackSpotS = float.NaN;
+    internal int AttackSpotTarget = -1;
+    internal double AttackSpotSetAt;
+    /// <summary>The car (id) that hit this driver, remembered until <see cref="GrudgeUntil"/>.</summary>
+    internal int GrudgeId = -1;
+    internal double GrudgeUntil;
+    /// <summary>0..1 turbulent air from the car right in front: less downforce, hotter tyres.</summary>
+    public float DirtyAir { get; internal set; }
+    /// <summary>Alone in a race (nobody close ahead or behind): a little off the limit to save the tyres.</summary>
+    public bool SavingTyres { get; internal set; }
 
     // behaviour state
     internal int OvertakeTargetId = -1;
@@ -833,6 +847,8 @@ public sealed partial class RaceWorld
         }
         bot.CautiousUntil = Math.Max(bot.CautiousUntil, _now + 3);
         Shaken(bot, impactSpeed * 3.6f);
+        if (other != null && (ds > 0 || side)) Grudge(bot, other.Id); // hit from behind or from the side
+        RaiseIncident(bot.Id, other?.Id ?? -1, "contact", $"contact with a player ({impactSpeed * 3.6f:F0} km/h, {(side ? "side" : ds > 0 ? "hit from behind" : "ran into him")})");
         bot.OvertakeTargetId = -1;
     }
 
@@ -1056,6 +1072,7 @@ public sealed partial class RaceWorld
         float skill = bot.Driver.Pace - extraPaceLoss + bot.PaceNoise + bot.PaceBoost;
         if (_now < bot.MistakeUntil) skill -= 0.08f; // braked too early / too carefully
         if (Settings.RainCaution) skill -= WetFactor() * 0.05f; // careful in the wet
+        if (bot.SavingTyres) skill -= 0.012f;
         float phys = Settings.GripFactor * bot.CarGrip * (bot.Phase == BotPhase.CoolDown ? Settings.CoolDownPace : 1);
         float pace = DriverProfile.CornerSkill(skill) * phys;
         float brakePace = DriverProfile.BrakeSkill(skill) * phys;
@@ -1262,6 +1279,7 @@ public sealed partial class RaceWorld
         // pulling out of the slipstream: the tow fades over a second or two instead of at once (the slingshot)
         me.Draft = MathF.Max(draft, me.Draft - 0.12f * _stepDt);
         UpdateClearAhead(me, myS);
+        UpdateDirtyAirAndSaving(me, ahead, aheadGap, behindGap);
 
         // pressure: somebody (player or bot) sitting right behind in my slipstream for a long time makes me nervous
         bool pressed = behind is { } pb && behindGap < 20 && MathF.Abs(pb.Offset - me.Offset) < 1.6f && me.Phase == BotPhase.Racing;
@@ -1428,6 +1446,8 @@ public sealed partial class RaceWorld
                     string why = _now - me.OvertakeSince > 12 + 10 * AttackOf(me) ? "too long" : ds > 70 ? "dropped back" : _now - me.OvertakeSeparatedAt > 8 + 6 * AttackOf(me) ? "never alongside" : "lost ground";
                     Diag("end:" + why);
                     if (me.AttackIsCounter) Diag("counter failed: " + why);
+                    // a long fight without getting by: the driver picks the place where the car in front is weakest and goes for it there
+                    if (why == "too long") PlanAttackSpot(me, target.Value.Id, myS);
                     me.OvertakeTargetId = -1;
                     me.OvertakeGiveUps++;
                     me.ReturnToLineAfter = _now;
@@ -1468,7 +1488,7 @@ public sealed partial class RaceWorld
                 : 0;
             me.Impatience = imp;
 
-            float att = AttackOf(me);
+            float att = Math.Clamp(AttackOf(me) + GrudgeBias(me, a.Id), 0, 1);
             float attackRange = 3 + me.Speed * (0.12f + 0.18f * me.Driver.Aggression) + imp * 8
                                 + 4 * me.Driver.Personality.InsideLine + 3 * me.Driver.Personality.BrakeBehavior + 10 * att;
 
@@ -1484,6 +1504,12 @@ public sealed partial class RaceWorld
                 me.WeaveCenter = a.Offset;
             }
             float needAdvantage = (1.2f - 0.9f * me.Driver.Aggression) * (1 - imp) * (1.4f - 0.9f * att);
+            // the planned spot (after a failed try): there the driver goes for it with less advantage, from further back
+            if (me.AttackSpotTarget == a.Id && _now - me.AttackSpotSetAt < 150 && AttackSpotAhead(me, myS) is > 40 and var dSpot && dSpot < 120 + me.Speed * 3.5f)
+            {
+                needAdvantage *= 0.5f;
+                attackRange += 8;
+            }
 
             // flash the lights at the car in front
             // not in the first minute of a race, not in the pits, only when I'm clearly quicker and right behind
@@ -1519,6 +1545,7 @@ public sealed partial class RaceWorld
                 {
                     me.OvertakeAttempts++;
                     Diag(me.OvertakeTargetId >= 0 ? "start:switched target" : "start");
+                    if (me.AttackSpotTarget == a.Id && AttackSpotAhead(me, myS) < 120 + me.Speed * 3.5f) Diag("start: at the planned spot");
                     me.TargetOffset = side;
                     me.OvertakeTargetId = a.Id;
                     me.OvertakeSince = _now;
@@ -1547,6 +1574,8 @@ public sealed partial class RaceWorld
                 followGap = MathF.Max(1.0f + me.Speed * 0.04f, followGap * (1 - 0.35f * imp));
                 // in the slipstream on a straight: close right up for a run at the next braking zone
                 if (me.Draft > 0.05f && !gripLimited && !cautious) followGap *= 0.45f;
+                // a careful driver keeps away from the one who hit him
+                if (GrudgeBias(me, a.Id) < 0) followGap += me.Speed * 0.15f;
                 // a player's braking reaches us late (network): follow a little further back and react to it at once
                 float aSpeed = a.IsBot ? a.Speed : MathF.Max(0, a.Speed + MathF.Min(0, a.Accel) * 0.25f);
                 if (!a.IsBot) followGap += MathF.Max(0, me.Speed - aSpeed) * 0.15f + 0.5f;
@@ -1564,6 +1593,7 @@ public sealed partial class RaceWorld
 
         // ---- defend against a faster car right behind (or one that is going for it)
         float def = DefendOf(me);
+        if (behind is { } gb && GrudgeBias(me, gb.Id) > 0) def = MathF.Min(1, def + 0.3f);
         bool attackedBy = behind is { IsBot: true } ab && ab.Bot!.OvertakeTargetId == me.Id;
         // just made a pass on a tight line into a corner: busy getting the car out of it, no covering the inside yet
         if (behind is { } b && me.OvertakeTargetId < 0 && me.Phase == BotPhase.Racing && !blueFlag && !yellow && !Settings.SafetyCar && _now >= me.CompromisedUntil + 4

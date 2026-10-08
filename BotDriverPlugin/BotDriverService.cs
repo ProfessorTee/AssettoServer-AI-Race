@@ -323,6 +323,8 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
 
         world.LapCompleted += OnBotLapCompleted;
         world.YellowFlag += _announcer.OnYellowFlag;
+        world.YellowFlag += OnYellowIncident;
+        world.Incident += OnWorldIncident;
         world.PitStopCompleted += _announcer.OnBotPitStop;
         _world = world;
         world.Trace = msg => Log.Information("BotDriver trace: {Line}", msg);

@@ -155,6 +155,15 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
         <div class="row"><button class="btn" id="cloneRefresh">Aktualisieren</button></div>
       </div>
       <div class="card">
+        <h3>Vorfälle</h3>
+        <div class="muted" style="margin-bottom:6px">Kontakte, gelbe Flaggen, Schaden, Boxen-Entscheidungen und Reifenwahl der Bots (neueste oben, max. 400).</div>
+        <div class="row"><select id="incKind"><option value="">alle</option><option value="contact">Kontakte</option><option value="spin">Dreher</option>
+          <option value="crash">Unfälle</option><option value="stopped">steht</option><option value="damage">Schaden</option><option value="pit">Box</option><option value="tyres">Reifen</option></select>
+          <button class="btn" id="incRefresh">Aktualisieren</button></div>
+        <div style="max-height:360px;overflow:auto"><table><thead><tr><th>Zeit</th><th>Session</th><th class="num">Rd</th><th>Fahrer</th><th>Was</th><th>Wo</th></tr></thead>
+          <tbody id="incRows"><tr><td colspan="6" class="muted">–</td></tr></tbody></table></div>
+      </div>
+      <div class="card">
         <h3>Licht-Test</h3>
         <div class="row"><button class="btn" id="lightTest">Starten</button><span class="muted">Blinker, Warnblinker, Lichthupe, Bremslicht, Fernlicht – je ~6 s. Nachts: Tageszeit unter „Server“.</span></div>
       </div>
@@ -645,6 +654,18 @@ async function loadClones() {
   } catch (e) {}
 }
 $("cloneRefresh").onclick = loadClones;
+async function loadIncidents() {
+  try {
+    const kind = $("incKind").value;
+    const list = (await api("/api/bots/incidents")).filter(i => !kind || i.kind === kind);
+    $("incRows").innerHTML = list.length ? list.map(i => `<tr><td>${esc(i.time)}</td><td>${esc(i.session)}</td><td class="num">${i.lap || ""}</td>
+      <td>${esc(i.name)}</td><td>${esc(i.text)}${i.other ? ` – ${esc(i.other)}` : ""}</td><td>${esc(i.where || "")}</td></tr>`).join("")
+      : `<tr><td colspan="6" class="muted">Nichts passiert.</td></tr>`;
+  } catch (e) {}
+}
+$("incRefresh").onclick = loadIncidents;
+$("incKind").onchange = loadIncidents;
+document.querySelector('nav button[data-tab="ai"]').addEventListener("click", loadIncidents);
 document.querySelector('nav button[data-tab="ai"]').addEventListener("click", loadClones);
 $("lightTest").onclick = () => act("/api/bots/ai", { lightTest: true }, "Licht-Test läuft");
 

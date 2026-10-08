@@ -18,6 +18,15 @@ public sealed partial class RaceWorld
         if (Settings.RainCaution) e += WetFactor() * 0.4f;
         // little grip (green or dirty track, cold or overheated tyres): the car moves around, more mistakes
         e += 0.6f * MathF.Max(0, 0.97f - Settings.GripFactor * me.CarGrip);
+        // concentration fades towards the end of a long race (cool heads less)
+        if (Settings.IsRace && me.RemainingLaps is > 0 and < int.MaxValue)
+        {
+            int total = me.LapsCompleted + me.RemainingLaps;
+            float lapTime = me.LastLapSeconds > 0 ? me.LastLapSeconds : Line.Length / 45f;
+            float longRace = Math.Clamp((total * lapTime / 60 - 15) / 45, 0, 1);
+            float done = (float)me.LapsCompleted / total;
+            e += 0.15f * longRace * done * done * (1 - Math.Clamp(me.Driver.Personality.Composure, 0, 1));
+        }
         return Math.Clamp(e, 0, 1);
     }
 
@@ -559,6 +568,9 @@ public sealed partial class RaceWorld
         float hit = sideBySide ? closing * 3.6f + 3 : closing * 3.6f + 2;
         Shaken(me, hit);
         Shaken(other, hit);
+        // "me" did it: ran into the car in front, or moved over into the car alongside (closing above)
+        Grudge(other, me.Id);
+        RaiseIncident(me.Id, other.Id, "contact", sideBySide ? $"side contact ({hit:F0} km/h)" : $"hit the car in front ({hit:F0} km/h)");
         if (me.OvertakeTargetId >= 0) Diag("end:contact");
         me.OvertakeTargetId = -1;
     }

@@ -133,7 +133,7 @@ public sealed partial class RaceWorld
             {
                 float usage = Math.Clamp(MathF.Max(lat, lon), 0, 1.2f);
                 bot.TyreVirtualKm += TyreStyle(bot) * ds / 1000f * Settings.TyreWearScale * Settings.TyreWearRate * (0.3f + 1.4f * usage)
-                                     * (0.9f + 0.2f * bot.Driver.Aggression) * TyreTempWear(bot);
+                                     * (0.9f + 0.2f * bot.Driver.Aggression) * TyreTempWear(bot) * (bot.SavingTyres ? 0.85f : 1f);
             }
         }
         bot.TyreKm += ds / 1000f;
@@ -148,7 +148,7 @@ public sealed partial class RaceWorld
         float mass = car.ReferenceMass - 25 * FuelDensity + bot.Fuel * FuelDensity;
         bot.MassRatio = Settings.FuelRate > 0 ? Math.Clamp(mass / car.ReferenceMass, 0.8f, 1.3f) : 1f;
         float massGrip = 1 - 0.3f * (bot.MassRatio - 1);
-        bot.CarGrip = tyre * cold * massGrip * (bot.Tyres?.Grip ?? 1f) * (Settings.Damage ? DamageGrip(bot) : 1f) * RainGrip(bot);
+        bot.CarGrip = tyre * cold * massGrip * (bot.Tyres?.Grip ?? 1f) * DirtyAirGrip(bot) * (Settings.Damage ? DamageGrip(bot) : 1f) * RainGrip(bot);
     }
 
     // ------------------------------------------------------------------ strategy
@@ -175,7 +175,7 @@ public sealed partial class RaceWorld
             EnterPitLane(bot);
     }
 
-    private void Decide(RaceBot bot)
+    internal void Decide(RaceBot bot)
     {
         int remaining = bot.RemainingLaps;
         if (remaining <= 1) return; // last lap: no stop, whatever happens
@@ -234,6 +234,9 @@ public sealed partial class RaceWorld
                 // in a bunched field (the first laps) a stop costs as many places as the damage: hold the position, look again next lap
                 else if (!fuelStopDue && (lossToEnd > 2 * stopCost || CarsBehindWithin(bot, stopCost, lapTime) < CarsBehindWithin(bot, lossToEnd, lapTime)))
                     reason = "damage";
+                if (reason == "")
+                    RaiseIncident(bot.Id, -1, "damage", $"stays out with damage {BodyDamagePercent(bot):F0} %: costs ~{lossToEnd:F0} s to the flag, a stop {stopCost:F0} s"
+                                                       + (fuelStopDue ? ", repaired at the fuel stop" : ", holds the position"));
             }
         }
 
@@ -246,13 +249,55 @@ public sealed partial class RaceWorld
                 reason = "mandatory";
         }
 
+        // strategy: a stop that is due in the next laps anyway is made now when it pays: under the safety car (the field is slow,
+        // the gaps are gone anyway), or right behind a rival (fresh tyres for an out-lap he can't match: the undercut)
+        int rival = -1;
+        if (reason == "" && !openEnd && lapsAfterThis > 2)
+        {
+            int dueIn = StopDueIn(bot, lapsAfterThis, perLap, toLine, changeAt);
+            if (Settings.SafetyCar && dueIn < lapsAfterThis) reason = "safety car";
+            else if (dueIn <= 3 && (rival = CarAheadWithin(bot, 1.5f, lapTime)) >= 0) reason = "undercut";
+        }
+
         if (reason == "") return;
         bot.Pit = PitPhase.Requested;
         bot.PitReason = reason;
+        RaiseIncident(bot.Id, rival, "pit", $"box this lap: {reason}");
         // a fuel stop only takes new tyres when the old ones wouldn't last the next stint (practice: what a full tank lasts)
         float stint = openEnd ? MathF.Min(lapsAfterThis, bot.Car.FuelCapacity / MathF.Max(0.1f, perLap)) : lapsAfterThis;
         PlanService(bot, changeTyres: reason != "fuel"
                                       || WearGrip(bot, bot.TyreVirtualKm + TyreVkmPerLap(bot) * stint) < MathF.Min(0.97f, changeAt - 0.02f));
+    }
+
+    /// <summary>Laps until a stop is needed anyway (fuel, worn tyres, the mandatory stop), int.MaxValue when none before the flag.</summary>
+    private int StopDueIn(RaceBot bot, int lapsAfterThis, float perLap, float toLine, float changeAt)
+    {
+        int due = int.MaxValue;
+        if (Settings.FuelRate > 0 && bot.Fuel < (lapsAfterThis + toLine) * perLap * 1.02f + 0.5f)
+            due = Math.Max(0, (int)MathF.Floor(bot.Fuel / MathF.Max(0.1f, perLap) - toLine) - 1);
+        if (Settings.TyreWearRate > 0 && (bot.Tyres?.Wear ?? bot.Car.TyreWear) != null)
+        {
+            float vkm = TyreVkmPerLap(bot);
+            for (int i = 0; i < Math.Min(due, lapsAfterThis); i++)
+                if (WearGrip(bot, bot.TyreVirtualKm + (i + 1) * vkm) < MathF.Max(0.85f, changeAt)) { due = i; break; }
+        }
+        if (Settings.PitWindowEnd > Settings.PitWindowStart && !bot.MandatoryPitDone)
+            due = Math.Min(due, Math.Max(0, Settings.PitWindowEnd - (bot.LapsCompleted + 1)));
+        return due;
+    }
+
+    /// <summary>The car (id) on the track ahead of <paramref name="bot"/> by less than <paramref name="seconds"/>, -1 = none.</summary>
+    private int CarAheadWithin(RaceBot bot, float seconds, float lapTime)
+    {
+        float vRace = Line.Length / MathF.Max(30, lapTime);
+        float mine = bot.LapsCompleted * Line.Length + Line.WrapS((float)bot.Distance - Settings.StartLineS);
+        foreach (var o in _neighbors)
+        {
+            if (o.IsBot && (o.Id == bot.Id || o.Bot!.InPitLane || o.Bot.Phase != BotPhase.Racing)) continue;
+            float ahead = o.Progress - mine;
+            if (ahead > 0 && ahead < seconds * vRace) return o.Id;
+        }
+        return -1;
     }
 
     /// <summary>Time a drive through the pit lane costs against staying on the track (limiter, slowing down and pulling away).</summary>

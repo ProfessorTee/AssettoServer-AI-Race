@@ -108,6 +108,8 @@ public static class SelfTest
         StuckTest(line);
         PitTest(line);
         CloneTest(line);
+        TyreTest(line);
+        RacecraftTest(line);
 
         Console.WriteLine(_failed == 0 ? "SELFTEST OK" : $"SELFTEST FAILED ({_failed})");
         return _failed == 0 ? 0 : 3;
@@ -338,7 +340,91 @@ public static class SelfTest
         Check($"road blocked: ghosted after {ghostAt:F0} s and got through ({g.Distance - 300:F0} m)", ghostAt > 20 && g.Distance > 400);
     }
 
-    private static void PitTest(RacingLine line)
+    /// <summary>Compound choice: road cars on their semislicks, slick cars by stint and driver, qualifying soft, LEGAL_TYRES, no rain tyres.</summary>
+    private static void TyreTest(RacingLine line)
+    {
+        Lut Wear(float drop20) => new([0, 20, 60], [100, 100 * (1 - drop20), 100 * (1 - drop20 * 2)]);
+        var street = new CarSpec { Model = "street" };
+        street.Compounds = [new Compound { Index = 0, Name = "Street", ShortName = "ST", Grip = 0.965f, Wear = Wear(0.04f) },
+            new Compound { Index = 1, Name = "Semislicks", ShortName = "SM", Grip = 1, Wear = Wear(0.14f) },
+            new Compound { Index = 2, Name = "Wet", ShortName = "W", Grip = 0.9f }];
+        street.DefaultCompound = street.Compounds[1];
+        var gt3 = new CarSpec { Model = "gt3", CalibratedTyreVkmPerLap = 2 };
+        gt3.Compounds = [new Compound { Index = 0, Name = "Slick Soft", ShortName = "S", Grip = 1.013f, Wear = Wear(0.10f) },
+            new Compound { Index = 1, Name = "Slick Medium", ShortName = "M", Grip = 1, Wear = Wear(0.04f) },
+            new Compound { Index = 2, Name = "Slick Hard", ShortName = "H", Grip = 0.987f, Wear = Wear(0.025f) },
+            new Compound { Index = 3, Name = "Wet", ShortName = "W", Grip = 0.95f }];
+        gt3.DefaultCompound = gt3.Compounds[1];
+        var world = new RaceWorld(line, new RaceWorldSettings { Seed = 2, TyreWearRate = 1 });
+        var builtIn = Personality.Defaults().ToDictionary(p => p.Personality.Name, p => p.Personality);
+        RaceBot Bot(CarSpec car, string personality, float aggression, string legal = "")
+        {
+            var b = new RaceBot { Id = 0, Name = personality, Car = car, Driver = DriverProfile.FromLevel(95, 50), LegalTyres = legal };
+            b.Driver.Personality = builtIn[personality];
+            b.Driver.Aggression = aggression;
+            return b;
+        }
+        var s = Bot(street, "Balanced", 0.5f);
+        world.ChooseTyres(s, 20);
+        Check($"road car on its semislicks ({RaceWorld.CompoundName(s)})", RaceWorld.CompoundName(s) == "SM");
+        var dive = Bot(gt3, "DiveBomber", 0.8f);
+        world.ChooseTyres(dive, 3);
+        Check($"short stint, attacker: soft ({RaceWorld.CompoundName(dive)})", RaceWorld.CompoundName(dive) == "S");
+        var chill = Bot(gt3, "Chill", 0.3f);
+        world.ChooseTyres(chill, 30);
+        Check($"long stint, careful driver: hard ({RaceWorld.CompoundName(chill)})", RaceWorld.CompoundName(chill) == "H");
+        var legal = Bot(gt3, "DiveBomber", 0.8f, "M;H");
+        world.ChooseTyres(legal, 3);
+        Check($"LEGAL_TYRES M;H: no soft ({RaceWorld.CompoundName(legal)})", RaceWorld.CompoundName(legal) is "M" or "H");
+        var wetOnly = Bot(gt3, "Balanced", 0.5f, "W");
+        world.ChooseTyres(wetOnly, 10);
+        Check("never rain tyres", wetOnly.Tyres == null);
+        world.Settings.Qualifying = true;
+        world.ChooseTyres(chill, 30);
+        Check($"qualifying: softest ({RaceWorld.CompoundName(chill)})", RaceWorld.CompoundName(chill) == "S");
+        world.Settings.Qualifying = false;
+        chill.Tyres = gt3.Compounds[0];
+        dive.Tyres = gt3.Compounds[2];
+        Check("soft wears faster than hard", RaceWorld.WearGrip(chill, 20) < RaceWorld.WearGrip(dive, 20));
+    }
+
+    /// <summary>Damage stops by places, shaken drivers, grudges, dirty air.</summary>
+    private static void RacecraftTest(RacingLine line)
+    {
+        var world = new RaceWorld(line, new RaceWorldSettings { Seed = 4, Damage = true, DamageRate = 1, FuelRate = 0 }) { PitLane = TestLane(line) };
+        for (int i = 0; i < 6; i++)
+        {
+            var b = new RaceBot { Id = i, Name = $"D{i}", Car = new CarSpec(), Driver = DriverProfile.FromLevel(95, 50) };
+            world.Bots.Add(b);
+            world.SetPitBox(b, new Vector3(250 + i * 10, 0, 13));
+        }
+        world.PlaceOnGrid(world.Bots);
+        world.StartRace(0);
+        world.Advance(0);
+        world.Advance(30); // the field moving, close together
+        var lead = world.Bots.OrderByDescending(b => b.Distance).First();
+        foreach (var b in world.Bots) { b.RemainingLaps = 20; b.LastLapSeconds = 40; }
+        world.AddDamage(lead, 0, 45);
+        world.Decide(lead);
+        Check($"dented nose in a bunched field: holds the position ({RaceWorld.BodyDamagePercent(lead):F0} %, pit {lead.Pit})", lead.Pit == PitPhase.None);
+        lead.Suspension = 0.4f;
+        world.Decide(lead);
+        Check($"bent suspension: comes in ({lead.Pit})", lead.Pit == PitPhase.Requested);
+
+        var shaken = world.Bots.First(b => b != lead);
+        var player = world.GetOrAddExternal(77);
+        world.UpdateExternal(player, line.PositionAt(Line(shaken) - 6, shaken.Offset), Vector3.UnitX * 30, true, 30);
+        world.OnContact(shaken, line.PositionAt(Line(shaken) - 4, shaken.Offset), 13f, player);
+        Check($"shaken after a 47 km/h hit: cautious for {shaken.CautiousUntil - 30:F0} s", shaken.CautiousUntil - 30 > 8);
+        Check("remembers who hit him", shaken.GrudgeId == 77);
+
+        var dirty = new RaceBot { Id = 50, Name = "A", Car = new CarSpec(), Driver = DriverProfile.FromLevel(95, 50), Speed = 60 };
+        dirty.DirtyAir = 1;
+        Check($"dirty air costs grip in a fast corner ({RaceWorld.DirtyAirGrip(dirty):F3})", RaceWorld.DirtyAirGrip(dirty) is < 0.97f and > 0.85f);
+        float Line(RaceBot b) => line.WrapS((float)b.Distance);
+    }
+
+    private static PitLane TestLane(RacingLine line)
     {
         var lanePts = new List<FastLanePoint>();
         for (float x = -150; x <= 750; x += 1.5f)
@@ -359,7 +445,12 @@ public static class SelfTest
                 lanePts[i] = new FastLanePoint { Position = q + new Vector3(0, 0, 9 * MathF.Max(0, (150 - back) / 200)), Normal = Vector3.UnitY };
             }
         }
-        var lane = new PitLane(lanePts.ToArray(), line);
+        return new PitLane(lanePts.ToArray(), line);
+    }
+
+    private static void PitTest(RacingLine line)
+    {
+        var lane = TestLane(line);
         var world = new RaceWorld(line, new RaceWorldSettings { Seed = 5, FuelRate = 6, TyreWearRate = 1 }) { PitLane = lane };
         int stops = 0;
         world.PitStopCompleted += (_, _, _, _) => stops++;
