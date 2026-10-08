@@ -477,10 +477,20 @@ public sealed partial class RaceWorld
         // an overtake with two wheels on the grass (GrassPass)
         if (me.OvertakeTargetId >= 0) allow = MathF.Max(allow, GrassPassRoom(me) + EdgeMarginFor(me));
         float before = me.Offset;
-        me.Offset = Math.Clamp(me.Offset, -Line.RoomMinusAt(s) + half - allow, Line.RoomPlusAt(s) - half + allow);
-        if (MathF.Abs(before - me.Offset) > 0.01f) me.ClampedAt = _now;
+        float limit = Math.Clamp(me.Offset, -Line.RoomMinusAt(s) + half - allow, Line.RoomPlusAt(s) - half + allow);
+        float diff = limit - before;
+        if (MathF.Abs(diff) <= 0.01f) return;
+        me.ClampedAt = _now;
+        // the limit itself can move inwards suddenly (an attack on the grass ends, the road gets narrower): back at up to 3 m/s
+        // instead of at once, a snap of a metre sideways is a visible jump on the clients' screens
+        // what this step's own sideways motion carried it past the limit is taken back at once, the rest smoothly
+        float ownMotion = diff * me.LateralSpeed < 0 ? MathF.Abs(me.LateralSpeed) * _stepDt : 0;
+        // in a mistake (grass, slide, spin) the car is where the mistake put it: hard limit, as before
+        float maxStep = me.Mistake != MistakeKind.None ? MathF.Abs(diff) : ownMotion + MathF.Max(0.02f, 3f * _stepDt);
+        if (MathF.Abs(diff) > maxStep + 0.75f) maxStep = MathF.Abs(diff) - 0.75f;
+        me.Offset += Math.Clamp(diff, -maxStep, maxStep);
         // at the edge: no more sideways speed towards it (else it's pushed back every step: the car jitters on the clients' screens)
-        if (before != me.Offset && (before - me.Offset) * me.LateralSpeed > 0) me.LateralSpeed = 0;
+        if (diff * me.LateralSpeed < 0) me.LateralSpeed = 0;
     }
 
 

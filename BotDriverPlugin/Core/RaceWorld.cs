@@ -1997,10 +1997,11 @@ public sealed partial class RaceWorld
                 }
                 if (latPen < longPen && MathF.Abs(dOff) > 0.05f)
                 {
-                    // mostly side by side: slide apart
-                    float push = o.IsBot ? latPen / 2 : latPen;
-                    me.Offset = ClampToRoad(me, me.Offset - MathF.Sign(dOff) * push);
-                    if (o.IsBot) o.Bot!.Offset = ClampToRoad(o.Bot, o.Bot.Offset + MathF.Sign(dOff) * push);
+                    // mostly side by side: slide apart, at most 8 cm per step (8 m/s): a deep overlap resolved in one step is a visible
+                    // sideways jump on the clients' screens; the sideways speeds below keep them moving apart
+                    float push = MathF.Min(o.IsBot ? latPen / 2 : latPen, 0.08f);
+                    PushSideways(me, -MathF.Sign(dOff) * push);
+                    if (o.IsBot) PushSideways(o.Bot!, MathF.Sign(dOff) * push);
                     // don't keep sliding into it (that's what makes a car jitter in and out of another one on the clients)
                     float otherLat = o.IsBot ? o.Bot!.LateralSpeed : o.External!.LateralSpeed;
                     if ((me.LateralSpeed - otherLat) * MathF.Sign(dOff) > 0) me.LateralSpeed = otherLat - MathF.Sign(dOff) * 0.3f;
@@ -2009,8 +2010,8 @@ public sealed partial class RaceWorld
                 }
                 else if (ds > 0)
                 {
-                    // I'm behind: fall back
-                    me.Distance -= longPen;
+                    // I'm behind: fall back (at most 30 cm per step, the speed below does the rest)
+                    me.Distance -= MathF.Min(longPen, 0.3f);
                     me.Speed = MathF.Min(me.Speed, o.Speed * 0.97f);
                 }
                 else if (!o.IsBot)
@@ -2112,6 +2113,13 @@ public sealed partial class RaceWorld
         // his laps differ a little: so does the clone's line, by at most half a metre (and smoothly)
         float o = cl.OffsetAt(s, Line.Length) + Math.Clamp(me.CloneZNow * cl.OffsetSpreadAt(s, Line.Length), -0.5f, 0.5f);
         return Math.Clamp(o, -Line.RoomMinusAt(s) + CloneProfile.KerbLimit, Line.RoomPlusAt(s) - CloneProfile.KerbLimit);
+    }
+
+    /// <summary>Pushed sideways by another car: not past the edge of the road (or what it may use), but never pulled back from beyond it.</summary>
+    private void PushSideways(RaceBot bot, float delta)
+    {
+        float limited = ClampToRoad(bot, bot.Offset + delta);
+        bot.Offset = delta > 0 ? MathF.Max(bot.Offset, limited) : MathF.Min(bot.Offset, limited);
     }
 
     private float ClampToRoad(RaceBot bot, float offset)
