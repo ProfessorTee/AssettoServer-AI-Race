@@ -62,7 +62,7 @@ public class BotsController : ControllerBase
     public IActionResult Ai([FromBody] AiRequest req)
     {
         if (!Allowed()) return Denied();
-        if (req.Strength is { } st) _service.Field.SetGlobalStrength(st, req.Spread ?? 0);
+        if (req.Strength is { } st) _service.Field.SetGlobalStrength(st, req.Spread ?? _service.Field.CurrentSpread);
         if (req.Aggression is { } ag) _service.Field.SetGlobalAggression(ag);
         if (!string.IsNullOrEmpty(req.Feature) && !_service.Field.SetDashboardFeature(req.Feature, req.On)) return BadRequest(new { error = "unknown feature" });
         if (req.LightTest) _service.StartSignalTest();

@@ -49,7 +49,7 @@ public sealed class CarTakeover
             spec = CarDataLoader.LoadForTrack(root, car.Model, track.Line, car.Ballast, car.Restrictor, msg => Log.Warning("BotDriver: {Message}", msg));
             _race.SpecCache[key] = spec;
         }
-        var profile = _clones()?.Get(client.Guid.ToString(), car.Model, anyCar: true);
+        var profile = _clones()?.Cached(client.Guid.ToString(), car.Model); // built when he joined (no disk access under the lock)
         if (profile == null && !_field.HasCalibration(spec))
         {
             Log.Information("BotDriver: {Player} left, no bot drives a {Car} here, the car stays empty", client.Name, car.Model);
@@ -74,8 +74,8 @@ public sealed class CarTakeover
         if (profile != null) _field.ApplyClone(bot, profile);
         else _field.ApplyStrength(bot, level, _field.Calibration(spec));
         world.Bots.Add(bot);
-        if (track.Info.PitBoxes.FirstOrDefault(p => p.Index == car.SessionId) is var box && box.Index == car.SessionId && track.Info.PitBoxes.Count > 0)
-            world.SetPitBox(bot, box.Position);
+        if (track.Info.PitBoxes.FindIndex(p => p.Index == car.SessionId) is var bi and >= 0)
+            world.SetPitBox(bot, track.Info.PitBoxes[bi].Position);
 
         // where he was: same lap, same place, same speed
         var line = track.Line;

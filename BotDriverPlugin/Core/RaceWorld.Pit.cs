@@ -248,7 +248,6 @@ public sealed partial class RaceWorld
 
     private void PlanService(RaceBot bot, bool changeTyres)
     {
-        float perLap = FuelPerLap(bot);
         int remaining = bot.RemainingLaps;
         float target = remaining == int.MaxValue
             ? MathF.Max(bot.Fuel, FuelForLaps(bot, 3))
@@ -257,7 +256,6 @@ public sealed partial class RaceWorld
         bot.PitChangeTyres = changeTyres || Settings.FuelRate <= 0;
         // repair when there is something worth repairing (a player would tick "repair" too)
         bot.PitRepair = Settings.Damage && HasDamage(bot);
-        _ = perLap;
     }
 
     // ------------------------------------------------------------------ driving in the pit lane

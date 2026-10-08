@@ -85,6 +85,20 @@ public sealed class CloneLibrary
         return other != null ? GetExact(guid, other.Car) : null;
     }
 
+    /// <summary>
+    /// The profile built last for this player (that car, else any), without touching the disk: for a takeover under the race lock.
+    /// Profiles are built when the player connects.
+    /// </summary>
+    public CloneProfile? Cached(string guid, string car)
+    {
+        lock (_lock)
+        {
+            if (_cache.TryGetValue((guid, car), out var hit) && hit.Profile != null) return hit.Profile;
+            return _cache.Where(kv => kv.Key.Guid == guid && kv.Value.Profile != null)
+                .Select(kv => kv.Value.Profile).MaxBy(p => p!.CleanLaps);
+        }
+    }
+
     private CloneProfile? GetExact(string guid, string car)
     {
         var dir = Path.Join(_root, guid, _trackKey, car);

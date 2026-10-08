@@ -216,8 +216,6 @@ public sealed class StrengthCalibration
             if (fuelAtLine < 0 && bot.TimingValid)
             {
                 // first crossing: from here the lap is measured
-                fuelAtLine = bot.Fuel;
-                vkmAtLine = bot.TyreVirtualKm;
                 bot.Fuel = fuelLitres; // keep the weight constant-ish for the lap
                 fuelAtLine = bot.Fuel;
                 bot.TyreVirtualKm = 0;

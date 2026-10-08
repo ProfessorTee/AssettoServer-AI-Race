@@ -212,9 +212,9 @@ public sealed class GridDirector
     {
         var world = _world!;
         var spots = _track!.Info.StartGrid;
-        var spot = spots.FirstOrDefault(g => g.Index == slot.GridIndex);
-        if (spots.Count > 0 && spot.Index == slot.GridIndex)
-            world.PlaceAtWorld(slot.Bot, spot.Position, BotPhase.Grid);
+        int i = spots.FindIndex(g => g.Index == slot.GridIndex);
+        if (i >= 0)
+            world.PlaceAtWorld(slot.Bot, spots[i].Position, BotPhase.Grid);
         else
             world.PlaceAtGridSlot(slot.Bot, slot.GridIndex);
     }
@@ -222,10 +222,10 @@ public sealed class GridDirector
     public void ParkInPitBox(BotSlot slot)
     {
         var pits = _track!.Info.PitBoxes;
-        var pit = pits.FirstOrDefault(p => p.Index == slot.EntryCar.SessionId);
-        if (pits.Count > 0 && pit.Index == slot.EntryCar.SessionId)
+        int pi = pits.FindIndex(p => p.Index == slot.EntryCar.SessionId);
+        if (pi >= 0)
         {
-            _world!.Park(slot.Bot, pit.Position, pit.Forward);
+            _world!.Park(slot.Bot, pits[pi].Position, pits[pi].Forward);
         }
         else
         {
@@ -239,7 +239,7 @@ public sealed class GridDirector
     }
 
     /// <summary>A bot that comes back mid-session (slot released by a player).</summary>
-    public void PlaceForCurrentSession(BotSlot slot, bool late)
+    public void PlaceForCurrentSession(BotSlot slot)
     {
         ParkInPitBox(slot);
         if (_sessionType == SessionType.Race)
@@ -262,7 +262,6 @@ public sealed class GridDirector
             slot.Bot.Speed = 30;
             slot.Bot.LapStartTime = Now;
         }
-        _ = late;
     }
 
     // ------------------------------------------------------------------ pit starts and the end of practice / qualifying

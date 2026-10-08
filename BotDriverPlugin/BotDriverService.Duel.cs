@@ -16,30 +16,25 @@ public sealed partial class BotDriverService
     private BotSlot? _duelSlot;
     private DuelBackup? _duelBackup;
 
-    public string? DuelInfo
-    {
-        get { lock (_lock) return _duelSlot?.Bot.Clone is { } c ? $"{c.PlayerName} ({FormatLap(c.BestLap)})" : null; }
-    }
-
     /// <summary>/bots_duel player [bot name or car number] [pace %]. Null when it worked (everybody got the chat message).</summary>
     public string? StartDuel(string player, string? bot, float pacePercent = 100)
     {
+        // recordings are read from disk outside the race lock (the bots keep driving meanwhile)
+        var clones = _clones;
+        if (_world == null || clones == null) return T("Bots are not active.", "Bots sind nicht aktiv.");
+        var guid = clones.FindGuid(player);
+        if (guid == null) return T($"No recordings of '{player}' on this track (/rec list).", $"Keine Aufzeichnungen von '{player}' auf dieser Strecke (/rec list).");
+        BotSlot? slot;
+        lock (_lock) slot = DuelCandidate(bot);
+        if (slot == null) return T("No free bot for the duel (all switched off or driven by clones).", "Kein freier Bot für das Duell (alle ausgeschaltet oder Klone).");
+        var profile = clones.Get(guid, slot.EntryCar.Model, anyCar: true);
+        if (profile == null) return T($"'{player}' has no clean recorded lap here.", $"'{player}' hat hier keine saubere aufgezeichnete Runde.");
+
         lock (_lock)
         {
-            if (_world == null || _clones == null) return T("Bots are not active.", "Bots sind nicht aktiv.");
-            var guid = _clones.FindGuid(player);
-            if (guid == null) return T($"No recordings of '{player}' on this track (/rec list).", $"Keine Aufzeichnungen von '{player}' auf dieser Strecke (/rec list).");
-
             StopDuelLocked(announce: false);
-            var candidates = _slots.Where(s => s.TakeoverGuid == null && !s.Benched && s.Active).ToList();
-            var slot = string.IsNullOrWhiteSpace(bot)
-                ? candidates.OrderByDescending(s => s.Bot.Driver.Level).FirstOrDefault()
-                : candidates.FirstOrDefault(s => s.Bot.Name.Contains(bot, StringComparison.OrdinalIgnoreCase) || s.EntryCar.SessionId.ToString() == bot.Trim());
-            if (slot == null) return T("No free bot for the duel (all switched off or driven by clones).", "Kein freier Bot für das Duell (alle ausgeschaltet oder Klone).");
-
-            var profile = _clones.Get(guid, slot.EntryCar.Model, anyCar: true);
-            if (profile == null) return T($"'{player}' has no clean recorded lap here.", $"'{player}' hat hier keine saubere aufgezeichnete Runde.");
-
+            if (!slot.Active || slot.Benched || !_slots.Contains(slot))
+                return T("That bot just left the track, try again.", "Der Bot hat die Strecke gerade verlassen, nochmal versuchen.");
             var b = slot.Bot;
             _duelBackup = new DuelBackup(b.Name, b.Clone, b.Driver.Pace, b.Driver.Consistency, b.Driver.Errors, b.Driver.Level, b.ClonePace);
             _duelSlot = slot;
@@ -58,6 +53,14 @@ public sealed partial class BotDriverService
                 profile.PlayerName, slot.EntryCar.SessionId, FormatLap(profile.BestLap), FormatLap(profile.AverageLap), b.ClonePace);
             return null;
         }
+    }
+
+    private BotSlot? DuelCandidate(string? bot)
+    {
+        var candidates = _slots.Where(s => s.TakeoverGuid == null && !s.Benched && s.Active).ToList();
+        return string.IsNullOrWhiteSpace(bot)
+            ? candidates.OrderByDescending(s => s.Bot.Driver.Level).FirstOrDefault()
+            : candidates.FirstOrDefault(s => s.Bot.Name.Contains(bot, StringComparison.OrdinalIgnoreCase) || s.EntryCar.SessionId.ToString() == bot.Trim());
     }
 
     public string? StopDuel()
@@ -95,9 +98,14 @@ public sealed partial class BotDriverService
     public void DuelLap(ACTcpClient client, uint ms, int cuts)
     {
         CloneProfile? c;
-        lock (_lock) c = _duelSlot?.Bot.Clone;
+        float pace;
+        lock (_lock)
+        {
+            c = _duelSlot?.Bot.Clone;
+            pace = _duelSlot?.Bot.ClonePace ?? 1;
+        }
         if (c == null || ms == 0 || IsBotCar(client.SessionId)) return;
-        float diff = ms / 1000f - c.BestLap / _duelSlot!.Bot.ClonePace;
+        float diff = ms / 1000f - c.BestLap / pace;
         string d = $"{(diff < 0 ? "-" : "+")}{MathF.Abs(diff):F3}s";
         string msg = cuts > 0
             ? T($"Duel: {client.Name} {FormatLap(ms / 1000f)} ({d}), but {cuts} cut(s) - doesn't count.", $"Duell: {client.Name} {FormatLap(ms / 1000f)} ({d}), aber {cuts} Cut(s) - zählt nicht.")

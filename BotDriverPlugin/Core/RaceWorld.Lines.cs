@@ -19,8 +19,6 @@ public enum CornerLineKind
 public sealed partial class RaceWorld
 {
     private const float CornerMinCurvature = 1 / 220f;
-    /// <summary>Longest move of the line along a corner (m) at style 1.</summary>
-
 
     /// <summary>0..1: how imprecise the driver is right now (same inputs as the mistakes, so the strength calibration covers it).</summary>
     private float Imprecision(RaceBot me)

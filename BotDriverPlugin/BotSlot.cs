@@ -1,4 +1,3 @@
-using System.Numerics;
 using AssettoServer.Server;
 using AssettoServer.Server.Ai;
 using AssettoServer.Shared.Model;
@@ -97,9 +96,4 @@ public sealed class BotSlot : IExternalAiController
         float angular = speed / (MathF.PI * MathF.Max(0.3f, wheelDiameter)) * 6;
         return (byte)(Math.Clamp(MathF.Round(MathF.Log10(angular + 1.0f) * 20.0f) * Math.Sign(angular), -100.0f, 154.0f) + 100.0f);
     }
-
-    public static Vector3 RotationFromForward(Vector3 dir)
-        => new(MathF.Atan2(dir.Z, dir.X) - MathF.PI / 2,
-            (MathF.Atan2(new Vector2(dir.Z, dir.X).Length(), dir.Y) - MathF.PI / 2) * -1f,
-            0);
 }

@@ -106,9 +106,8 @@ public static class Program
             // braking 250 -> 80 km/h
             float d = 0;
             for (float v = 250 / 3.6f; v > 80 / 3.6f; v -= 0.1f) d += v * 0.1f / car.BrakeAt(v, grip, ratio);
-            float t0 = 0; float v0 = 80 / 3.6f; float t = 0;
+            float t = 0;
             for (float v = 0; v < 200 / 3.6f; t += 0.01f) v += car.AccelAt(v, 1) / ratio * 0.01f;
-            _ = t0; _ = v0;
             float lap = StrengthCalibration.FlyingLap(line, car, 1f, settings, out _, out _, 0, 1, litres);
             Console.WriteLine($"{litres,5:F0} l  {mass,6:F0} kg  brake 250->80 {d,5:F1} m  0-200 {t,5:F2} s  lap {TimeSpan.FromSeconds(lap):m\\:ss\\.fff}");
         }

@@ -117,7 +117,7 @@ public static class Simulator
             bot.Driver.Errors = settings.HumanErrors ? DriverProfile.ErrorsFor(strengths[i], errorsBelow, errorsFull) : 0;
             bot.Driver.Pace = cal.PaceFor(strengths[i], null, bot.Driver.Errors);
             world.Bots.Add(bot);
-            if (info.PitBoxes.FirstOrDefault(p => p.Index == i) is { } box && info.PitBoxes.Count > i)
+            if (info.PitBoxes.FindIndex(p => p.Index == i) is var bi and >= 0 && info.PitBoxes[bi] is var box)
                 world.SetPitBox(bot, box.Position);
         }
         // --clone <folder with recorded laps (*.csv.gz)>: the first bot becomes a clone of that player
@@ -491,7 +491,6 @@ public static class Simulator
         private readonly Dictionary<string, int> _grass = new(), _slides = new();
         private readonly Dictionary<string, (double Sum, int N)> _sideGap = new();
         private double _raceStart = double.NaN;
-        private int _changesFirst30;
 
         public SimStats(RaceWorld w) => _w = w;
 

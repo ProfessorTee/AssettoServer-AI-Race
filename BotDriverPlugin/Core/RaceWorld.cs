@@ -165,7 +165,6 @@ public sealed class RaceBot
     internal double OvertakeClosedSince = double.NaN;
     internal float OvertakeBestGap;
     internal double OvertakeCooldownUntil;
-    internal int LastOvertakeTargetId = -1;
     /// <summary>0..1 share of aero drag removed by the car in front (slipstream).</summary>
     public float Draft { get; internal set; }
     internal float PaceNoise;
@@ -334,8 +333,6 @@ public sealed class RaceBot
     /// <summary>Nobody ahead within the high beam range: at night the bot may use its high beams.</summary>
     public bool ClearAhead { get; internal set; }
     internal double ClearAheadSince;
-    /// <summary>Signal test: overrides indicator / hazards / flash for the night test.</summary>
-    internal int ForcedSignal;
 }
 
 public enum MistakeKind

@@ -42,7 +42,6 @@ public sealed class IdealLine
         if (cnt.Sum() < line.Count / 4) return null;
         // fill the gaps between the points of the file, then smooth over ~20 m and limit to 2.5 m
         var raw = new float[line.Count];
-        int last = -1;
         for (int i = 0; i < line.Count; i++)
             if (cnt[i] > 0) raw[i] = sum[i] / cnt[i];
         var known = Enumerable.Range(0, line.Count).Where(i => cnt[i] > 0).ToList();
@@ -51,9 +50,7 @@ public sealed class IdealLine
             int i0 = known[k], i1 = known[(k + 1) % known.Count];
             int gap = (i1 - i0 + line.Count) % line.Count;
             for (int g = 1; g < gap; g++) raw[(i0 + g) % line.Count] = raw[i0] + (raw[i1] - raw[i0]) * g / gap;
-            last = i1;
         }
-        _ = last;
         int w = Math.Max(1, (int)MathF.Round(10f / line.Spacing));
         var off = new float[line.Count];
         for (int i = 0; i < line.Count; i++)

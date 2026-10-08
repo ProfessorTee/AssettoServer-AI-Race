@@ -32,7 +32,7 @@ public sealed partial class BotDriverService
     private (int On, int Off) ApplyBotLimit()
     {
         int allowed = _botLimit ?? int.MaxValue, on = 0, off = 0;
-        // the clones of players always drive; of the normal bots the first slots stay
+        // cars taken over from players always drive; of the normal bots the first slots stay
         foreach (var slot in _slots.Where(s => s.TakeoverGuid == null).OrderBy(s => s.EntryCar.SessionId))
         {
             if (slot.EntryCar.Client != null) continue; // a player has this car
@@ -42,7 +42,7 @@ public sealed partial class BotDriverService
                 {
                     slot.Benched = false;
                     TakeSlot(slot, broadcast: true);
-                    _grid.PlaceForCurrentSession(slot, late: true);
+                    _grid.PlaceForCurrentSession(slot);
                 }
                 on++;
             }
@@ -77,8 +77,6 @@ public sealed partial class BotDriverService
             return on ? T($"Safety car on ({v:F0} km/h).", $"Safety Car an ({v:F0} km/h).") : T("Safety car off.", "Safety Car aus.");
         }
     }
-
-    public bool SafetyCarOn => _world?.Settings.SafetyCar ?? false;
 
     /// <summary>Debug logging on/off; optionally a detailed trace (twice a second) of one bot, by name or car number.</summary>
     public string SetDebug(bool on, string? bot)

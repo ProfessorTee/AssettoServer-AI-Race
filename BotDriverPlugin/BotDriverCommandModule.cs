@@ -62,7 +62,7 @@ public class BotDriverCommandModule : ACModuleBase
         bool on = value.ToLowerInvariant() is "on" or "1" or "true" or "an" or "ein";
         Reply(_service.Field.SetFeature(feature.ToLowerInvariant(), on)
             ? $"BotDriver: {feature} {(on ? "on" : "off")}"
-            : "Unknown feature. Use: errors, lines, spins, grass, contacts, damage, blueflags, yellowflags, flash, highbeams, raincaution");
+            : "Unknown feature. Use: errors, lines, spins, grass, contacts, damage, blueflags, yellowflags, flash, highbeams, raincaution, realstart, personallines");
     }
 
     [Command("bots_grid", "raceai_grid"), RequireAdmin]

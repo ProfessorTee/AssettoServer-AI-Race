@@ -336,11 +336,13 @@ public sealed class FieldStrength
     {
         lock (_lock)
         {
-            var values = StrengthCalibration.Distribute(_slots.Count, strength, spread ?? _config.AiStrengthSpread,
+            // the bots of the entry list; a car taken over from a player keeps his pace
+            var slots = _slots.Where(s => s.TakeoverGuid == null).ToList();
+            var values = StrengthCalibration.Distribute(slots.Count, strength, spread ?? _config.AiStrengthSpread,
                 _config.AiStrengthDistribution == StrengthDistribution.Random, _race.Rng);
-            for (int i = 0; i < _slots.Count; i++)
+            for (int i = 0; i < slots.Count; i++)
             {
-                var bot = _slots[i].Bot;
+                var bot = slots[i].Bot;
                 if (!_calibrations.TryGetValue(bot.Car, out var cal)) continue;
                 ApplyStrength(bot, values[i], cal);
             }
@@ -372,8 +374,6 @@ public sealed class FieldStrength
         float reference = _referenceBestLap ?? (_calibrations.TryGetValue(bot.Car, out var cal) ? cal.BestLap : clone.AverageLap);
         bot.Driver.Level = MathF.Round(reference / MathF.Max(1, clone.AverageLap / bot.ClonePace) * 1000) / 10;
     }
-
-    public string? BestLapFor(CarSpec car) => _calibrations.TryGetValue(car, out var cal) ? FormatLap(cal.BestLap) : null;
 
     public bool SetFeature(string feature, bool on)
     {
@@ -428,14 +428,6 @@ public sealed class FieldStrength
         }
     }
 
-    public void SetAggression(float aggression)
-    {
-        lock (_lock)
-        {
-            foreach (var slot in _slots)
-                slot.Bot.Driver.Aggression = Math.Clamp(aggression / 100f, 0, 1);
-        }
-    }
 
     // ------------------------------------------------------------------ for the other parts of the plugin
 
@@ -453,13 +445,6 @@ public sealed class FieldStrength
     /// <summary>The lap time a bot aims for at its strength, null without a calibration of its car.</summary>
     public float? TargetLap(RaceBot bot)
         => _calibrations.TryGetValue(bot.Car, out var cal) ? cal.LapTimeFor(bot.Driver.Level, _referenceBestLap) : null;
-
-    /// <summary>Strength again for every bot (after the error settings changed).</summary>
-    public void ReapplyAll()
-    {
-        foreach (var slot in _slots)
-            if (_calibrations.TryGetValue(slot.Bot.Car, out var cal)) ApplyStrength(slot.Bot, slot.Bot.Driver.Level, cal);
-    }
 
     public void Stop() => _background.Cancel();
 
@@ -508,7 +493,8 @@ public sealed class FieldStrength
     {
         lock (_lock)
         {
-            if (_world == null || !_race.SlotsBySessionId.TryGetValue((byte)id, out var slot) || !slot.Active) return false;
+            var world = _world;
+            if (world == null || !_race.SlotsBySessionId.TryGetValue((byte)id, out var slot) || !slot.Active) return false;
             var bot = slot.Bot;
             if (strength is { } st && _calibrations.TryGetValue(bot.Car, out var cal))
                 ApplyStrength(bot, Math.Clamp(st, 50, 110), cal);
@@ -517,9 +503,9 @@ public sealed class FieldStrength
             {
                 if (_personalities.Count == 0) PickPersonality(null);
                 var p = _personalities.FirstOrDefault(x => x.Personality.Name.Equals(personality, StringComparison.OrdinalIgnoreCase)).Personality;
-                if (p != null) { bot.Driver.Personality = p; _world?.ResetStyle(bot); }
+                if (p != null) { bot.Driver.Personality = p; world.ResetStyle(bot); }
             }
-            if (pit) _world.RequestPitStop(bot, "admin");
+            if (pit) world.RequestPitStop(bot, "admin");
             Log.Information("BotDriver: dashboard changed {Name}: strength {Strength:F1} %, aggression {Aggression:F0}, {Personality}{Pit}",
                 bot.Name, bot.Driver.Level, bot.Driver.Aggression * 100, bot.Driver.Personality.Name, pit ? ", to the pits" : "");
             return true;
@@ -537,10 +523,17 @@ public sealed class FieldStrength
         _configWriter.Set("AiStrengthSpread", _config.AiStrengthSpread);
     }
 
+    /// <summary>The field's aggression: every bot shifted by the change, so the spread and the personalities stay.</summary>
     public void SetGlobalAggression(float aggression)
     {
-        _config.AiAggression = Math.Clamp(aggression, 0, 100);
-        SetAggression(_config.AiAggression);
+        lock (_lock)
+        {
+            aggression = Math.Clamp(aggression, 0, 100);
+            float delta = (aggression - _config.AiAggression) / 100f;
+            _config.AiAggression = aggression;
+            foreach (var slot in _slots)
+                slot.Bot.Driver.Aggression = Math.Clamp(slot.Bot.Driver.Aggression + delta, 0, 1);
+        }
         _configWriter.Set("AiAggression", _config.AiAggression);
     }
 }

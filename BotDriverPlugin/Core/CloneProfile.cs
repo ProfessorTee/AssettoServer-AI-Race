@@ -59,10 +59,7 @@ public sealed class CloneProfile
 
     public float SpeedAt(float s, float length) => At(Speed, s, length);
     public float OffsetAt(float s, float length) => At(Offset, s, length);
-    /// <summary>Slope of the line (offset change per metre): turns forward speed into the sideways speed that follows the line.</summary>
-    public float OffsetSlopeAt(float s, float length) => (At(Offset, s + 2, length) - At(Offset, s - 2, length)) / 4f;
     public float OffsetSpreadAt(float s, float length) => At(OffsetSpread, s, length);
-    public float GasAt(float s, float length) => At(Gas, s, length);
     public float BrakeAt(float s, float length) => At(Brake, s, length);
 
     /// <summary>

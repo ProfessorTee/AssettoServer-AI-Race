@@ -55,7 +55,8 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
     private bool _raceStarted { get => _race.RaceStarted; set => _race.RaceStarted = value; }
     private SessionType _sessionType { get => _race.SessionType; set => _race.SessionType = value; }
 
-    public IReadOnlyList<BotSlot> Slots => _slots;
+    /// <summary>The slots right now (a copy: the list changes under the race lock).</summary>
+    public List<BotSlot> Slots { get { lock (_lock) return _slots.ToList(); } }
     public RaceWorld? World => _world;
     public bool Enabled => _world != null;
 
@@ -109,7 +110,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
     public bool IsBotSlot(EntryCar entryCar)
     {
         if (!_started) return ConfiguredBotSlots().Contains(entryCar.SessionId);
-        return _world != null && _slotsBySessionId.TryGetValue(entryCar.SessionId, out var s) && s.Active;
+        lock (_lock) return _world != null && _slotsBySessionId.TryGetValue(entryCar.SessionId, out var s) && s.Active;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -135,7 +136,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         var botSlots = ConfiguredBotSlots().Where(i => i < _entryCarManager.EntryCars.Length).OrderBy(i => i).ToList();
         if (botSlots.Count == 0)
         {
-            Log.Warning("BotDriver: no bot slots. Set BotSlots in plugin_race_ai_cfg.yml or mark entries with AI=fixed in entry_list.ini");
+            Log.Warning("BotDriver: no bot slots. Set BotSlots in plugin_bot_driver_cfg.yml or mark entries with AI=fixed in entry_list.ini");
             return Task.CompletedTask;
         }
 
@@ -254,17 +255,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
             var entry = _serverConfig.EntryList.Cars[slotIndex];
             var driverCfg = _config.Drivers.FirstOrDefault(d => d.Slot == slotIndex);
 
-            var key = (entryCar.Model, entryCar.Ballast, entryCar.Restrictor);
-            if (!specCache.TryGetValue(key, out var spec))
-            {
-                var root = carRoots.FirstOrDefault(r => Directory.Exists(Path.Join(r, entryCar.Model))) ?? carRoots.FirstOrDefault() ?? "content/cars";
-                spec = CarDataLoader.LoadForTrack(root, entryCar.Model, _track.Line, entryCar.Ballast, entryCar.Restrictor, msg => Log.Warning("BotDriver: {Message}", msg));
-                specCache[key] = spec;
-                var (cal, final) = _field.StartupCalibration(spec, settings, $"{entryCar.Ballast}/{entryCar.Restrictor}");
-                _field.SetCalibration(spec, cal, !final, $"{entryCar.Ballast}/{entryCar.Restrictor}");
-                Log.Information("BotDriver: car {Model} ({Source}): top {Top:F0} km/h, grip {Grip:F2} g, 100 % = {Best}, {Fuel:F1} l/lap, tyres {Compound}, mistakes {Loss:F0} s/lap at most",
-                    spec.Model, spec.Source, spec.TopSpeed * 3.6f, spec.LateralGrip, FormatLap(cal.BestLap), spec.CalibratedFuelPerLap, spec.TyreCompound, cal.ErrorLossFull);
-            }
+            var spec = specCache[(entryCar.Model, entryCar.Ballast, entryCar.Restrictor)]; // loaded and calibrated above
 
             float strength = driverCfg?.Strength ?? strengths[botIndex++];
             var calibration = _field.Calibration(spec);
@@ -309,8 +300,8 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
             }
             _field.ApplyStrength(bot, strength, calibration);
             world.Bots.Add(bot);
-            if (_track.Info.PitBoxes.FirstOrDefault(p => p.Index == slotIndex) is var box && box.Index == slotIndex && _track.Info.PitBoxes.Count > 0)
-                world.SetPitBox(bot, box.Position);
+            if (_track.Info.PitBoxes.FindIndex(p => p.Index == slotIndex) is var bi and >= 0)
+                world.SetPitBox(bot, _track.Info.PitBoxes[bi].Position);
 
             var slot = new BotSlot(entryCar, bot, nation);
             _slots.Add(slot);
@@ -335,7 +326,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         _world = world;
         world.Trace = msg => Log.Information("BotDriver trace: {Line}", msg);
         world.TraceBotId = -1;
-        if (_config.Debug) Log.Information("BotDriver: debug logging on (Debug in plugin_race_ai_cfg.yml)");
+        if (_config.Debug) Log.Information("BotDriver: debug logging on (Debug in plugin_bot_driver_cfg.yml)");
         if (_config.MaxBots >= 0) _botLimit = _config.MaxBots;
 
         _sessionManager.SessionChanged += OnSessionChanged;
@@ -401,9 +392,9 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
             string guid = client.Guid.ToString(), model = client.EntryCar.Model;
             _ = Task.Run(() => { try { clones.Get(guid, model, anyCar: true); } catch (Exception ex) { Log.Debug(ex, "BotDriver: clone preload failed"); } });
         }
-        if (_slotsBySessionId.TryGetValue(client.SessionId, out var slot))
+        lock (_lock)
         {
-            lock (_lock)
+            if (_slotsBySessionId.TryGetValue(client.SessionId, out var slot))
             {
                 if (slot.TakeoverGuid != null)
                 {
@@ -432,7 +423,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
             if (_slotsBySessionId.TryGetValue(client.SessionId, out var slot) && !slot.Active && !slot.Benched)
             {
                 TakeSlot(slot, broadcast: true);
-                _grid.PlaceForCurrentSession(slot, late: true);
+                _grid.PlaceForCurrentSession(slot);
                 Log.Information("BotDriver: {Player} left slot {Slot}, bot {Bot} is back", client.Name, client.SessionId, slot.Bot.Name);
             }
         }
@@ -440,7 +431,8 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
 
     private void OnCollision(ACTcpClient sender, CollisionEventArgs args)
     {
-        if (args.TargetCar != null && _slotsBySessionId.ContainsKey(args.TargetCar.SessionId))
+        // not a bot? filtered in Tick, under the lock
+        if (args.TargetCar != null)
             _contacts.Enqueue((args.TargetCar.SessionId, sender.SessionId, sender.EntryCar.Status.Position, args.Speed / 3.6f));
     }
 
@@ -515,7 +507,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         {
             var client = car.Client;
             if (client == null) continue;
-            if (_slotsBySessionId.TryGetValue(car.SessionId, out var standIn) && standIn.Active) continue; // his clone drives, he's only passing through
+            if (_slotsBySessionId.TryGetValue(car.SessionId, out var botSlot) && botSlot.Active) continue; // a bot drives this car
             var ext = world.GetOrAddExternal(car.SessionId);
             bool active = client.HasSentFirstUpdate && !car.IsSpectator;
             // the last position update is already a little old (network delay): the world extrapolates it from its timestamp
@@ -550,14 +542,15 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
 
         long serverTime = _sessionManager.ServerTimeMilliseconds;
         var lights = Lights();
-        if (world.SignalTestPhase(now) != 0) lights = CarStatusFlags.LightsOn | CarStatusFlags.HighBeamsOff;
+        bool signalTest = world.SignalTestPhase(now) != 0;
+        if (signalTest) lights = CarStatusFlags.LightsOn | CarStatusFlags.HighBeamsOff;
         var wipers = Wipers();
         foreach (var slot in _slots)
         {
             if (!slot.Active) continue;
             var pose = world.GetPose(slot.Bot);
-            slot.WriteStatus(pose, serverTime, lights, wipers, _config.FlashLights || world.SignalTestPhase(now) != 0, _config.FlashLightsDaytime,
-                _config.HighBeams || world.SignalTestPhase(now) != 0);
+            slot.WriteStatus(pose, serverTime, lights, wipers, _config.FlashLights || signalTest, _config.FlashLightsDaytime,
+                _config.HighBeams || signalTest);
             bool ghost = slot.Bot.GhostUntil > now;
             if (ghost != slot.Ghosted)
             {
@@ -647,8 +640,6 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
 
     // ------------------------------------------------------------------ admin
 
-    public string TrackKeyName => TrackKey();
-    public float TrackLengthMeters => _track?.Line.Length ?? 0;
     public bool IsBotCar(byte sessionId) { lock (_lock) return _slotsBySessionId.TryGetValue(sessionId, out var s) && s.Active; }
 
     private string TrackKey()
