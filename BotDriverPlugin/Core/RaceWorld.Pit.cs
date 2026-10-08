@@ -220,12 +220,21 @@ public sealed partial class RaceWorld
                 reason = "tyres";
         }
 
-        // damage: time lost until the end against the repair time
+        // damage: a car that can hardly be driven comes in; otherwise like a driver who sees the board: a dented wing is only
+        // repaired when it costs more than the stop (time and positions), and it waits for a stop that is due anyway
         if (reason == "" && Settings.Damage && HasDamage(bot))
         {
-            float lossPerLap = lapTime * ((1 - MathF.Sqrt(DamageGrip(bot))) + 0.25f * (MathF.Sqrt(DamageDrag(bot)) - 1));
-            if (lossPerLap * lapsAfterThis > RepairTime(bot) + 30 || DamageGrip(bot) < 0.8f)
-                reason = "damage";
+            float lossToEnd = lapTime * ((1 - MathF.Sqrt(DamageGrip(bot))) + 0.25f * (MathF.Sqrt(DamageDrag(bot)) - 1)) * lapsAfterThis;
+            float stopCost = RepairTime(bot) + PitLaneLoss(lapTime);
+            if (DamageGrip(bot) < 0.8f || bot.Suspension > 0.25f) reason = "damage";
+            else if (lossToEnd > stopCost)
+            {
+                bool fuelStopDue = Settings.FuelRate > 0 && !openEnd && bot.Fuel < (lapsAfterThis + toLine) * perLap * 1.02f + 0.5f;
+                if (openEnd) reason = "damage";
+                // in a bunched field (the first laps) a stop costs as many places as the damage: hold the position, look again next lap
+                else if (!fuelStopDue && (lossToEnd > 2 * stopCost || CarsBehindWithin(bot, stopCost, lapTime) < CarsBehindWithin(bot, lossToEnd, lapTime)))
+                    reason = "damage";
+            }
         }
 
         // mandatory stop in the pit window (race)
@@ -244,6 +253,31 @@ public sealed partial class RaceWorld
         float stint = openEnd ? MathF.Min(lapsAfterThis, bot.Car.FuelCapacity / MathF.Max(0.1f, perLap)) : lapsAfterThis;
         PlanService(bot, changeTyres: reason != "fuel"
                                       || WearGrip(bot, bot.TyreVirtualKm + TyreVkmPerLap(bot) * stint) < MathF.Min(0.97f, changeAt - 0.02f));
+    }
+
+    /// <summary>Time a drive through the pit lane costs against staying on the track (limiter, slowing down and pulling away).</summary>
+    private float PitLaneLoss(float lapTime)
+    {
+        var lane = PitLane;
+        if (lane == null) return 30;
+        float vRace = Line.Length / MathF.Max(30, lapTime);
+        float limited = MathF.Max(0, lane.LimiterEnd - lane.LimiterStart);
+        return limited / MathF.Max(5, Settings.PitSpeedLimit) - lane.Length / vRace + limited / vRace + 6;
+    }
+
+    /// <summary>Cars on the track behind <paramref name="bot"/> by less than <paramref name="seconds"/> (the places a delay costs).</summary>
+    private int CarsBehindWithin(RaceBot bot, float seconds, float lapTime)
+    {
+        float vRace = Line.Length / MathF.Max(30, lapTime);
+        float mine = bot.LapsCompleted * Line.Length + Line.WrapS((float)bot.Distance - Settings.StartLineS);
+        int n = 0;
+        foreach (var o in _neighbors)
+        {
+            if (o.IsBot && (o.Id == bot.Id || o.Bot!.InPitLane || o.Bot.Phase != BotPhase.Racing)) continue;
+            float behind = mine - o.Progress;
+            if (behind > 0 && behind < seconds * vRace) n++;
+        }
+        return n;
     }
 
     private void PlanService(RaceBot bot, bool changeTyres)

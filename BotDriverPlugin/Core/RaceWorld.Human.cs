@@ -555,9 +555,22 @@ public sealed partial class RaceWorld
             AddDamage(other, 1, impact);
             Wobble(other, Math.Clamp(impact / 40f, 0.15f, 0.5f));
         }
-        me.CautiousUntil = _now + 2;
+        me.CautiousUntil = Math.Max(me.CautiousUntil, _now + 2);
+        float hit = sideBySide ? closing * 3.6f + 3 : closing * 3.6f + 2;
+        Shaken(me, hit);
+        Shaken(other, hit);
         if (me.OvertakeTargetId >= 0) Diag("end:contact");
         me.OvertakeTargetId = -1;
+    }
+
+    /// <summary>
+    /// After a real crash the driver is shaken for a while: no attacks, keeps out of trouble (cool heads get over it sooner).
+    /// </summary>
+    internal void Shaken(RaceBot me, float impactKmh)
+    {
+        if (impactKmh < 25) return;
+        float seconds = Math.Clamp(impactKmh / 40f, 0.6f, 2f) * (25 - 15 * me.Driver.Personality.Composure);
+        me.CautiousUntil = Math.Max(me.CautiousUntil, _now + seconds);
     }
 
     private void Wobble(RaceBot bot, float severity)

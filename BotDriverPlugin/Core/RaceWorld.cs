@@ -831,7 +831,8 @@ public sealed partial class RaceWorld
             // the bot ran into the other car: it slows down to the other car's speed minus a bit
             bot.Speed = MathF.Max(0, MathF.Min(bot.Speed - 0.6f * impact, oSpeed - 0.5f));
         }
-        bot.CautiousUntil = _now + 3;
+        bot.CautiousUntil = Math.Max(bot.CautiousUntil, _now + 3);
+        Shaken(bot, impactSpeed * 3.6f);
         bot.OvertakeTargetId = -1;
     }
 
@@ -839,7 +840,6 @@ public sealed partial class RaceWorld
 
     private double _lastAdvance = double.NaN;
 
-    /// <summary>Largest simulation step; longer frames are split into several steps.</summary>
     /// <summary>
     /// Simulation step. 10 ms: bots touch less (overlaps resolved earlier), leave the track less and move more smoothly than with
     /// 25 ms; the calibration uses the same step so the lap times match the strength setting.
@@ -1107,9 +1107,8 @@ public sealed partial class RaceWorld
                 vLim = MathF.Min(vLim, Line.SpeedHint[i] * Settings.SpeedHintScale);
 
             if (vLim >= best) continue;
-            // attacking drivers brake a little later
             // attacking drivers brake a little later, a dive down the inside clearly later (that's how it gets alongside)
-            float attackBrake = bot.OvertakeTargetId < 0 ? 0.9f : bot.Diving ? 0.97f + 0.05f * bot.Driver.Aggression : 0.9f + 0.07f * bot.Driver.Aggression;
+            float attackBrake = bot.OvertakeTargetId < 0 ? 0.9f : bot.Diving ? 0.985f + 0.05f * bot.Driver.Aggression : 0.9f + 0.07f * bot.Driver.Aggression;
             float decel = car.BrakeAt((vLim + v) * 0.5f, brakePace, bot.MassRatio) * attackBrake * lateBrake;
             // small speed drops (fast kinks) are taken with a gentle, early brush of the brakes, big ones with hard braking
             decel *= Math.Clamp(0.4f + 0.6f * (v - vLim) / 14f, 0.4f, 1f);

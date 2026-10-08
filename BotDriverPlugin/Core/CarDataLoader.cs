@@ -20,12 +20,14 @@ public static partial class CarDataLoader
     /// </summary>
     public static CarSpec LoadForTrack(string carsRoot, string model, RacingLine line, float extraMassKg = 0, float restrictorPercent = 0, Action<string>? log = null)
     {
-        var spec = Load(carsRoot, model, extraMassKg, restrictorPercent, log);
+        // the car's files are read (and data.acd decrypted) once for all wing levels
+        var data = Read(carsRoot, model, log);
+        var spec = Build(data, model, extraMassKg, restrictorPercent, log, null);
         if (!spec.HasWingSetup) return spec;
         float bestTime = LapEstimator.Estimate(spec, line);
         foreach (float level in new[] { 0f, 0.25f, 0.5f, 0.75f, 1f })
         {
-            var s = Load(carsRoot, model, extraMassKg, restrictorPercent, null, level);
+            var s = Build(data, model, extraMassKg, restrictorPercent, null, level);
             float t = LapEstimator.Estimate(s, line);
             if (t < bestTime - 0.05f) { bestTime = t; spec = s; }
         }
@@ -33,16 +35,22 @@ public static partial class CarDataLoader
     }
 
     public static CarSpec Load(string carsRoot, string model, float extraMassKg = 0, float restrictorPercent = 0, Action<string>? log = null, float? wingLevel = null)
+        => Build(Read(carsRoot, model, log), model, extraMassKg, restrictorPercent, log, wingLevel);
+
+    /// <summary>What is on disk for a car: its data files (null = none readable), where they came from, and ui_car.json.</summary>
+    private sealed record CarFiles(bool Exists, Dictionary<string, byte[]>? Files, string Source, bool HasWings, float UiBhp, float UiWeight, float UiTopSpeedKmh);
+
+    private static CarFiles Read(string carsRoot, string model, Action<string>? log)
     {
-        var spec = new CarSpec { Model = model };
         string carDir = Path.Join(carsRoot, model);
         if (!Directory.Exists(carDir))
         {
             log?.Invoke($"Car folder {carDir} not found, using GT3 defaults for {model}");
-            return spec;
+            return new CarFiles(false, null, "defaults", false, 0, 0, 0);
         }
 
         Dictionary<string, byte[]>? files = null;
+        string source = "defaults";
         string dataDir = Path.Join(carDir, "data");
         string acdPath = Path.Join(carDir, "data.acd");
         try
@@ -50,12 +58,12 @@ public static partial class CarDataLoader
             if (Directory.Exists(dataDir))
             {
                 files = Directory.GetFiles(dataDir).ToDictionary(f => Path.GetFileName(f), File.ReadAllBytes, StringComparer.OrdinalIgnoreCase);
-                spec.Source = "data folder";
+                source = "data folder";
             }
             else if (File.Exists(acdPath))
             {
                 files = AcdReader.Read(acdPath, model);
-                spec.Source = "data.acd";
+                source = "data.acd";
                 if (!files.ContainsKey("car.ini")) files = null;
             }
         }
@@ -68,22 +76,30 @@ public static partial class CarDataLoader
         var tags = ReadUiTags(carDir, out float uiBhp, out float uiWeight, out float uiTopSpeedKmh);
         bool hasWings = tags.Any(t => t.Contains("gt3", StringComparison.OrdinalIgnoreCase) || t.Contains("gte", StringComparison.OrdinalIgnoreCase)
                                       || t.Contains("prototype", StringComparison.OrdinalIgnoreCase) || t.Contains("race", StringComparison.OrdinalIgnoreCase));
+        return new CarFiles(true, files, source, hasWings, uiBhp, uiWeight, uiTopSpeedKmh);
+    }
 
-        if (files == null)
+    private static CarSpec Build(CarFiles data, string model, float extraMassKg, float restrictorPercent, Action<string>? log, float? wingLevel)
+    {
+        var spec = new CarSpec { Model = model };
+        if (!data.Exists) return spec;
+        if (data.Files == null)
         {
-            ApplyUiFallback(spec, uiBhp, uiWeight, uiTopSpeedKmh, hasWings, extraMassKg);
+            ApplyUiFallback(spec, data.UiBhp, data.UiWeight, data.UiTopSpeedKmh, data.HasWings, extraMassKg);
             spec.Source = "ui_car.json";
             return spec;
         }
 
+        spec.Source = data.Source;
         try
         {
-            FromData(spec, files, extraMassKg, restrictorPercent, hasWings, wingLevel);
+            FromData(spec, data.Files, extraMassKg, restrictorPercent, data.HasWings, wingLevel);
         }
         catch (Exception ex)
         {
             log?.Invoke($"Car data of {model} incomplete ({ex.Message}), using ui_car.json/defaults");
-            ApplyUiFallback(spec, uiBhp, uiWeight, uiTopSpeedKmh, hasWings, extraMassKg);
+            spec = new CarSpec { Model = model };
+            ApplyUiFallback(spec, data.UiBhp, data.UiWeight, data.UiTopSpeedKmh, data.HasWings, extraMassKg);
             spec.Source = "ui_car.json";
         }
 

@@ -46,10 +46,9 @@ public sealed partial class RaceWorld
         var car = bot.Car;
         var legal = string.IsNullOrWhiteSpace(bot.LegalTyres) ? null
             : bot.LegalTyres.Split(';', ',').Select(x => x.Trim()).Where(x => x != "").ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var options = car.Compounds.Where(c => legal == null || legal.Contains(c.ShortName)).ToList();
+        // rain tyres don't work (players don't get any either): never chosen
+        var options = car.Compounds.Where(c => !c.IsWet && (legal == null || legal.Contains(c.ShortName))).ToList();
         if (options.Count == 0) { bot.Tyres = null; return; }
-        var dry = options.Where(c => !c.IsWet).ToList();
-        if (dry.Count > 0) options = dry;
         if (car.DefaultCompound?.IsSlick != true || options.All(c => !c.IsSlick) || Settings.Qualifying)
         {
             bot.Tyres = options.MaxBy(c => c.Grip);

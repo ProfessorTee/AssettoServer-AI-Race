@@ -130,7 +130,7 @@ public sealed class RaceView : BackgroundService
             {
                 Server = _serverConfig.Server.Name,
                 Track = TrackKey,
-                Session = session.Configuration.Name,
+                Session = session.Configuration.Name ?? "",
                 SessionType = type.ToString(),
                 TimeLeft = session.Configuration.Laps > 0 && type == SessionType.Race ? null : session.TimeLeftMilliseconds / 1000,
                 Laps = session.Configuration.Laps,

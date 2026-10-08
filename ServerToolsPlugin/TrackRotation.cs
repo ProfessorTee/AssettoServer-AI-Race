@@ -28,7 +28,7 @@ public sealed class TrackRotation : BackgroundService
     private TrackRotationConfiguration _cfg = new();
     private readonly string _current;
     /// <summary>The rotation entry (Tracks) the running preset belongs to.</summary>
-    private string _currentEntry;
+    private string _currentEntry = "";
     private int _racesDone;
     private DateTime _since = DateTime.UtcNow;
     private bool _changing;
