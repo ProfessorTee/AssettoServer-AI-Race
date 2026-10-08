@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace RaceAiPlugin.Core;
+namespace TrackGeometry;
 
 /// <summary>Minimal reader for Kunos-style ini files (sections, KEY=VALUE, ';' and '//' comments).</summary>
 public sealed class IniFile

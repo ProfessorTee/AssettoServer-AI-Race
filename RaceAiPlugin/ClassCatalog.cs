@@ -1,3 +1,4 @@
+using TrackGeometry;
 using AssettoServer.Server.Configuration;
 using RaceAiPlugin.Core;
 

@@ -1,3 +1,4 @@
+using TrackGeometry;
 namespace RaceAiPlugin.Core;
 
 /// <summary>

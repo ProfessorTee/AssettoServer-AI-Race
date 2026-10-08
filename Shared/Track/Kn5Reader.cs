@@ -1,7 +1,7 @@
 using System.Numerics;
 using System.Text;
 
-namespace RaceAiPlugin.Core;
+namespace TrackGeometry;
 
 /// <summary>
 /// Reads only the dummy nodes (AC_START_x, AC_PIT_x, AC_TIME_x_L/R, ...) and their world transforms from a Kunos .kn5 model.

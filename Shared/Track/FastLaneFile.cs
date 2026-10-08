@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace RaceAiPlugin.Core;
+namespace TrackGeometry;
 
 /// <summary>
 /// One point of a Kunos fast_lane.ai racing line including the "extra" data block

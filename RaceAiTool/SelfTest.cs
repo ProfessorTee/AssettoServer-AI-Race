@@ -1,3 +1,4 @@
+using TrackGeometry;
 using System.Numerics;
 using RaceAiPlugin.Core;
 

@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace RaceAiPlugin.Core;
+namespace TrackGeometry;
 
 /// <summary>
 /// Closed racing line resampled to (nearly) uniform spacing so that lookups by distance are O(1).

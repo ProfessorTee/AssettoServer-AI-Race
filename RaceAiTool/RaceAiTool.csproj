@@ -11,6 +11,7 @@
 
     <ItemGroup>
         <Compile Include="..\RaceAiPlugin\Core\**\*.cs" Link="Core\%(RecursiveDir)%(Filename)%(Extension)" />
+        <Compile Include="..\Shared\Track\*.cs" Link="Shared\Track\%(Filename)%(Extension)" />
     </ItemGroup>
 
 </Project>

@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace RaceAiPlugin.Core;
+namespace TrackGeometry;
 
 /// <summary>A range of the lap in normalized position (0..1 along the AI line), can wrap over the start line.</summary>
 public readonly record struct TrackRange(float Start, float End, float Value, string Name = "")

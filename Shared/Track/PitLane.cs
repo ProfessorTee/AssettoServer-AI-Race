@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace RaceAiPlugin.Core;
+namespace TrackGeometry;
 
 /// <summary>
 /// The pit lane of a track (Kunos pit_lane.ai): an open path that leaves the racing line before the pits and joins it again after.
