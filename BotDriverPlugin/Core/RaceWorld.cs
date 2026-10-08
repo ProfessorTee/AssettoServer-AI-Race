@@ -151,6 +151,12 @@ public sealed class RaceBot
     internal bool AttackIsCounter;
     /// <summary>The attack waits in the target's slipstream until the braking zone (a run down a long straight, a switchback).</summary>
     internal bool AttackWaitsInTow;
+    /// <summary>
+    /// Braking-zone dive: the attacker has taken the inside of the coming corner (a lane in track coordinates, <see cref="DiveLane"/>),
+    /// out-brakes the car in front there and holds it to the apex (<see cref="DiveApexS"/>).
+    /// </summary>
+    internal bool Diving;
+    internal float DiveLane, DiveApexS;
 
     // behaviour state
     internal int OvertakeTargetId = -1;
@@ -1100,7 +1106,9 @@ public sealed partial class RaceWorld
 
             if (vLim >= best) continue;
             // attacking drivers brake a little later
-            float decel = car.BrakeAt((vLim + v) * 0.5f, brakePace, bot.MassRatio) * (bot.OvertakeTargetId >= 0 ? 0.9f + 0.07f * bot.Driver.Aggression : 0.9f) * lateBrake;
+            // attacking drivers brake a little later, a dive down the inside clearly later (that's how it gets alongside)
+            float attackBrake = bot.OvertakeTargetId < 0 ? 0.9f : bot.Diving ? 0.97f + 0.05f * bot.Driver.Aggression : 0.9f + 0.07f * bot.Driver.Aggression;
+            float decel = car.BrakeAt((vLim + v) * 0.5f, brakePace, bot.MassRatio) * attackBrake * lateBrake;
             // small speed drops (fast kinks) are taken with a gentle, early brush of the brakes, big ones with hard braking
             decel *= Math.Clamp(0.4f + 0.6f * (v - vLim) / 14f, 0.4f, 1f);
             // late brakers brake later (even more when attacking), smooth drivers earlier and softer (lift and coast)
@@ -1316,6 +1324,7 @@ public sealed partial class RaceWorld
         Aquaplaning(me);
 
         // ---- overtake bookkeeping
+        if (me.OvertakeTargetId < 0) me.Diving = false;
         if (me.OvertakeTargetId >= 0 && (_now < me.YellowUntil || _now < me.BlueFlagUntil))
         {
             // no overtaking under yellow; a lapped car lets the others through instead of fighting
@@ -1341,6 +1350,14 @@ public sealed partial class RaceWorld
                 // a run from the slipstream / a switchback: stay right behind the target, out of the wind, and only pull out when the
                 // braking zone of the next corner comes up (the tow fades slowly: the slingshot); a switchback pulls out to its inside
                 float lengths = (me.Car.Length + target.Value.Length) / 2;
+                if (UpdateDive(me, target.Value, myS, ds, tLatClear, minOff, maxOff))
+                {
+                    me.TargetOffset = me.DiveLane;
+                    me.OvertakeSide = me.DiveLane > target.Value.Offset ? 1 : -1;
+                    me.OvertakeSeparatedAt = _now;
+                    me.OvertakeClosedSince = double.NaN;
+                    goto AttackChecked;
+                }
                 if (me.AttackWaitsInTow && ds > lengths - 0.5f && NextCornerSign(myS, 110 + me.Speed * 1.2f) == 0)
                 {
                     me.TargetOffset = target.Value.Offset;
@@ -1668,6 +1685,53 @@ public sealed partial class RaceWorld
     public int DiagNoRoomEdge, DiagNoRoomLane, DiagNoRoomAll;
     public readonly Dictionary<string, int> DiagCounts = new();
     internal void Diag(string key) => DiagCounts[key] = DiagCounts.GetValueOrDefault(key) + 1;
+
+    /// <summary>
+    /// Braking-zone dive (on top of the lane-to-the-side attack): with the car in front close and the braking zone of a corner coming,
+    /// the attacker takes the inside of that corner - a lane fixed on the track, not next to the car in front, which swings out for its
+    /// turn-in - brakes later there and holds the line to the apex. True while diving.
+    /// </summary>
+    private bool UpdateDive(RaceBot me, in Neighbor target, float myS, float ds, float latClear, float minOff, float maxOff)
+    {
+        if (me.Diving)
+        {
+            // past the apex (or dropped back): the normal attack logic takes over again (side by side, the exit, the next try)
+            if (Line.Delta(myS, me.DiveApexS) < 0 || ds > 30)
+            {
+                me.Diving = false;
+                Diag(ds < 0 ? "dive: ahead at the apex" : MathF.Abs(target.Offset - me.Offset) > latClear - 0.3f ? "dive: alongside at the apex" : "dive: behind at the apex");
+                return false;
+            }
+            // the lane got taken before the attacker got a wheel alongside (the car in front turned in early and covers the inside):
+            // back in behind. Once overlapping, the car in front has to leave room (see the cars alongside in Think)
+            if (MathF.Abs(target.Offset - me.DiveLane) < latClear - 0.5f && ds > (me.Car.Length + target.Length) / 2 * 0.85f)
+            {
+                me.Diving = false;
+                Diag("dive: door closed");
+                return false;
+            }
+            return true;
+        }
+        if (me.AttackWaitsInTow || me.AttackIsCounter || ds < 0 || ds > 22) return false;
+        // a corner pass: drivers who don't like those only when they're badly held up
+        if (me.Clone == null && me.Driver.Personality.CornerPass < 0.3f && !HeldUpBadly(me)) return false;
+        if (!FindCorner(myS, 60 + me.Speed * 2.5f, out float start, out float apex, out _, out float sign)) return false;
+        // early enough to brake from the new lane: the braking zone is still ahead
+        if (Line.Delta(myS, start) < 15) return false;
+        // the inside lane: towards the inside edge (positive curvature turns towards +offset), a little off the kerb
+        float half = me.Car.Width / 2;
+        var (rm, rp) = Line.MinRoom(myS, Line.Delta(myS, apex));
+        float margin = MathF.Max(0.2f, EdgeMarginFor(me));
+        float lane = sign > 0 ? MathF.Min(maxOff, rp - half - margin) : MathF.Max(minOff, -rm + half + margin);
+        // free only when the car in front is out of it (it's on the outside for its turn-in) and nobody else is there
+        if (MathF.Abs(target.Offset - lane) < latClear + 0.2f) return false;
+        if (!LaneFree(me, lane, myS, -(me.Car.Length + 3), ds + 20, target.Id, ignoreFasterAhead: true)) return false;
+        me.Diving = true;
+        me.DiveLane = lane;
+        me.DiveApexS = apex;
+        Diag("dive: start");
+        return true;
+    }
 
     private bool TryChooseOvertakeSide(RaceBot me, Neighbor a, float gap, float latClear, float minOff, float maxOff, out float side)
     {
