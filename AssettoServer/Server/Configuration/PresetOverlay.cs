@@ -98,7 +98,15 @@ public static class PresetOverlay
 
     /// <summary>{track} and {class} replaced with the titles of the merged server_cfg.ini.</summary>
     public static string Fill(string? text, IniData merged)
-        => (text ?? "").Replace("{track}", merged["PRESET"]["TRACK_TITLE"] ?? "").Replace("{class}", merged["PRESET"]["CLASS_TITLE"] ?? "").Trim();
+        => Placeholder(Placeholder(text ?? "", "track", merged["PRESET"]["TRACK_TITLE"]), "class", merged["PRESET"]["CLASS_TITLE"]).Trim();
+
+    /// <summary>{name} replaced with <paramref name="value"/>; without a value it goes away together with brackets around it ("Server [{class}]" -> "Server").</summary>
+    private static string Placeholder(string text, string name, string? value)
+    {
+        if (!string.IsNullOrEmpty(value)) return text.Replace("{" + name + "}", value);
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\s*[\[(]\s*\{" + name + @"\}\s*[\])]", "");
+        return System.Text.RegularExpressions.Regex.Replace(text.Replace("{" + name + "}", ""), @"\s{2,}", " ");
+    }
 
     /// <summary>Text of a yml file, every layer's on top of the one below. Null if no layer has it.</summary>
     public static string? ReadYaml(IReadOnlyList<string> layers, string fileName)

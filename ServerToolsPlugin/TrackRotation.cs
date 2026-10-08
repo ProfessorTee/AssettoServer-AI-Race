@@ -94,8 +94,12 @@ public sealed class TrackRotation : BackgroundService
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
     }
 
+    /// <summary>Stops with this server instance (a restart starts a new one): a change waiting for its moment must not fire after that.</summary>
+    private CancellationToken _stopping;
+
     private async Task RunAsync(CancellationToken token)
     {
+        _stopping = token;
         try
         {
             if (File.Exists("rotation.yml"))
@@ -190,7 +194,7 @@ public sealed class TrackRotation : BackgroundService
         // between sessions: the next one hasn't really started yet
         if (!Due()) return;
         if (args.PreviousSession?.Configuration.Type == SessionType.Race && _cfg.ResultSeconds > 0)
-            _ = Task.Delay(_cfg.ResultSeconds * 1000).ContinueWith(_ => { if (Due()) StartChange(T("race over", "Rennen vorbei")); });
+            _ = Task.Delay(_cfg.ResultSeconds * 1000, _stopping).ContinueWith(t => { if (!t.IsCanceled && Due()) StartChange(T("race over", "Rennen vorbei")); });
         else
             StartChange(T("race over", "Rennen vorbei"));
     }
@@ -349,11 +353,11 @@ public sealed class TrackRotation : BackgroundService
                 {
                     _entryCarManager.BroadcastChat(T($"{what} in {announce} s. The server restarts, please rejoin via Content Manager after about {wait} s.",
                         $"{what} in {announce} s. Der Server startet neu, bitte nach etwa {wait} s über Content Manager neu beitreten."));
-                    await Task.Delay(announce * 1000);
+                    await Task.Delay(announce * 1000, _stopping);
                 }
                 foreach (var car in _entryCarManager.EntryCars.Where(c => c.Client != null))
                     TrackChangeBanner.Send(car.Client!, title, wait);
-                await Task.Delay(1500);
+                await Task.Delay(1500, _stopping);
                 state.SwitchTo = preset;
                 state.SwitchAt = DateTime.UtcNow;
                 state.KeepRaces = keepRaces;
@@ -370,6 +374,11 @@ public sealed class TrackRotation : BackgroundService
                 SaveState(state);
                 File.WriteAllText("current-preset", preset == "default" ? "" : preset);
                 RestartInto(preset == "default" ? null : preset);
+            }
+            catch (OperationCanceledException)
+            {
+                // this server instance stopped meanwhile (restarted otherwise): no change from here
+                _changing = false;
             }
             catch (Exception ex)
             {

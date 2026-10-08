@@ -19,10 +19,12 @@ public class ServerToolsController : ControllerBase
     private readonly ServerToolsConfiguration _config;
     private readonly ACServerConfiguration _serverConfig;
     private readonly IEnumerable<IAdminWebAccess> _access;
+    private readonly ConfigWriter _configWriter;
 
     public ServerToolsController(TrackRotation rotation, PlayerStats stats, ServerRestart restart, ServerToolsConfiguration config,
-        ACServerConfiguration serverConfig, IEnumerable<IAdminWebAccess> access)
+        ACServerConfiguration serverConfig, IEnumerable<IAdminWebAccess> access, ConfigWriter configWriter)
     {
+        _configWriter = configWriter;
         _rotation = rotation;
         _stats = stats;
         _restart = restart;
@@ -72,7 +74,7 @@ public class ServerToolsController : ControllerBase
             }
             case "realweather":
                 _config.RealWeather = req.On;
-                new ConfigWriter(_serverConfig, "plugin_server_tools_cfg.yml", "Server tools").Set("RealWeather", req.On);
+                _configWriter.Set("RealWeather", req.On);
                 return Ok(new { ok = true });
             default:
                 return BadRequest(new { error = "unknown action" });

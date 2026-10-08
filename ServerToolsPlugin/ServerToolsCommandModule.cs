@@ -21,14 +21,14 @@ public class ServerToolsCommandModule : ACModuleBase
     private readonly ConfigWriter _configWriter;
 
     public ServerToolsCommandModule(TrackRotation rotation, PlayerStats stats, ServerTrack track, ServerRestart restart, ServerToolsConfiguration config,
-        ACServerConfiguration serverConfig)
+        ConfigWriter configWriter)
     {
         _rotation = rotation;
         _stats = stats;
         _track = track;
         _restart = restart;
         _config = config;
-        _configWriter = new ConfigWriter(serverConfig, "plugin_server_tools_cfg.yml", "Server tools");
+        _configWriter = configWriter;
     }
 
     [Command("server_nexttrack", "raceai_nexttrack"), RequireAdmin]

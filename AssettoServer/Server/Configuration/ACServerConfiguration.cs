@@ -158,7 +158,16 @@ public partial class ACServerConfiguration
                     catch { /* ignored */ }
                 }
             }
-            else config = ServerConfiguration.FromFile(path);
+            else
+            {
+                config = ServerConfiguration.FromFile(path);
+                // Race AI patch: {track}/{class} in the name of a server started without a preset (no title: the placeholder goes away)
+                if (config.Name.Contains('{'))
+                {
+                    try { config.Name = PresetOverlay.Fill(config.Name, new IniParser.FileIniDataParser().ReadFile(path)); }
+                    catch { /* ignored */ }
+                }
+            }
 
             if (portOverrides != null)
             {

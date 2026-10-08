@@ -49,23 +49,39 @@ public sealed class JoinInfo
     private static string CmLink(string host, int httpPort)
         => $"https://acstuff.club/s/q:race/online/join?ip={Uri.EscapeDataString(host)}&httpPort={httpPort}";
 
-    private async Task<string?> PublicIpAsync()
+    private Task<string?>? _publicIpLookup;
+
+    /// <summary>The public IP, looked up at most every 30 min (after a failure every minute), one lookup at a time.</summary>
+    private Task<string?> PublicIpAsync()
     {
-        if (_publicIp != null && DateTime.UtcNow - _publicIpAt < TimeSpan.FromMinutes(30)) return _publicIp;
+        lock (Http)
+        {
+            var age = DateTime.UtcNow - _publicIpAt;
+            if (age < (_publicIp != null ? TimeSpan.FromMinutes(30) : TimeSpan.FromMinutes(1))) return Task.FromResult(_publicIp);
+            return _publicIpLookup ??= LookUpAsync();
+        }
+    }
+
+    private async Task<string?> LookUpAsync()
+    {
+        await Task.Yield(); // leave the caller's lock before anything can finish
+        string? found = null;
         try
         {
             var ip = (await Http.GetStringAsync("https://api.ipify.org")).Trim();
-            if (IPAddress.TryParse(ip, out _))
-            {
-                _publicIp = ip;
-                _publicIpAt = DateTime.UtcNow;
-            }
+            if (IPAddress.TryParse(ip, out _)) found = ip;
         }
         catch
         {
             // offline or blocked: keep the old one
         }
-        return _publicIp;
+        lock (Http)
+        {
+            if (found != null) _publicIp = found;
+            _publicIpAt = DateTime.UtcNow;
+            _publicIpLookup = null;
+            return _publicIp;
+        }
     }
 
     /// <summary>The computer's address in the home network (192.168.x.x, 10.x.x.x, 172.16-31.x.x).</summary>

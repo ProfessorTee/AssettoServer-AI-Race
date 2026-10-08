@@ -1,4 +1,6 @@
+using AssettoServer.Server.Configuration;
 using AssettoServer.Server.Extensions;
+using SharedConfig;
 using AssettoServer.Server.Plugin;
 using Autofac;
 using Microsoft.Extensions.Hosting;
@@ -21,6 +23,8 @@ public class ServerToolsModule : AssettoServerModule<ServerToolsConfiguration>
         builder.RegisterType<PlayerStats>().AsSelf().As<IPlayerRating>().As<IHostedService>().SingleInstance();
         builder.RegisterType<ServerRestart>().AsSelf().SingleInstance();
         builder.RegisterType<RaceResults>().AsSelf().As<IHostedService>().SingleInstance();
+        // one writer for plugin_server_tools_cfg.yml (its lock keeps commands and the web portal from writing at the same time)
+        builder.Register(c => new ConfigWriter(c.Resolve<ACServerConfiguration>(), "plugin_server_tools_cfg.yml", "Server tools")).AsSelf().SingleInstance();
     }
 }
 

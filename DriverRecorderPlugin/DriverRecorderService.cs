@@ -8,6 +8,7 @@ using System.Text.Json;
 using AssettoServer.Network.Tcp;
 using AssettoServer.Server;
 using AssettoServer.Server.Configuration;
+using AssettoServer.Server.Extensions;
 using AssettoServer.Shared.Network.Packets.Shared;
 using DriverRecorderPlugin.Packets;
 using Microsoft.Extensions.Hosting;
@@ -65,8 +66,10 @@ public sealed class DriverRecorderService : IHostedService
     }
 
     public DriverRecorderService(DriverRecorderConfiguration config, ACServerConfiguration serverConfig, EntryCarManager entryCarManager,
-        CSPServerScriptProvider scriptProvider, CSPClientMessageTypeManager messageTypes)
+        CSPServerScriptProvider scriptProvider, CSPClientMessageTypeManager messageTypes, IEnumerable<ISharedSettings> shared)
     {
+        // own language when set, else the one all plugins share (ServerToolsPlugin), else German as before
+        config.Language = !string.IsNullOrWhiteSpace(config.Language) ? config.Language : shared.FirstOrDefault()?.ChatLanguage ?? "de";
         _config = config;
         _serverConfig = serverConfig;
         _entryCarManager = entryCarManager;
@@ -311,11 +314,11 @@ public sealed class DriverRecorderService : IHostedService
             {
                 var info = rec.LapInfos[match];
                 rec.LapInfos.RemoveAt(match);
-                Save(client, cand, info.LapTime, info.Cuts);
+                SaveLater(client, cand, info.LapTime, info.Cuts);
             }
             else if (force || now - cand.At > TimeSpan.FromSeconds(15))
             {
-                Save(client, cand, (uint)(duration * 1000), -1); // no official time: kept, but not used for profiles
+                SaveLater(client, cand, (uint)(duration * 1000), -1); // no official time: kept, but not used for profiles
             }
             else continue;
             rec.Waiting.RemoveAt(i--);
@@ -323,18 +326,36 @@ public sealed class DriverRecorderService : IHostedService
         }
     }
 
-    private void Save(ACTcpClient client, LapCandidate cand, uint lapTime, int cuts)
+    /// <summary>
+    /// Compressing and writing a lap takes a while (a Nordschleife lap is ~10000 lines): done on the thread pool, not on the thread that
+    /// receives the player's data. One lap after the other (a lock), so the pruning and the clean lap count stay right.
+    /// </summary>
+    private void SaveLater(ACTcpClient client, LapCandidate cand, uint lapTime, int cuts)
     {
+        // what the save needs from the client, read now: he may be gone when it runs
+        var who = new SaveInfo(client, client.Guid, client.Name ?? client.Guid.ToString(), client.EntryCar.Model);
+        _ = Task.Run(() =>
+        {
+            lock (_saveLock) Save(who, cand, lapTime, cuts);
+        });
+    }
+
+    private readonly object _saveLock = new();
+    private sealed record SaveInfo(ACTcpClient Client, ulong Guid, string Name, string Car);
+
+    private void Save(SaveInfo who, LapCandidate cand, uint lapTime, int cuts)
+    {
+        var client = who.Client;
         if (cand.Samples.Count < 20) return;
         bool pit = cand.Samples.Any(s => (s.Flags & 1) != 0);
         bool offTrack = cand.Samples.Count(s => (s.Flags & 8) != 0) > 10;
         // a standing start (race lap 1) is no lap to learn the driving from
         bool standingStart = cand.Samples.Take(Math.Min(60, cand.Samples.Count)).Any(s => s.Speed < 15);
         bool valid = cand.Complete && cuts == 0 && !pit && !offTrack && !standingStart;
-        string car = client.EntryCar.Model;
+        string car = who.Car;
         try
         {
-            var dir = Path.Join(_root, client.Guid.ToString(), _trackKey, car);
+            var dir = Path.Join(_root, who.Guid.ToString(), _trackKey, car);
             Directory.CreateDirectory(dir);
             var file = Path.Join(dir, $"{DateTime.Now:yyyyMMdd-HHmmss}_{lapTime}_{(valid ? "valid" : "invalid")}.csv.gz");
             using (var fs = File.Create(file))
@@ -343,8 +364,8 @@ public sealed class DriverRecorderService : IHostedService
             {
                 var ci = CultureInfo.InvariantCulture;
                 w.WriteLine($"# DriverRecorder {FormatVersion}");
-                w.WriteLine($"# guid={client.Guid}");
-                w.WriteLine($"# name={client.Name}");
+                w.WriteLine($"# guid={who.Guid}");
+                w.WriteLine($"# name={who.Name}");
                 w.WriteLine($"# track={_trackKey}");
                 w.WriteLine($"# car={car}");
                 w.WriteLine($"# laptime_ms={lapTime}");
@@ -359,19 +380,21 @@ public sealed class DriverRecorderService : IHostedService
                         s.Time - t0, s.Spline, s.Position.X, s.Position.Y, s.Position.Z, s.Speed, s.Gas, s.Brake, s.Clutch, s.Steer, s.Gear, s.Flags,
                         s.TyreFront, s.TyreRear, s.Fuel));
             }
-            File.WriteAllText(Path.Join(_root, client.Guid.ToString(), "player.json"),
-                JsonSerializer.Serialize(new { guid = client.Guid.ToString(), name = client.Name, updated = DateTime.UtcNow }));
+            File.WriteAllText(Path.Join(_root, who.Guid.ToString(), "player.json"),
+                JsonSerializer.Serialize(new { guid = who.Guid.ToString(), name = who.Name, updated = DateTime.UtcNow }));
             Prune(dir);
-            Log.Information("DriverRecorder: {Player} lap {Time} on {Car} saved ({Valid}, {Count} samples)", client.Name,
+            Log.Information("DriverRecorder: {Player} lap {Time} on {Car} saved ({Valid}, {Count} samples)", who.Name,
                 TimeSpan.FromMilliseconds(lapTime).ToString(@"m\:ss\.fff"), car, valid ? "valid" : "not valid", cand.Samples.Count);
-            if (valid && IsOptedIn(client.Guid)) SendControl(client, true);
-            if (valid)
+            // the player may have left meanwhile: only tell him while he's still connected
+            bool connected = _recorders.ContainsKey(client);
+            if (valid && connected && IsOptedIn(who.Guid)) SendControl(client, true);
+            if (valid && connected)
                 client.SendChatMessage(T($"Driver Recorder: lap {TimeSpan.FromMilliseconds(lapTime):m\\:ss\\.fff} saved for your clone.",
                     $"Driver Recorder: Runde {TimeSpan.FromMilliseconds(lapTime):m\\:ss\\.fff} für deinen Klon gespeichert."));
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "DriverRecorder: could not save a lap of {Player}", client.Name);
+            Log.Error(ex, "DriverRecorder: could not save a lap of {Player}", who.Name);
         }
     }
 
@@ -450,14 +473,19 @@ public sealed class DriverRecorderService : IHostedService
     {
         SetOptIn(client, false);
         var dir = Path.Join(_root, client.Guid.ToString());
-        if (!Directory.Exists(dir)) return 0;
-        int n = Directory.EnumerateFiles(dir, "*.csv.gz", SearchOption.AllDirectories).Count();
-        Directory.Delete(dir, true);
+        int n;
+        // not while one of his laps is being written
+        lock (_saveLock)
+        {
+            if (!Directory.Exists(dir)) return 0;
+            n = Directory.EnumerateFiles(dir, "*.csv.gz", SearchOption.AllDirectories).Count();
+            Directory.Delete(dir, true);
+        }
         Log.Information("DriverRecorder: {Player} deleted all recordings ({Count} laps)", client.Name, n);
         return n;
     }
 
-    public string Language => _config.Language;
+    public string Language => _config.Language ?? "de";
 
     private bool _debug;
     public bool DebugOn => _debug || _config.Debug;

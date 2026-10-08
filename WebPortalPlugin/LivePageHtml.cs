@@ -183,7 +183,9 @@ header .session { margin-left: auto; display: flex; gap: 18px; align-items: base
 
 <script>
 const $ = id => document.getElementById(id);
-const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const cssCache = {};
+const css = n => cssCache[n] ??= getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { for (const k in cssCache) delete cssCache[k]; });
 let frame = null, track = null, trackKey = "", selected = null, gapMode = "gap", follow = false;
 const cars = new Map();      // id -> { x, z, vx, vz, at, dx, dz }
 const traces = new Map();    // id -> { lap, cur: [[lf, v]], prev: [[lf, v]] }

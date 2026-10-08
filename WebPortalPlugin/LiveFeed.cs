@@ -121,7 +121,6 @@ public sealed class LiveFeed
         public readonly Queue<long> Order = new();
         public bool InPit;
         public uint Best;
-        public int Pos;
     }
 
     private readonly Dictionary<byte, Timing> _timing = new();

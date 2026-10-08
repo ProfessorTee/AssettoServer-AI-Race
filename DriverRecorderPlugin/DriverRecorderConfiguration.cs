@@ -20,8 +20,8 @@ public class DriverRecorderConfiguration : IValidateConfiguration<DriverRecorder
     [YamlMember(Description = "Laps kept per player, track and car (the oldest are deleted)")]
     public int MaxLapsPerCar { get; set; } = 40;
 
-    [YamlMember(Description = "Chat language: de or en")]
-    public string Language { get; set; } = "de";
+    [YamlMember(Description = "Chat language: de or en. Empty = the one set in ServerToolsPlugin (ChatLanguage), else de")]
+    public string? Language { get; set; }
 
     [YamlMember(Description = "Detailed logging for troubleshooting (first data per player, every lap cut and how it was matched). Admin: /rec_debug on|off")]
     public bool Debug { get; set; }
@@ -34,6 +34,6 @@ public class DriverRecorderConfigurationValidator : AbstractValidator<DriverReco
         RuleFor(c => c.SampleHz).InclusiveBetween(5, 50);
         RuleFor(c => c.MaxLapsPerCar).InclusiveBetween(1, 1000);
         RuleFor(c => c.RecordingsFolder).NotEmpty();
-        RuleFor(c => c.Language).Must(l => l is "de" or "en");
+        RuleFor(c => c.Language).Must(l => l is null or "" or "de" or "en");
     }
 }

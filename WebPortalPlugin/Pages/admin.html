@@ -149,7 +149,7 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
       <div class="card">
         <h3>Fahrer-Klone</h3>
         <div class="muted" style="margin-bottom:6px">Aufgezeichnete Spieler auf dieser Strecke (Plugin DriverRecorder, Spieler stimmen mit <code>/rec on</code> zu).
-          Verliert einer im Rennen die Verbindung, fährt sein Klon weiter, bis er zurück ist. Als fester Bot: <code>Drivers: - Slot: 5, Clone: Name</code> in der cfg.</div>
+          Verliert einer im Rennen die Verbindung, fährt sein Klon sein Auto ins Ziel. Als fester Bot: <code>Drivers: - Slot: 5, Clone: Name</code> in der cfg.</div>
         <table><thead><tr><th>Spieler</th><th>Auto</th><th class="num">saubere Runden</th><th class="num">Beste</th><th class="num">Schnitt</th></tr></thead>
           <tbody id="cloneRows"><tr><td colspan="5" class="muted">–</td></tr></tbody></table>
         <div class="row"><button class="btn" id="cloneRefresh">Aktualisieren</button></div>
@@ -220,7 +220,7 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
       </div>
     </div>
     <div class="tab" id="tab-log">
-      <div class="row"><input type="text" id="logFilter" placeholder="Filter (z. B. Race AI, yellow, connected)" style="flex:1"><label style="min-width:0"><input type="checkbox" id="logFollow" checked> live (neueste oben)</label><span class="muted" id="logInfo"></span></div>
+      <div class="row"><input type="text" id="logFilter" placeholder="Filter (z. B. BotDriver, yellow, connected)" style="flex:1"><label style="min-width:0"><input type="checkbox" id="logFollow" checked> live (neueste oben)</label><span class="muted" id="logInfo"></span></div>
       <pre id="log"></pre>
     </div>
   </aside>
@@ -333,6 +333,7 @@ async function loadTrack() {
   try {
     track = await api("/api/admin/track");
     if (!track.available) { loadedTrack = ""; return; }
+    loadedTrack = track.track;
     trackKey = "";
     bounds = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
     for (const p of track.line) for (let i = 0; i < 6; i += 2) {
@@ -779,7 +780,7 @@ function renderLog() {
   const oldFirst = $("log").firstElementChild, anchorText = oldFirst ? oldFirst.textContent : null, anchorTop = oldFirst ? oldFirst.offsetTop : 0;
   const shown = logLines.filter(l => !f || l.toLowerCase().includes(f)).reverse();
   $("log").innerHTML = shown.map(l => {
-    const cls = l.includes("[ERR]") || l.includes("[FTL]") ? "e" : l.includes("[WRN]") ? "w" : l.includes("Race AI") ? "r" : "";
+    const cls = l.includes("[ERR]") || l.includes("[FTL]") ? "e" : l.includes("[WRN]") ? "w" : l.includes("BotDriver") ? "r" : "";
     return `<span class="${cls}">${esc(l)}</span>`;
   }).join("\n");
   if (top < 40) { box.scrollTop = 0; return; }

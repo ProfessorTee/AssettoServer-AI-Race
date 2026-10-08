@@ -207,6 +207,8 @@ public sealed class RaceView : BackgroundService
     {
         var map = _map;
         if (map == null) return new { available = false };
+        var cached = _outline;
+        if (cached.Map == map) return cached.Data!;
         var line = map.Line;
         var pts = new List<float[]>();
         for (float s = 0; s < line.Length; s += 8)
@@ -240,8 +242,12 @@ public sealed class RaceView : BackgroundService
             var p = line.PositionAt(line.WrapS(mid * line.Length + map.StartLineS), 0);
             marks.Add(new { kind = "section", x = R(p.X), z = R(p.Z), name = sec.Name });
         }
-        return new { available = true, track = _serverConfig.Server.Track, length = line.Length, line = pts, pit, marks };
+        var data = new { available = true, track = _serverConfig.Server.Track, length = line.Length, line = pts, pit, marks };
+        _outline = (map, data);
+        return data;
     }
+
+    private (TrackMap? Map, object? Data) _outline;
 
     /// <summary>The admin page's view of the server: session, weather, cars (bot details come from the bot plugin's API).</summary>
     public object AdminState()
