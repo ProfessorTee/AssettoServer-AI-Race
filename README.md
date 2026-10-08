@@ -8,7 +8,7 @@ Erstes Ziel: **Nordschleife** (`ks_nordschleife`, Layout `nordschleife`) mit **G
 
 > **Entstehung:** Dieses Projekt hat **Claude**, eine KI von [Anthropic](https://www.anthropic.com), im Auftrag von und
 > zusammen mit [ProfessorTee](https://github.com/ProfessorTee) entwickelt (Claude Code, Modell `claude-opus-5-5`).
-> Claude hat den Core-Patch, das `RaceAiPlugin`, das Test-Werkzeug `RaceAiTool`, die Tests, die Build-Skripte und die
+> Claude hat den Core-Patch, die Plugins BotDriver, WebPortal, ServerTools und DriverRecorder, das Test-Werkzeug `BotDriverTool`, die Tests, die Build-Skripte und die
 > Dokumentation geschrieben. ProfessorTee hat mit dem echten Spiel getestet, die Richtung vorgegeben und Rückmeldung gegeben.
 >
 > Basis ist [AssettoServer](https://github.com/compujuckel/AssettoServer) von compujuckel und Mitwirkenden, Lizenz
@@ -32,45 +32,49 @@ Erstes Ziel: **Nordschleife** (`ks_nordschleife`, Layout `nordschleife`) mit **G
 - **Fahrer-Klone:** Das Plugin `DriverRecorderPlugin` zeichnet Spieler auf, die mit `/rec on` zustimmen (CSP-Skript, das der Server
   mitschickt). Daraus entsteht ein Klon, der ihre Linie und ihr Tempo fährt. Verliert ein Spieler im Rennen die Verbindung, fährt
   sein Klon sein Auto weiter, bis er zurück ist. Siehe [`DriverRecorderPlugin/README.md`](DriverRecorderPlugin/README.md).
-- **Dashboard** zum Steuern im Browser, mit Live-Karte, Beitreten-Seite für Freunde und Neustart/Update aus der Ferne.
-- Jede Funktion lässt sich in `plugin_race_ai_cfg.yml` abschalten und als Admin auch live per `/raceai_set`.
+- **Admin-Seite** im Browser mit Live-Karte, Beitreten-Seite für Freunde, Live-Timing und Neustart/Update aus der Ferne.
+- Jede Funktion lässt sich in der yml des Plugins abschalten und als Admin auch live per `/bots_set`.
 
-Die ausführliche Doku mit allen Einstellungen und Befehlen steht in [`RaceAiPlugin/README.md`](RaceAiPlugin/README.md).
-Der Stand für Entwickler steht in [`RaceAiPlugin/UEBERGABE.md`](RaceAiPlugin/UEBERGABE.md).
+Die Doku jedes Plugins steht in seinem Ordner. Der Stand für Entwickler: [`BotDriverPlugin/UEBERGABE.md`](BotDriverPlugin/UEBERGABE.md).
 
 ## Aufbau
 
+Vier Plugins, jedes läuft allein und ergänzt die anderen, wenn sie da sind (Schnittstellen im Kern, `AssettoServer/Server/Extensions/`).
+
 | Pfad | Inhalt |
 |---|---|
-| `AssettoServer/…` | Kleiner **Core-Patch**: `IExternalAiController` (ein Plugin steuert einen KI-Slot), offizielle Runden für Bots, Rennen mit nur einem Spieler |
-| `RaceAiPlugin/` | Das Plugin. `Core/` ist die eigentliche KI, ohne AssettoServer-Abhängigkeit |
-| `DriverRecorderPlugin/` | Zweites Plugin: zeichnet Spieler mit Zustimmung auf (CSP-Online-Skript), Grundlage der Fahrer-Klone |
-| `RaceAiTool/` | Offline-Werkzeug: `selftest`, `sim` (Rennen simulieren), `strength`, `car`, `grid` |
-| `RaceAiPlugin/example/nordschleife-gt3/` | Beispielkonfiguration: 4 Spieler-Slots, 16 Bots |
-| `race-ai/` | Test-Build ohne .NET 11 SDK: gepatchte DLLs, `setup-testserver.sh`, `start-server.sh`, Hilfsskripte |
+| `AssettoServer/…` | **Core-Patch**: externe KI-Slots, offizielle Runden für Bots, Preset-Ebenen, Uhr-Sync, Plugin-Schnittstellen, Übernahme alter Konfiguration |
+| [`BotDriverPlugin/`](BotDriverPlugin/README.md) | Die Bots: Fahren, Duelle, Klone, Fahrerwechsel. `Core/` ist die KI ohne AssettoServer-Abhängigkeit, `Tool/` das Offline-Werkzeug |
+| [`WebPortalPlugin/`](WebPortalPlugin/README.md) | Webseiten: `/join`, `/live`, `/stats`, `/admin` |
+| [`ServerToolsPlugin/`](ServerToolsPlugin/README.md) | Rotation, Klassen, Statistik/Safety Rating, echtes Wetter, Neustart, gemeinsame Einstellungen |
+| [`DriverRecorderPlugin/`](DriverRecorderPlugin/README.md) | Zeichnet Spieler mit Zustimmung auf (`/rec on`), Grundlage der Fahrer-Klone |
+| `Shared/` | Quellcode, den mehrere Plugins mitkompilieren (Streckengeometrie, Klassen, Admin-Zugriff, Config-Schreiber) |
+| `examples/nordschleife-gt3/` | Beispielkonfiguration: 4 Spieler-Slots, 16 Bots |
+| `tools/` | Build, Testserver ohne .NET SDK (`setup-testserver.sh`, `update-server.sh`, `start-server.sh`), vorgebaute DLLs |
+
+Alte Server mit `RaceAiPlugin` laufen ohne Änderung weiter: `RaceAiPlugin` in `EnablePlugins` lädt die neuen Plugins, und
+`plugin_race_ai_cfg.yml` wird beim ersten Start auf `plugin_bot_driver_cfg.yml`, `plugin_web_portal_cfg.yml` und
+`plugin_server_tools_cfg.yml` aufgeteilt. Der alte Ordner `plugins/RaceAiPlugin` wird nicht mehr geladen und kann weg.
 
 ## Schnellstart (Linux, ohne .NET SDK)
 
 ```bash
-race-ai/setup-testserver.sh /pfad/zu/steamapps/common/assettocorsa   # lädt AssettoServer v0.0.55-pre42 und richtet alles ein
-race-ai/install-desktop-entry.sh                                      # „Race AI Server“ ins Startmenü und auf den Desktop
-race-ai/raceai-desktop.sh                                             # Server + Dashboard (Live-Karte, Bots steuern) starten
+tools/setup-testserver.sh /pfad/zu/steamapps/common/assettocorsa   # lädt AssettoServer v0.0.55-pre42 und richtet alles ein
+tools/install-desktop-entry.sh                                      # Starter ins Startmenü und auf den Desktop
+tools/server-desktop.sh                                             # Server + Admin-Seite starten
 ```
 
-Nach einem `git pull` spielt `race-ai/update-server.sh` das neue Plugin ein und ergänzt die Konfiguration.
+Nach einem `git pull` spielt `tools/update-server.sh` die neuen Plugins ein und ergänzt die Konfiguration.
 
 Beitreten in Content Manager: *Online → LAN* oder die Favoriten mit `IP:8081`. CSP muss installiert sein.
 Für Freunde von außen: im Router die Ports 9600 TCP+UDP und 8081 TCP an deinen PC weiterleiten.
 
 ## Bauen (sauberer Weg)
 
-Mit dem .NET 11 SDK:
+Mit dem .NET 11 SDK: `tools/build.sh` (oder `tools/build.sh win-x64`) baut Server und Plugins nach `out-linux-x64/`.
 
 ```bash
-dotnet publish AssettoServer/AssettoServer.csproj -c Release -r linux-x64      # oder win-x64
-dotnet publish RaceAiPlugin/RaceAiPlugin.csproj -c Release -r linux-x64
-dotnet publish DriverRecorderPlugin/DriverRecorderPlugin.csproj -c Release -r linux-x64
-dotnet run --project RaceAiTool -- selftest
+dotnet run --project BotDriverPlugin/Tool -- selftest
 ```
 
 ## Lizenz

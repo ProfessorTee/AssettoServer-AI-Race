@@ -6,7 +6,7 @@
   Positionsupdates, Runden, Kollision) auf der Nordschleife mit 16 GT3-Bots:
   Qualifying → Startaufstellung (Spieler in der Mitte) → Start → 1 Runde → Zielflagge → Ergebnis → nächste Session.
   Siegerzeit 6:59, Feld 6:59–7:08, keine ungültigen Posen, Bot-Namen beim Client, Überholungsansagen mit Streckenabschnitt.
-- Offline: `RaceAiTool selftest` grün. `RaceAiTool sim` auf der echten Linie: Hotlap bei Level 100 6:52.8, Rennen ohne Überlappungen.
+- Offline: `BotDriverTool selftest` grün. `BotDriverTool sim` auf der echten Linie: Hotlap bei Level 100 6:52.8, Rennen ohne Überlappungen.
 - Mit dem echten AC-Client (CSP, Proton) vom Nutzer getestet: Aussehen und Fahren passen.
 
 ## Neu in Teil 2 (nach dem ersten Test mit dem echten Client)
@@ -80,7 +80,7 @@
 - Regenreifen komplett entfernt (CSP bietet sie online nicht an). Behalten: nasser Grip, `RainCaution`, Aufschwimmen.
   Neu: `PuddleRisk` (Senken, Ideallinie) und `RainLineOffset`, die Regenlinie weg vom Wasser.
 - Sprit-Gewicht: `CarSpec.BrakeAt`/`CornerLimit` mit `massRatio` (Aero-Hilfe pro kg sinkt). Dazu Lastempfindlichkeit über
-  `massGrip` und Beschleunigung / `MassRatio`. `RaceAiTool fuel` zeigt Bremsweg, 0–200 km/h und Rundenzeit bei 20 l, halbem und
+  `massGrip` und Beschleunigung / `MassRatio`. `BotDriverTool fuel` zeigt Bremsweg, 0–200 km/h und Rundenzeit bei 20 l, halbem und
   vollem Tank.
 - `Personality` (Core) und `PersonalityConfiguration` (YAML, `Personalities`, `UsePersonalities`, `Drivers[].Personality`):
   `LateBraking` (Planung ×, Angriffe), `InsideLine` (≥ 0,5 nie außen), `TyreWear`/`FuelUse`/`Smoothness` (Verbrauch,
@@ -101,7 +101,7 @@
   - Zugriff nur von Loopback, außer bei `DashboardRemoteAccess` (dann Header `X-Admin-Password` = ADMIN_PASSWORD).
 - `RaceAiService.Dashboard.cs`: Zustand (Autos inkl. Bot-Details, Session, Wetter, KI-Schalter), Streckenumriss (Linie, Ränder,
   Box, Start, Sektoren, Abschnitte), `UpdateBot`, globale Stärke und Aggressivität.
-- `race-ai/raceai-desktop.sh` (Start, Warten auf `/api/ping`, Absturzmeldung per zenity/kdialog, Chromium `--app`,
+- `tools/raceai-desktop.sh` (Start, Warten auf `/api/ping`, Absturzmeldung per zenity/kdialog, Chromium `--app`,
   Frage beim Schließen), `install-desktop-entry.sh`, `raceai-icon.svg`. Build: `csc -resource:` bzw. `EmbeddedResource` im csproj.
 
 ## Neu in Teil 10: Reifen, Persönlichkeiten, Join-Seite, Neustart, Fahrer-Klone
@@ -111,7 +111,7 @@
 - Lichthupe nur bei deutlichem Vorteil (`PressureEma > 1.6`), nicht in den ersten `FlashStartDelaySeconds`, abhängig von `Patience`.
 - Startaufstellung: Autos ohne Quali-Zeit hinten (`ArrangePlayers`), `BotGridOrder`.
 - `JoinInfo`/`JoinPageHtml`: `GET /raceai/join` (öffentlich) und `/raceai/api/join`: CM-Link `acstuff.club/s/q:race/online/join`, IPs.
-- `race-ai/server-supervisor.sh`: startet den Server nach `restart.request` neu (Aktion `restartserver`, `text: update` = git pull + update-server.sh);
+- `tools/server-supervisor.sh`: startet den Server nach `restart.request` neu (Aktion `restartserver`, `text: update` = git pull + update-server.sh);
   Umgebungsvariable `RACEAI_SUPERVISED=1`.
 - **DriverRecorderPlugin** (eigenes Projekt): CSP-Online-Skript `lua/driverrecorder.lua` (per `CSPServerScriptProvider`), OnlineEvents
   `DR_samples` (5 Messungen je Paket, 20 Hz), `DR_status` (1 Hz), `DR_control` (Server → Client). Opt-in `/rec on|off|delete|info`,
@@ -135,7 +135,7 @@
   `rotation.state` (Startzeiten je Preset), `current-preset` (für `server-supervisor.sh --preset`).
 - Willkommensnachricht: `CSPServerExtraOptions.WelcomeMessageSending` hängt die Rotations-Zeile an.
 - Dashboard `GET /raceai/api/rotation`, Aktion `rotate` (Ziel in `text`), Log liest alle `*.txt` (Presets haben eigene Log-Präfixe).
-- `race-ai/add-track-preset.sh`: Preset aus `cfg/`, Streckendaten (ai, data, models_<layout>.ini), Eintrag in `rotation.yml`.
+- `tools/add-track-preset.sh`: Preset aus `cfg/`, Streckendaten (ai, data, models_<layout>.ini), Eintrag in `rotation.yml`.
 
 ## Neu in Teil 12: Hoster (BisectHosting), Chat, Rücksicht auf Spieler
 - Core: `ChatSplitter` teilt Chat-Nachrichten > 250 Zeichen (AC schickt die Länge in einem Byte, sonst Zeichensalat „von“ einem anderen Auto).
@@ -163,7 +163,7 @@
 - Hinter Spielern etwas mehr Abstand, Bremsen des Spielers wird vorweggenommen.
 - Berührungen ohne Sprünge: seitlich wegfedern statt Versatz, von hinten getroffen -> wird angeschoben statt abgebremst,
   nach dem Auseinanderschieben kein weiteres Hineinrutschen (das Zittern ineinander).
-- RaceAiTool `sim --player-pace 0.97 --player-aggression 0.9 --latency 0.04`: Netzmodell, misst Überlappungen aus Sicht des Spielers.
+- BotDriverTool `sim --player-pace 0.97 --player-aggression 0.9 --latency 0.04`: Netzmodell, misst Überlappungen aus Sicht des Spielers.
 
 ## Neu in Teil 15: Server-Feinschliff (Rechenleistung ist da)
 - Messung: ein Server-Tick braucht 0,6 ms (p99 1,9 ms) von 33 ms, kaum GC; Ressourcen sind kein Engpass.
@@ -180,7 +180,7 @@
   konstant 12 MB, Arbeitsspeicher pendelt 190-210 MB statt zu steigen.
 
 ## Neu in Teil 17: Ruckeln der Bots am Streckenrand, robuster Uhrabgleich
-- Messung (`RaceAiTool sim --jumps`): Positionssprünge pro 10-ms-Schritt, die nicht zur gesendeten Geschwindigkeit passen.
+- Messung (`BotDriverTool sim --jumps`): Positionssprünge pro 10-ms-Schritt, die nicht zur gesendeten Geschwindigkeit passen.
   97 % kamen vom Streckenrand: die Breite wurde punktweise (ohne Interpolation) begrenzt, ein Bot am Rand wurde jeden Schritt
   ein Stück zurückgesetzt und rutschte wieder hinaus. Jetzt interpoliert (`RoomPlusAt/RoomMinusAt`), seitliche Geschwindigkeit
   zum Rand wird beim Anschlag gestoppt. Nordschleife, 16 Bots, 1 Runde: 1183 -> 45 Sprünge, max 0,36 -> 0,06 m;
@@ -214,7 +214,7 @@
   Sprünge der Seitengeschwindigkeit > 0,5 m/s pro Frame 2-3 -> 0.
 
 ## Neu in Teil 20: Persönlichkeit im Fahrverhalten
-- Messwerkzeug: `RaceAiTool sim --style` (Linienabstand der Persönlichkeiten in Kurven, Angriffe/Überholungen/Verteidigungen,
+- Messwerkzeug: `BotDriverTool sim --style` (Linienabstand der Persönlichkeiten in Kurven, Angriffe/Überholungen/Verteidigungen,
   Kontakte, Gras, Seitenabstand, 0-100 beim Start), `--personality X`, `--personalities A,B`.
 - Vorher: alle Persönlichkeiten in Kurven 0,01 m auseinander, Seitenabstand für alle gleich (~0,5 m).
 - Eigene Linie (`PersonalLineOffset`): Muster der KI-Linie quer über die Strecke entlang verschoben (Apex früher/später, bis ±7 m)
@@ -229,15 +229,15 @@
 - Gummiband nach CSP-Vorbild (`UpdateRubberBand`, `PaceBoost`).
 
 ## Neu in Teil 21: Fahrzeugklassen und Hybrid-Antrieb
-- `race-ai/classes/classes.json`: Klassen GT3 (12 Autos), GTE/GT2, LMP1, JDM mit Modellen und Skins.
-- `race-ai/set-class.py`: stellt `cfg/` oder ein Preset um (entry_list MODEL/SKIN, Spieler- und KI-Plätze getrennt reihum,
+- `tools/classes/classes.json`: Klassen GT3 (12 Autos), GTE/GT2, LMP1, JDM mit Modellen und Skins.
+- `tools/set-class.py`: stellt `cfg/` oder ein Preset um (entry_list MODEL/SKIN, Spieler- und KI-Plätze getrennt reihum,
   KI mit anderen Skins als die Spieler; CARS=, Klassenname in NAME/ServerDescription/welcome.txt). `--new-preset X --from Y`
   kopiert ein Preset und biegt `GridFile` um; `--all` für cfg/ und alle Race-AI-Presets. Klassenwechsel = Rotationswechsel
   (Server startet neu, Spieler treten über CM neu bei).
 - Hybrid: `CarDataLoader` liest `ers.ini` (KINETIC an der Kurbelwelle mit Gang × Achse, FRONT_MOTORS an der Vorderachse mit eigener
   Traktion) und den Deploy-Controller (`ctrl_ers_<DEFAULT_CONTROLLER>.ini`: SPEED_KMH- und GEAR-Tabellen) zu `ErsGain`/`ErsPower`.
   `CarSpec.SetTrack(länge)` (aus `RaceWorld.Step`) rechnet den Anteil, den MAX_KJ_PER_LAP auf der Strecke hergibt (Deploy über ~45 %
-  der Runde): TS040 100 % auf Trial Mountain, 27 % Nordschleife. `RaceAiTool car` zeigt das, `RaceAiTool acd --model X [--file a,b]`
+  der Runde): TS040 100 % auf Trial Mountain, 27 % Nordschleife. `BotDriverTool car` zeigt das, `BotDriverTool acd --model X [--file a,b]`
   listet/zeigt den Inhalt einer data.acd.
 - KI bei 100 % auf Trial Mountain: GT3 1:30,7–1:33,2, GTE 1:31,4–1:32,5, LMP1 1:19,9–1:22,0, JDM 1:46,3–1:52,5.
 
@@ -268,22 +268,22 @@
   (`+gte` = cfg-Strecke mit GTE). Jede Schicht enthält nur, was sich unterscheidet (`PresetOverlay.cs` im Core).
 - `{track}`/`{class}` in NAME, Willkommenstext und ServerDescription aus `[PRESET] TRACK_TITLE`/`CLASS_TITLE`.
 - Klassen = Ordner mit `entry_list.ini` (24 Plätze) + `server_cfg.ini`; `ClassCatalog` liest sie, `classes.json`/`set-class.py` entfallen.
-- Bestehende Server einmalig: `race-ai/migrate-presets.py <server> [--dry-run]` (Sicherung `presets.bak-<datum>`).
+- Bestehende Server einmalig: `tools/migrate-presets.py <server> [--dry-run]` (Sicherung `presets.bak-<datum>`).
 - Bots drehen beim Querrutschen im Stand nicht mehr kurz um 90° (Richtung mit mindestens 4 m/s vorwärts).
 
 ## Bauen
-Mit dem .NET 11 SDK (`~/.dotnet`): `race-ai/build.sh` → kompletter Server in `out-linux-x64/`, frische DLLs in `race-ai/server-build/`.
+Mit dem .NET 11 SDK (`~/.dotnet`): `tools/build.sh` → kompletter Server in `out-linux-x64/`, frische DLLs in `tools/server-build/`.
 `update-server.sh` installiert bevorzugt diesen Build; ohne SDK-Build tauscht `tools/rebundle.py` wie früher
 `server-build/AssettoServer.dll` ins offizielle Release-Bundle (v0.0.55-pre42).
 
 ## Dateien
 - `AssettoServer/…`: Core-Patch (`IExternalAiController`, `EntryCar`, `EntryCarAi`, `AiBehavior`, `SessionManager`, `ACTcpClient`)
-- `RaceAiPlugin/Core/`: `RaceWorld` (KI), `RacingLine`, `FastLaneFile`, `CarSpec`, `CarDataLoader` (data.acd wie CM), `AcdReader`, `Kn5Reader`,
+- `BotDriverPlugin/Core/`: `RaceWorld` (KI), `RacingLine`, `FastLaneFile`, `CarSpec`, `CarDataLoader` (data.acd wie CM), `AcdReader`, `Kn5Reader`,
   `TrackInfo` (ai_hints, sections, Grid, Pits), `IniFile`/`Lut`, `BotNames`
-- `RaceAiPlugin/`: `RaceAiService` (Sessions, Grid, Timing, Tick), `BotSlot` (Pose → CarStatus), `RaceAiSlotFilter`, `RaceAiCommandModule`,
+- `BotDriverPlugin/`: `RaceAiService` (Sessions, Grid, Timing, Tick), `BotSlot` (Pose → CarStatus), `RaceAiSlotFilter`, `RaceAiCommandModule`,
   `RaceAiConfiguration`, `TrackData`
-- `RaceAiTool/`: `sim`, `grid`, `car`, `selftest`
-- `RaceAiPlugin/example/nordschleife-gt3/`: Konfiguration und `prepare-content.sh`
+- `BotDriverTool/`: `sim`, `grid`, `car`, `selftest`
+- `BotDriverPlugin/example/nordschleife-gt3/`: Konfiguration und `prepare-content.sh`
 
 ## Offene Punkte / Ideen
 1. Test mit dem echten Client: Höhe der Autos (`HeightOffset`), Lenkrad- und Radwinkel-Kodierung (`BotSlot.WriteStatus`, geraten),
@@ -292,3 +292,14 @@ Mit dem .NET 11 SDK (`~/.dotnet`): `race-ai/build.sh` → kompletter Server in `
 3. Blinkerkodierung (IndicateLeft/Right) und Lichthupe mit dem echten Client prüfen.
 4. Boxenstopps und Reifen, fliegender Start, Formationsrunde
 5. Weitere Strecken: Es sollte generisch funktionieren (fast_lane.ai v7, kn5-Grid). Nur mit der Nordschleife getestet.
+
+## Neu: Aufteilung in Plugins (2026-10-08)
+- `RaceAiPlugin` → `BotDriverPlugin` (nur Bots), neu `WebPortalPlugin` (Seiten), `ServerToolsPlugin` (Rotation, Klassen, Statistik,
+  Wetter, Neustart); DriverRecorder unverändert. Jedes läuft allein.
+- Verträge im Kern: `AssettoServer/Server/Extensions/PluginContracts.cs` (`ISharedSettings`, `IPlayerRating`, `IDrivenCars`,
+  `IAdminWebAccess`). Plugins laden in eigenen AssemblyLoadContexts, nur Kern-Typen sind gemeinsam.
+- Gemeinsamer Quellcode in `Shared/` (jedes Plugin kompiliert seine Kopie): Track (fast_lane.ai, TrackMap), Presets (ClassCatalog,
+  rotation.yml), Web (AdminAccess), Config (ConfigWriter).
+- Altbestand: `LegacyPluginConfig` im Kern erweitert `RaceAiPlugin` in EnablePlugins, lädt den alten Ordner nicht neben BotDriver,
+  übernimmt Schlüssel aus `plugin_race_ai_cfg.yml` je Ebene.
+- APIs: `/api/admin/*`, `/api/live/*`, `/api/web/join` (WebPortal), `/api/bots/*` (BotDriver), `/api/tools/*` (ServerTools).

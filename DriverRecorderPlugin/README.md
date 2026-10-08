@@ -4,7 +4,7 @@ Zeichnet auf, wie echte Spieler fahren, damit die Race AI daraus **Fahrer-Klone*
 Geschwindigkeiten des Spielers, Kurve für Kurve, mit seiner Streuung. Verliert ein Spieler im Rennen die Verbindung, fährt sein Klon
 sein Auto weiter, bis er zurück ist (Einstellung `TakeOverDisconnectedPlayers` der Race AI).
 
-> Entwickelt von **Claude** (Anthropic) zusammen mit ProfessorTee, wie das RaceAiPlugin. Lizenz AGPL-3.0.
+> Entwickelt von **Claude** (Anthropic) zusammen mit ProfessorTee, wie das BotDriverPlugin. Lizenz AGPL-3.0.
 
 ## So funktioniert es
 
@@ -32,7 +32,7 @@ sein Auto weiter, bis er zurück ist (Einstellung `TakeOverDisconnectedPlayers` 
 
 ```yaml
 EnablePlugins:
-  - RaceAiPlugin
+  - BotDriverPlugin
   - DriverRecorderPlugin
 EnableClientMessages: true
 ```
