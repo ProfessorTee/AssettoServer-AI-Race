@@ -235,7 +235,7 @@ public class BotDriverConfiguration : IValidateConfiguration<BotDriverConfigurat
     [YamlMember(Description = "Most bots on track at once (-1 = all bot slots). Admin: /bots_count <number|on|off>")]
     public int MaxBots { get; set; } = -1;
 
-    [YamlMember(Description = "Detailed logging for troubleshooting: every 10 s a line per bot (phase, speed, pit, tyres, offset). Admin: /bots_debug on|off [bot]")]
+    [YamlMember(Description = "Detailed logging for troubleshooting: every 10 s a line per bot (phase, speed, pit, tyres, offset), the bots' laps, pit stops and incidents in the log, the incident file and a telemetry file per session in bot-debug/ (position, heading, speed, inputs, tyres, fuel, damage, intention, twice a second per bot). Admin: /bots_debug on|off [bot]")]
     public bool Debug { get; set; }
 
     [YamlMember(Description = "Extra lateral space bots keep to other cars (m)")]
@@ -412,9 +412,9 @@ public class BotDriverConfiguration : IValidateConfiguration<BotDriverConfigurat
     [YamlMember(Description = "Announce bot pit stops in chat")]
     public bool AnnouncePitStops { get; set; } = true;
 
-    [YamlMember(Description = "Log every bot lap to the server log")]
+    [YamlMember(Description = "Log every bot lap to the server log (while debugging: Debug or /bots_debug on)")]
     public bool LogLaps { get; set; } = true;
 
-    [YamlMember(Description = "Folder for the incident log (contacts, spins, damage and pit decisions, tyre choices): one CSV file per day. Empty = no file")]
+    [YamlMember(Description = "Folder for the incident log (contacts, spins, damage and pit decisions, tyre choices): one CSV file per day, written only while debugging (Debug or /bots_debug on). Empty = no file")]
     public string IncidentLogFolder { get; set; } = "incidents";
 }

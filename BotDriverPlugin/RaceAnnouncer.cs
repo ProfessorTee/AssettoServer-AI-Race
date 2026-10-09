@@ -74,14 +74,14 @@ public sealed class RaceAnnouncer
         string en = e.Kind switch { "spin" => $"{name} spun", "crash" => $"{name} crashed", _ => $"{name} stopped on track" };
         string de = e.Kind switch { "spin" => $"{name} hat sich gedreht", "crash" => $"Unfall: {name}", _ => $"{name} steht auf der Strecke" };
         Chat(T($"Yellow flag in sector {sector}{where}: {en}", $"Gelbe Fahne in Sektor {sector}{where}: {de}"));
-        Log.Information("BotDriver: yellow flag sector {Sector}{Where}: {What}", sector, where, en);
+        if (_race.Debug) Log.Information("BotDriver: yellow flag sector {Sector}{Where}: {What}", sector, where, en);
     }
 
     public void OnBotPitStop(RaceBot bot, float seconds, float litres, bool tyres)
     {
         string compound = RaceWorld.CompoundName(bot);
         string what = string.Join(" + ", new[] { tyres ? (compound != "" ? $"tyres ({compound})" : "tyres") : null, litres >= 0.5f ? $"{litres:F0} l" : null, bot.PitRepair ? "repair" : null }.Where(x => x != null));
-        Log.Information("BotDriver: {Name} pit stop ({Reason}): {What}, {Seconds:F1} s", bot.Name, bot.PitReason, what, seconds);
+        if (_race.Debug) Log.Information("BotDriver: {Name} pit stop ({Reason}): {What}, {Seconds:F1} s", bot.Name, bot.PitReason, what, seconds);
         if (Config.AnnouncePitStops && _race.SessionType == SessionType.Race)
             Chat(T($"{bot.Name} pit stop: {what} ({seconds:F1} s)",
                 $"{bot.Name} Boxenstopp: {what.Replace("tyres", "Reifen").Replace("repair", "Reparatur")} ({seconds:F1} s)"));

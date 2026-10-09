@@ -347,7 +347,7 @@ public sealed class GridDirector
                     float estimate = elapsed + (1 - done) * usual * (1 + 0.012f * ((float)_rng.NextDouble() - 0.3f));
                     uint ms = (uint)Math.Round(estimate * 1000);
                     _sessionManager.OnAiLapCompleted(slot.EntryCar, ms);
-                    Log.Information("BotDriver: {Name} lap estimated at the end of the session: {Time} ({Done:P0} driven)", bot.Name, FormatLap(estimate), done);
+                    if (_race.Debug) Log.Information("BotDriver: {Name} lap estimated at the end of the session: {Time} ({Done:P0} driven)", bot.Name, FormatLap(estimate), done);
                 }
             }
             result.HasCompletedLastLap = true;

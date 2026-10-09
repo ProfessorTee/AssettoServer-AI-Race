@@ -32,6 +32,8 @@ public sealed class BotRace
     public List<BotSlot> Slots { get; } = [];
     public Dictionary<byte, BotSlot> SlotsBySessionId { get; } = new();
     public SessionType SessionType { get; set; }
+    /// <summary>Bot logging and debugging on (Debug in the config or /bots_debug on): only then the bots' per-event log lines and files.</summary>
+    public bool Debug { get; set; }
     /// <summary>Lights out in a race.</summary>
     public bool RaceStarted { get; set; }
     /// <summary>Folders with car data (content/cars of the server and of the AC installation).</summary>

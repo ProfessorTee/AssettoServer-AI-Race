@@ -105,4 +105,26 @@ public sealed partial class RaceWorld
         if (me.GrudgeId != otherId || _now > me.GrudgeUntil || me.Clone != null) return 0;
         return me.Driver.Personality.Attack < 0.4f ? -0.3f : 0.3f;
     }
+
+    // ------------------------------------------------------------------ for the debug telemetry
+
+    /// <summary>What the bot is up to right now, in a few words (debug telemetry).</summary>
+    internal string Intention(RaceBot b)
+    {
+        if (b.Phase != BotPhase.Racing) return b.Phase.ToString();
+        if (b.InPitLane) return $"pit {b.Pit} {b.PitReason}";
+        if (b.Mistake != MistakeKind.None) return $"mistake {b.Mistake}{(b.Mistake == MistakeKind.Spin ? " " + b.SpinPhase : "")}";
+        var parts = new List<string>();
+        if (b.OvertakeTargetId >= 0) parts.Add($"attack #{b.OvertakeTargetId}{(b.Diving ? " dive" : "")}{(b.AttackIsCounter ? " counter" : "")}");
+        if (_now < b.DefendUntil) parts.Add("defend");
+        if (b.BlockedById >= 0) parts.Add($"held up by #{b.BlockedById}");
+        if (!float.IsNaN(b.AttackSpotS)) parts.Add($"attack spot {b.AttackSpotS:F0}");
+        if (b.GrudgeId >= 0 && _now < b.GrudgeUntil) parts.Add($"grudge #{b.GrudgeId}");
+        if (_now < b.CautiousUntil) parts.Add("cautious");
+        if (b.SavingTyres) parts.Add("saving tyres");
+        if (b.Weaving) parts.Add("weaving");
+        if (b.PlanActive) parts.Add("line plan");
+        if (b.Pit == PitPhase.Requested) parts.Add($"pit requested {b.PitReason}");
+        return parts.Count == 0 ? "drive" : string.Join(", ", parts);
+    }
 }

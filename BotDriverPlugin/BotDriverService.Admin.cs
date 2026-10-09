@@ -8,10 +8,9 @@ namespace BotDriverPlugin;
 public sealed partial class BotDriverService
 {
     private int? _botLimit;
-    private bool _debug;
     private double _nextDebug;
 
-    public bool DebugOn => _debug || _config.Debug;
+    public bool DebugOn => _race.Debug;
 
     /// <summary>At most <paramref name="limit"/> bots (null = all). Bots over the limit leave the track, their cars stay free for players.</summary>
     public string SetBotLimit(int? limit)
@@ -83,10 +82,11 @@ public sealed partial class BotDriverService
     {
         lock (_lock)
         {
-            _debug = on;
+            _race.Debug = on;
+            EndTelemetryFile();
             if (_world == null) return on ? "BotDriver debug on" : "BotDriver debug off";
             // the racecraft counters (attacks, dives, mistakes ...) only while debugging: they cost time in every step
-            _world.Diagnostics = on || _config.Debug;
+            _world.Diagnostics = on;
             if (_world.Diagnostics) _world.DiagCounts.Clear();
             _world.TraceBotId = -1;
             string traced = "";

@@ -87,7 +87,7 @@ public sealed partial class BotDriverService
 
     private void SaveIncident(IncidentEntry e)
     {
-        if (IncidentFile(DateTime.Now) is not { } path) return;
+        if (!DebugOn || IncidentFile(DateTime.Now) is not { } path) return; // the file only while debugging, the admin page always
         string row = string.Join(";", e.Time, Csv(e.Session), e.Lap, e.Car, Csv(e.Name), e.Kind, Csv(e.Text), Csv(e.Other), Csv(e.Where), Csv(TrackKey()));
         // off the race lock and the bots' tick
         _ = Task.Run(() =>

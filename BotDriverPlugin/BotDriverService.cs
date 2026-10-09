@@ -71,6 +71,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
     {
         SharedSettingsResolver.Resolve(config, sharedSettings);
         _race = new BotRace(config, serverConfig, entryCarManager, sessionManager);
+        _race.Debug = config.Debug;
         _announcer = new RaceAnnouncer(_race);
         _config = config;
         _serverConfig = serverConfig;
@@ -242,7 +243,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         {
             var (cal, final) = done[sp];
             _field.SetCalibration(sp, cal, !final, variant);
-            Log.Information("BotDriver: car {Model} ({Source}): top {Top:F0} km/h, grip {Grip:F2} g, 100 % = {Best}{Prov}, {Fuel:F1} l/lap, tyres {Compound}, mistakes {Loss:F0} s/lap at most{Wing}",
+            if (_config.Debug) Log.Information("BotDriver: car {Model} ({Source}): top {Top:F0} km/h, grip {Grip:F2} g, 100 % = {Best}{Prov}, {Fuel:F1} l/lap, tyres {Compound}, mistakes {Loss:F0} s/lap at most{Wing}",
                 sp.Model, sp.Source, sp.TopSpeed * 3.6f, sp.LateralGrip, FormatLap(cal.BestLap), final ? "" : " (provisional)", sp.CalibratedFuelPerLap, sp.TyreCompound, cal.ErrorLossFull, sp.WingLevel is { } wl ? $", wings {wl * 100:F0} %" : "");
         }
         if (toCalibrate.Count > 0)
@@ -309,14 +310,14 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
             _slotsBySessionId[entryCar.SessionId] = slot;
             TakeSlot(slot, broadcast: false);
 
-            Log.Information("BotDriver: slot {Slot} {Model} -> {Name} (strength {Strength:F1} %, aggression {Aggression:F0}, {Personality})",
+            if (DebugOn) Log.Information("BotDriver: slot {Slot} {Model} -> {Name} (strength {Strength:F1} %, aggression {Aggression:F0}, {Personality})",
                 slotIndex, entryCar.Model, bot.Name, strength, aggression, personality.Name);
         }
 
         if (_config.AiStrengthReference == StrengthReference.Field && _field.AnyCalibrations)
             _field.ApplyCalibrations(world, log: true);
 
-        foreach (var bot in world.Bots.OrderByDescending(b => b.Driver.Level))
+        foreach (var bot in world.Bots.OrderByDescending(b => b.Driver.Level).Where(_ => DebugOn))
             Log.Information("BotDriver:   {Name,-22} {Strength,5:F1} %  target lap {Lap}{Errors}", bot.Name, bot.Driver.Level,
                 FormatLap(_field.TargetLap(bot) ?? 0),
                 bot.Driver.Errors > 0 ? $"  (human errors {bot.Driver.Errors:P0})" : "");
@@ -456,6 +457,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         if (_world == null) return;
         _takeover.EndAll();
         _announcer.NewSession();
+        EndTelemetryFile();
         _grid.SetupSession(session, previous);
     }
 
@@ -550,11 +552,13 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         bool signalTest = world.SignalTestPhase(now) != 0;
         if (signalTest) lights = CarStatusFlags.LightsOn | CarStatusFlags.HighBeamsOff;
         var wipers = Wipers();
+        bool debug = DebugOn, sample = TelemetryDue(now);
         foreach (var slot in _slots)
         {
             if (!slot.Active) continue;
             var pose = world.GetPose(slot.Bot);
-            if (_config.Debug) CheckHeading(slot, pose, now);
+            if (debug) CheckHeading(slot, pose, now);
+            if (sample) TelemetryRow(world, slot, pose, now);
             slot.WriteStatus(pose, serverTime, lights, wipers, _config.FlashLights || signalTest, _config.FlashLightsDaytime,
                 _config.HighBeams || signalTest);
             bool ghost = slot.Bot.GhostUntil > now;
@@ -562,7 +566,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
             {
                 slot.Ghosted = ghost;
                 slot.EntryCar.SetCollisions(!ghost);
-                if (ghost) Log.Information("BotDriver: {Name} stuck for {Seconds:F0} s, ghost for a moment to get out", slot.Bot.Name, _config.GhostAfterSeconds);
+                if (ghost && debug) Log.Information("BotDriver: {Name} stuck for {Seconds:F0} s, ghost for a moment to get out", slot.Bot.Name, _config.GhostAfterSeconds);
             }
             // the compound on the car, for the clients (tyre apps, leaderboards) and players who join later
             string compound = RaceWorld.CompoundName(slot.Bot);
@@ -578,6 +582,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
                 SendDamage(slot);
             }
         }
+        if (debug) TelemetryAfterTick(now, sample);
         _announcer.Tick(world, now);
     }
 
@@ -629,7 +634,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
 
         uint ms = (uint)Math.Round(lapSeconds * 1000);
         bool accepted = _sessionManager.OnAiLapCompleted(slot.EntryCar, ms);
-        if (_config.LogLaps)
+        if (_config.LogLaps && DebugOn)
             Log.Information("BotDriver: {Name} lap {Lap} {Time}{Rejected}", bot.Name, bot.LapsCompleted,
                 TimeSpan.FromMilliseconds(ms).ToString(@"m\:ss\.fff"), accepted ? "" : " (not counted)");
     }
