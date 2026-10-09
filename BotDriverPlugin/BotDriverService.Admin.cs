@@ -127,4 +127,18 @@ public sealed partial class BotDriverService
                 b.Fuel, b.Mistake, b.OvertakeTargetId, slot.TakeoverGuid != null ? "taken over" : "-");
         }
     }
+
+    private readonly Dictionary<int, double> _headingLogged = new();
+
+    /// <summary>Debug: a bot shown more than 30° off the track's direction outside a spin or slide (at most every 5 s per bot).</summary>
+    private void CheckHeading(BotSlot slot, in BotPose pose, double now)
+    {
+        var bot = slot.Bot;
+        if (bot.Mistake != MistakeKind.None) return;
+        float deg = _world!.HeadingError(bot, pose);
+        if (deg < 30 || (_headingLogged.TryGetValue(bot.Id, out var at) && now - at < 5)) return;
+        _headingLogged[bot.Id] = now;
+        Log.Warning("BotDriver debug: {Name} shown {Deg:F0}° off the track's direction ({Phase}, {Speed:F1} m/s, sideways {Lat:F1} m/s, yaw {Yaw:F2}, offset {Offset:F1} m)",
+            bot.Name, deg, bot.Phase, bot.Speed, bot.LateralSpeed, bot.Yaw, bot.Offset);
+    }
 }

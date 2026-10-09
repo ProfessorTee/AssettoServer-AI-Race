@@ -554,6 +554,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         {
             if (!slot.Active) continue;
             var pose = world.GetPose(slot.Bot);
+            if (_config.Debug) CheckHeading(slot, pose, now);
             slot.WriteStatus(pose, serverTime, lights, wipers, _config.FlashLights || signalTest, _config.FlashLightsDaytime,
                 _config.HighBeams || signalTest);
             bool ghost = slot.Bot.GhostUntil > now;

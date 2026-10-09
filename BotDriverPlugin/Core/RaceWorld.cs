@@ -604,6 +604,10 @@ public sealed partial class RaceWorld
         bot.Offset = offset;
         bot.TargetOffset = offset;
         bot.Speed = 0;
+        // nothing of the old motion comes along (a slide or spin at the end of the last session): else the car stands sideways on
+        // the grid, and the sideways speed makes the clients move it sideways between two updates
+        bot.LateralSpeed = 0;
+        if (bot.Mistake != MistakeKind.None) EndMistake(bot);
         bot.Phase = phase;
         bot.OvertakeTargetId = -1;
         bot.LapIndex = (long)Math.Floor((distance - Settings.StartLineS) / Line.Length);
@@ -924,8 +928,20 @@ public sealed partial class RaceWorld
         for (int i = 0; i < Bots.Count; i++)
         {
             var b = Bots[i];
-            if (b.Phase is not (BotPhase.Racing or BotPhase.CoolDown)) continue;
+            if (b.Phase is not (BotPhase.Racing or BotPhase.CoolDown or BotPhase.Grid)) continue;
             var p = GetPose(b);
+            // heading against the track (outside spins and slides): a car shown sideways
+            if (phase == "drive" && b.Mistake == MistakeKind.None && !b.InPitLane)
+            {
+                float deg = HeadingError(b, p);
+                if (deg > 15)
+                {
+                    string key = $"heading>15deg-{b.Phase}{(b.Speed < 5 ? "-slow" : "")}";
+                    JumpStats.TryGetValue(key, out var hs);
+                    JumpStats[key] = (hs.Count + 1, MathF.Max(hs.Max, deg), hs.Sum + deg);
+                }
+            }
+            if (b.Phase == BotPhase.Grid) continue;
             var ev = p.Position - (_jumpPos[i] + _jumpVel[i] * dt);
             float err = ev.Length();
             if (err < 0.05f || err > 30) continue;
@@ -982,6 +998,7 @@ public sealed partial class RaceWorld
                     break;
                 case BotPhase.Grid:
                     bot.Speed = 0;
+                    bot.LateralSpeed = 0;
                     break;
             }
         }
@@ -2036,7 +2053,9 @@ public sealed partial class RaceWorld
                 float onLine = me.Clone is { } cl ? CloneLineOffset(me, cl, sHere) : me.TargetOffset;
                 // slope of the line as driven (inside the track): from the same function, so the two always agree
                 float slope = (OwnLineOffset(me, sHere + 2) - OwnLineOffset(me, sHere - 2)) / 4f;
-                desiredLat = me.Speed * slope + Math.Clamp((onLine - me.Offset) * 2f, -1.5f, 1.5f);
+                // the correction grows with the speed: a car can't move sideways while it hardly rolls (the start)
+                float corr = MathF.Min(1.5f, 0.3f + me.Speed * 0.1f);
+                desiredLat = me.Speed * slope + Math.Clamp((onLine - me.Offset) * 2f, -corr, corr);
                 desiredLat = Math.Clamp(desiredLat, -8f, 8f);
                 latAcc = 12f; // it's the path's own curvature, not a steering correction
             }
@@ -2272,6 +2291,15 @@ public sealed partial class RaceWorld
     private static bool StartedBehindLine(RaceBot bot) => !bot.StartCrossed;
 
     // ------------------------------------------------------------------ output
+
+    /// <summary>Degrees between the car as shown and the track's direction (spins and slides included, the pit lane not).</summary>
+    public float HeadingError(RaceBot bot, in BotPose pose)
+    {
+        if (bot.InPitLane || bot.Phase is BotPhase.Parked or BotPhase.Hidden) return 0;
+        float yaw = pose.Rotation.X + MathF.PI / 2;
+        var f = Line.ForwardAt(Line.WrapS((float)bot.Distance));
+        return MathF.Abs(MathF.IEEERemainder(yaw - MathF.Atan2(f.Z, f.X), 2 * MathF.PI)) * 180 / MathF.PI;
+    }
 
     public BotPose GetPose(RaceBot bot)
     {

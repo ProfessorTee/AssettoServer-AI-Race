@@ -92,6 +92,12 @@ public static class SelfTest
         // pose sanity
         var pose = world.GetPose(world.Bots[0]);
         Check("pose finite", !float.IsNaN(pose.Position.X) && !float.IsNaN(pose.Rotation.X) && pose.Gear >= 1);
+        // a new session: old sideways motion must not turn the car on the grid
+        var gb = world.Bots[1];
+        gb.LateralSpeed = 3;
+        world.PlaceAtGridSlot(gb, 0);
+        float gridDeg = world.HeadingError(gb, world.GetPose(gb));
+        Check($"straight on the grid after a slide ({gridDeg:F1}°)", gridDeg < 3);
 
         // strength distribution: 80 +/- 10 over 5 bots -> 70, 75, 80, 85, 90 (shuffled)
         var dist = StrengthCalibration.Distribute(5, 80, 10, false, new Random(1)).OrderBy(x => x).ToArray();
