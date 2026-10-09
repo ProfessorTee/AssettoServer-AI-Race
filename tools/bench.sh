@@ -5,7 +5,7 @@
 #
 #   tools/bench.sh "label" [extra sim args]     e.g. tools/bench.sh "dive 0.985"
 #   tools/bench.sh --table                       only the table
-# Env: AC (game folder), MODELS, JOBS (parallel races, default: cores), SEED (first seed - 1, default 0: another SEED shows the noise).
+# Env: AC (game folder), MODELS, JOBS (parallel races, default: a quarter of the cores), SEED (first seed - 1, default 0: another SEED shows the noise).
 set -uo pipefail
 cd "$(dirname "$0")/.."
 RESULTS=tools/bench-results.tsv
@@ -19,7 +19,7 @@ LABEL="${1:-}"; shift || true
 export PATH=$HOME/.dotnet:$PATH
 AC="${AC:-/mnt/GameDrive/SteamLibrary/steamapps/common/assettocorsa}"
 MODELS="${MODELS:-ks_toyota_supra_mkiv,ks_nissan_skyline_r34,ks_mazda_rx7_spirit_r,ks_nissan_370z}"
-JOBS="${JOBS:-$(nproc)}"
+JOBS="${JOBS:-$(( $(nproc) / 4 > 0 ? $(nproc) / 4 : 1 ))}"
 SEED="${SEED:-0}"
 dotnet build BotDriverPlugin/Tool -c Release -v q >/dev/null || { echo "build failed"; exit 1; }
 TMP=$(mktemp -d)
