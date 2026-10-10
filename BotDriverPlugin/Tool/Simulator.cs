@@ -155,7 +155,7 @@ public static class Simulator
         if (playerPace > 0)
         {
             playerWorld = new RaceWorld(line, new RaceWorldSettings { StartLineS = settings.StartLineS, Seed = seed + 1 });
-            playerWorld.Bots.Add(new RaceBot { Id = 1000, Name = "Player", Car = new CarSpec(), Driver = new DriverProfile { Pace = playerPace, Aggression = o.Float("player-aggression", 0), Consistency = 1 } });
+            playerWorld.Bots.Add(new RaceBot { Id = 1000, Name = "Player", Car = world.Bots[0].Car, Driver = new DriverProfile { Pace = playerPace, Aggression = o.Float("player-aggression", 0), Consistency = 1 } });
             player = world.GetOrAddExternal(1000);
         }
 
@@ -210,6 +210,11 @@ public static class Simulator
         // and extrapolates them with their velocity like AC does. Measured from the player's view: overlaps and jumps of cars near him.
         float lastLat = float.NaN, maxLatChange = 0, devMax = 0; int twitches = 0, devN = 0; double devSum = 0;
         float latency = o.Float("latency", 0);
+        var behindPlayer = new Dictionary<int, float>();
+        var prevRel = new Dictionary<int, double>();
+        int passedPlayer = 0, lostToPlayer = 0; float closeBehind = 0;
+        var firstBehind = new Dictionary<int, float>();
+        float cautiousBehind = 0, attackingPlayer = 0;
         var net = latency > 0 && playerWorld != null ? new NetModel(line, latency) : null;
         while (now < maxTime)
         {
@@ -236,6 +241,29 @@ public static class Simulator
             world.Advance(now);
             net?.SendBots(world, now);
             stats.Sample(now);
+            // bots against the player: passes on him and time stuck right behind him
+            if (playerWorld != null && now > 20)
+            {
+                double pd = playerWorld.Bots[0].Distance;
+                if (o.Has("verbose-player") && Math.Abs(now % 20) < dt) Console.WriteLine($"  {now:F0}s player d={pd:F0} v={playerWorld.Bots[0].Speed * 3.6f:F0} bots d={world.Bots.Min(x => x.Distance):F0}..{world.Bots.Max(x => x.Distance):F0}");
+                foreach (var b in world.Bots)
+                {
+                    if (b.Phase != BotPhase.Racing) continue;
+                    double rel = b.Distance - pd;
+                    if (rel > -40 && rel < 0 && b.Speed > 5) behindPlayer[b.Id] = behindPlayer.GetValueOrDefault(b.Id) + dt;
+                    if (prevRel.TryGetValue(b.Id, out var pr) && pr < 0 && rel >= 0 && rel < 50) passedPlayer++;
+                    if (prevRel.TryGetValue(b.Id, out pr) && pr >= 0 && rel < 0 && rel > -50) lostToPlayer++;
+                    prevRel[b.Id] = rel;
+                }
+                // the first car behind him (the one that has to find a way past)
+                var first = world.Bots.Where(x => x.Phase == BotPhase.Racing && x.Distance < pd && x.Distance > pd - 40).MaxBy(x => x.Distance);
+                if (first != null)
+                {
+                    closeBehind += dt; firstBehind[first.Id] = firstBehind.GetValueOrDefault(first.Id) + dt;
+                    if (now < first.CautiousUntil) cautiousBehind += dt;
+                    if (first.OvertakeTargetId == 1000) attackingPlayer += dt;
+                }
+            }
             trace?.Sample(world.Bots[0]);
             if (hotlap && world.Bots[0].LapsCompleted >= 1)
                 botLap.Add((line.WrapS((float)world.Bots[0].Distance), world.Bots[0].Speed, world.Bots[0].Brake));
@@ -287,6 +315,9 @@ public static class Simulator
             }
         }
         stats.Print(laps);
+        if (playerWorld != null)
+            Console.WriteLine($"player: passed by bots {passedPlayer}x, bots fell back behind him {lostToPlayer}x, bot-seconds within 40 m behind him " +
+                              $"{behindPlayer.Values.Sum():F0}, a bot right behind him {closeBehind:F0} s (cautious {cautiousBehind:F0} s, attacking {attackingPlayer:F0} s), longest first behind {(firstBehind.Count > 0 ? firstBehind.Values.Max() : 0):F0} s (bot {(firstBehind.Count > 0 ? firstBehind.MaxBy(x => x.Value).Key : -1)}), most {(behindPlayer.Count > 0 ? behindPlayer.Values.Max() : 0):F0} s (bot {(behindPlayer.Count > 0 ? behindPlayer.MaxBy(x => x.Value).Key : -1)}), player {playerWorld.Bots[0].LapsCompleted} laps");
         if (stats.Behaviour) stats.PrintBehaviour(now);
         if (hotlap && o.Get("rec") is { } recDir) CompareCorners(line, info, settings.StartLineS, recDir, botLap);
         if (!hotlap)

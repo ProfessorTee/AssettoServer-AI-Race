@@ -420,8 +420,8 @@ public sealed class RaceWorldSettings
     /// <summary>Extra lateral space kept to other cars (m).</summary>
     public float SideMargin { get; set; } = 0.5f;
     /// <summary>Lateral space kept to players (m): their position arrives with a delay and they don't drive exactly.</summary>
-    public float PlayerSideMargin { get; set; } = 1.0f;
-    /// <summary>A player counts as alongside while he overlaps within this many metres (m), bots then leave him room.</summary>
+    public float PlayerSideMargin { get; set; } = 0.6f;
+    /// <summary>A player beside or behind counts as alongside while he overlaps within this many metres (m), bots then leave him room. One still ahead of the bot is a car to pass.</summary>
     public float PlayerOverlap { get; set; } = 3.0f;
     /// <summary>Safety car: all bots drive slowly (<see cref="SafetyCarSpeed"/>), don't overtake and weave on the straights to keep their tyres warm.</summary>
     public bool SafetyCar { get; set; }
@@ -1225,7 +1225,8 @@ public sealed partial class RaceWorld
             float latClear = (me.Car.Width + o.Width) / 2 + margin;
             float dOff = o.Offset - me.Offset;
             float closing = o.Speed - me.Speed; // > 0: car behind is faster
-            float overlap = o.IsBot ? 1.0f : MathF.Max(1.0f, Settings.PlayerOverlap);
+            // (only a player beside or behind me: one still ahead of my nose is a car to pass, not one to make room for)
+            float overlap = o.IsBot || ds > 0 ? 1.0f : MathF.Max(1.0f, Settings.PlayerOverlap);
 
             bool isAlongside = MathF.Abs(ds) < longClear + overlap
                                || (ds < 0 && ds > -(longClear + MathF.Max(overlap + 1f, closing * 1.2f)));
@@ -1373,6 +1374,7 @@ public sealed partial class RaceWorld
         if (me.OvertakeTargetId >= 0)
         {
             var target = FindNeighbor(me.OvertakeTargetId);
+            _diagPlayer = target is { IsBot: false };
             if (target == null)
             {
                 Diag("end:target gone");
@@ -1476,6 +1478,7 @@ public sealed partial class RaceWorld
         }
 
         // ---- car in front
+        _diagPlayer = ahead is { IsBot: false };
         if (ahead is { } a)
         {
             float latClear = (me.Car.Width + a.Width) / 2 + SideMarginFor(me, a);
@@ -1510,6 +1513,9 @@ public sealed partial class RaceWorld
             float att = Math.Clamp(AttackOf(me) + GrudgeBias(me, a.Id), 0, 1);
             float attackRange = 3 + me.Speed * (0.12f + 0.18f * me.Driver.Aggression) + imp * 8
                                 + 4 * me.Driver.Personality.InsideLine + 3 * me.Driver.Personality.BrakeBehavior + 10 * att;
+            // coming up fast on a player: pull out early and drive round him, instead of braking down to his speed first
+            // (between bots it costs more than it brings: on the Nordschleife's long straights they pull out too early)
+            if (!a.IsBot) attackRange += MathF.Max(0, closing) * 2.0f;
 
             // stuck in the slipstream on a straight for a while: weave a little to unsettle the car in front
             if (me.Draft > 0.05f && !gripLimited && aheadGap > 4 && aheadGap < 30 && me.OvertakeTargetId != a.Id)
@@ -1550,6 +1556,10 @@ public sealed partial class RaceWorld
             bool counter = me.CounterTargetId == a.Id && _now < me.CounterUntil;
             // a corner pass the driver normally wouldn't try: only when the car in front clearly holds him up, and only with room to spare
             bool safeOnly = gripLimited && !PassHereOk(me, a, gripLimited) && HeldUpBadly(me);
+            if (Diagnostics && me.OvertakeTargetId < 0 && aheadGap < 20 && me.Phase == BotPhase.Racing)
+                Diag(cautious ? "nostart: cautious" : yellow || blueFlag || Settings.SafetyCar ? "nostart: flags" : _now < me.OvertakeCooldownUntil && !counter ? "nostart: cooldown"
+                    : aheadGap >= attackRange ? "nostart: range" : !(me.PressureEma > needAdvantage || closing > 1.0f || TowRun(me, gripLimited, closing)) ? "nostart: no advantage"
+                    : !(PassHereOk(me, a, gripLimited) || safeOnly) ? "nostart: no corner pass" : "nostart: other (room)");
             if (me.OvertakeTargetId < 0 && !cautious && !yellow && !blueFlag && !Settings.SafetyCar && me.Phase == BotPhase.Racing
                 && (_now >= me.OvertakeCooldownUntil || counter)
                 && aheadGap < attackRange + (counter ? 10 : 0)
@@ -1603,6 +1613,7 @@ public sealed partial class RaceWorld
             }
         }
 
+        _diagPlayer = false;
         if (_now - me.LastBlockedAt > 4)
         {
             me.BlockedSince = double.NaN;
@@ -1736,9 +1747,13 @@ public sealed partial class RaceWorld
     public readonly Dictionary<string, int> DiagCounts = new();
     /// <summary>Count <see cref="DiagCounts"/> (simulator statistics, server debug): off by default, it costs time in every step.</summary>
     public bool Diagnostics { get; set; }
+    /// <summary>Diagnostics: the counters of this bot's current fight are about a player (counted apart).</summary>
+    private bool _diagPlayer;
     internal void Diag(string key)
     {
-        if (Diagnostics) DiagCounts[key] = DiagCounts.GetValueOrDefault(key) + 1;
+        if (!Diagnostics) return;
+        if (_diagPlayer) key += " [vs player]";
+        DiagCounts[key] = DiagCounts.GetValueOrDefault(key) + 1;
     }
 
     /// <summary>
@@ -2127,10 +2142,11 @@ public sealed partial class RaceWorld
                     float otherLat = o.IsBot ? o.Bot!.LateralSpeed : o.External!.LateralSpeed;
                     if ((me.LateralSpeed - otherLat) * MathF.Sign(dOff) > 0) me.LateralSpeed = otherLat - MathF.Sign(dOff) * 0.3f;
                     if (o.IsBot && (o.Bot!.LateralSpeed - me.LateralSpeed) * MathF.Sign(dOff) < 0) o.Bot.LateralSpeed = me.LateralSpeed + MathF.Sign(dOff) * 0.3f;
-                    if (!o.IsBot) me.CautiousUntil = Math.Max(me.CautiousUntil, _now + 1.5);
+                    if (!o.IsBot) { me.CautiousUntil = Math.Max(me.CautiousUntil, _now + 1.5); Diag("player: side overlap"); }
                 }
                 else if (ds > 0)
                 {
+                    if (!o.IsBot) Diag("player: rear overlap");
                     // I'm behind: fall back (at most 30 cm per step, the speed below does the rest)
                     me.Distance -= MathF.Min(longPen, 0.3f);
                     me.Speed = MathF.Min(me.Speed, o.Speed * 0.97f);

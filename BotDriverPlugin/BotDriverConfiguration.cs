@@ -242,9 +242,9 @@ public class BotDriverConfiguration : IValidateConfiguration<BotDriverConfigurat
     public float SideMargin { get; set; } = 0.5f;
 
     [YamlMember(Description = "Lateral space bots keep to players (m). Larger than SideMargin because a player's position arrives with a delay")]
-    public float PlayerSideMargin { get; set; } = 1.0f;
+    public float PlayerSideMargin { get; set; } = 0.6f;
 
-    [YamlMember(Description = "A player counts as alongside while his car overlaps within this many metres (front/rear). Bots then leave him room " +
+    [YamlMember(Description = "A player beside or behind a bot counts as alongside while his car overlaps within this many metres. Bots then leave him room " +
                               "and don't turn in on him. 0 = like a bot")]
     public float PlayerOverlap { get; set; } = 3.0f;
 
