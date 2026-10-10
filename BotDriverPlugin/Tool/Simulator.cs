@@ -210,6 +210,7 @@ public static class Simulator
         // and extrapolates them with their velocity like AC does. Measured from the player's view: overlaps and jumps of cars near him.
         float lastLat = float.NaN, maxLatChange = 0, devMax = 0; int twitches = 0, devN = 0; double devSum = 0;
         float latency = o.Float("latency", 0);
+        double firstPass = double.NaN;
         var behindPlayer = new Dictionary<int, float>();
         var prevRel = new Dictionary<int, double>();
         int passedPlayer = 0, lostToPlayer = 0; float closeBehind = 0;
@@ -241,6 +242,12 @@ public static class Simulator
             world.Advance(now);
             net?.SendBots(world, now);
             stats.Sample(now);
+            // a few bots: when does the fastest first lead all the others (tools/passtest.sh)
+            if (world.Bots.Count <= 6 && double.IsNaN(firstPass) && now > 1)
+            {
+                var fast = world.Bots.MaxBy(b => b.Driver.Level)!;
+                if (world.Bots.All(b => b == fast || fast.Distance > b.Distance + 2)) firstPass = now;
+            }
             // bots against the player: passes on him and time stuck right behind him
             if (playerWorld != null && now > 20)
             {
@@ -315,6 +322,7 @@ public static class Simulator
             }
         }
         stats.Print(laps);
+        if (world.Bots.Count <= 6) Console.WriteLine($"first pass: {(double.IsNaN(firstPass) ? "never" : firstPass.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))}");
         if (playerWorld != null)
             Console.WriteLine($"player: passed by bots {passedPlayer}x, bots fell back behind him {lostToPlayer}x, bot-seconds within 40 m behind him " +
                               $"{behindPlayer.Values.Sum():F0}, a bot right behind him {closeBehind:F0} s (cautious {cautiousBehind:F0} s, attacking {attackingPlayer:F0} s), longest first behind {(firstBehind.Count > 0 ? firstBehind.Values.Max() : 0):F0} s (bot {(firstBehind.Count > 0 ? firstBehind.MaxBy(x => x.Value).Key : -1)}), most {(behindPlayer.Count > 0 ? behindPlayer.Values.Max() : 0):F0} s (bot {(behindPlayer.Count > 0 ? behindPlayer.MaxBy(x => x.Value).Key : -1)}), player {playerWorld.Bots[0].LapsCompleted} laps");

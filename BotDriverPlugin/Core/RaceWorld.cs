@@ -1461,6 +1461,16 @@ public sealed partial class RaceWorld
                     me.Overtakes++;
                     me.ReturnToLineAfter = _now + 0.8;
                 }
+                else if (_now - me.OvertakeSince > 12 + 10 * AttackOf(me) && ds < (me.Car.Length + target.Value.Length) / 2 + 6 && ds > 0)
+                {
+                    // still right behind after a long fight: no giving up, it stays on his gearbox and waits for his mistake
+                    // (a new try from here, the planned spot helps)
+                    me.OvertakeSince = _now;
+                    me.OvertakeSeparatedAt = _now;
+                    me.OvertakeBestGap = ds;
+                    PlanAttackSpot(me, target.Value.Id, myS);
+                    Diag("too long: stays on him");
+                }
                 else if ((_now - me.OvertakeSince > 12 + 10 * AttackOf(me) && ds > me.OvertakeBestGap + 2) || ds > 70
                          || ((ds - me.OvertakeBestGap) / MathF.Max(me.Speed, 10) > 0.5f + 0.5f * AttackOf(me) && _now - me.OvertakeSince > 2)
                          || _now - me.OvertakeSeparatedAt > 8 + 6 * AttackOf(me))
@@ -1520,6 +1530,8 @@ public sealed partial class RaceWorld
             // coming up fast on a player: pull out early and drive round him, instead of braking down to his speed first
             // (between bots it costs more than it brings: on the Nordschleife's long straights they pull out too early)
             if (!a.IsBot) attackRange += MathF.Max(0, closing) * 2.0f;
+            // never out of reach while just following at the normal gap (careful drivers follow further back than they'd attack from)
+            attackRange = MathF.Max(attackRange, 1.5f + me.Speed * (0.10f + 0.20f * (1 - me.Driver.Aggression)) + 4);
 
             // stuck in the slipstream on a straight for a while: weave a little to unsettle the car in front
             if (me.Draft > 0.05f && !gripLimited && aheadGap > 4 && aheadGap < 30 && me.OvertakeTargetId != a.Id)
@@ -1773,6 +1785,7 @@ public sealed partial class RaceWorld
             if (Line.Delta(myS, me.DiveApexS) < 0 || ds > 30)
             {
                 me.Diving = false;
+                if (me.Id == TraceBotId) Trace?.Invoke($"  DIVE END ds={ds:F1} tgtOff={target.Offset:F2} myOff={me.Offset:F2}");
                 Diag(ds < 0 ? "dive: ahead at the apex" : MathF.Abs(target.Offset - me.Offset) > latClear - 0.3f ? "dive: alongside at the apex" : "dive: behind at the apex");
                 return false;
             }
@@ -1782,6 +1795,7 @@ public sealed partial class RaceWorld
             {
                 me.Diving = false;
                 Diag("dive: door closed");
+                if (me.Id == TraceBotId) Trace?.Invoke($"  DOOR CLOSED ds={ds:F1} tgtOff={target.Offset:F2} lane={me.DiveLane:F2} myOff={me.Offset:F2} toApex={Line.Delta(myS, me.DiveApexS):F0} v={me.Speed * 3.6f:F0} tv={target.Speed * 3.6f:F0}");
                 return false;
             }
             return true;
@@ -1804,6 +1818,7 @@ public sealed partial class RaceWorld
         me.DiveLane = lane;
         me.DiveApexS = apex;
         Diag("dive: start");
+        if (me.Id == TraceBotId) Trace?.Invoke($"  DIVE START ds={ds:F1} tgtOff={target.Offset:F2} lane={lane:F2} myOff={me.Offset:F2} toBrake={Line.Delta(myS, start):F0} toApex={Line.Delta(myS, apex):F0} v={me.Speed * 3.6f:F0} tv={target.Speed * 3.6f:F0}");
         return true;
     }
 
