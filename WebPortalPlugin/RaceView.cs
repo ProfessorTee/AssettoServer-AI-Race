@@ -24,6 +24,8 @@ public sealed class RaceView : BackgroundService
         public string Kind = ""; // "ai", "clone", "player"
         public ulong Guid;
         public float X, Z, Vx, Vz, Speed;
+        /// <summary>When the position was measured (server time, ms): the maps move the cars on that clock, not on the arrival time.</summary>
+        public long T;
         public int Gear, Rpm;
         public float Throttle;
         public bool Brake;
@@ -164,6 +166,7 @@ public sealed class RaceView : BackgroundService
                     Kind = driven?.Kind ?? "player",
                     Guid = driven?.Guid ?? client!.Guid,
                     X = st.Position.X, Z = st.Position.Z, Vx = st.Velocity.X, Vz = st.Velocity.Z,
+                    T = st.Timestamp > f.ServerMs - 3000 && st.Timestamp < f.ServerMs + 1000 ? st.Timestamp : f.ServerMs,
                     Speed = st.Velocity.Length() * 3.6f,
                     Gear = st.Gear - 1, // network: 0 = reverse, 1 = neutral
                     Rpm = st.EngineRpm,
@@ -269,6 +272,7 @@ public sealed class RaceView : BackgroundService
                 ["x"] = R(c.X), ["z"] = R(c.Z),
                 ["speed"] = MathF.Round(c.Speed),
                 ["vx"] = R(c.Vx), ["vz"] = R(c.Vz),
+                ["ts"] = c.T,
                 ["laps"] = c.Laps,
                 ["best"] = Lap(c.Best),
                 ["last"] = Lap(c.Last),
@@ -303,6 +307,7 @@ public sealed class RaceView : BackgroundService
         {
             server = f.Server,
             track = f.Track,
+            t = f.ServerMs,
             session = new { name = f.Session, type = f.SessionType, timeLeft = f.TimeLeft, laps = f.Laps, leaderLap = f.LeaderLap, raceStarted = f.RaceStarted },
             weather = new
             {

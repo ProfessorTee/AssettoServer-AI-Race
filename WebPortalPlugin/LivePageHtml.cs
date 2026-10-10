@@ -187,7 +187,7 @@ const cssCache = {};
 const css = n => cssCache[n] ??= getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { for (const k in cssCache) delete cssCache[k]; });
 let frame = null, track = null, trackKey = "", selected = null, gapMode = "gap", follow = false;
-const cars = new Map();      // id -> { x, z, vx, vz, at, dx, dz }
+const cars = new Map();      // id -> { s: positions with their server time, dx, dz: where it is drawn }
 const traces = new Map();    // id -> { lap, cur: [[lf, v]], prev: [[lf, v]] }
 
 // ---------- formatting
@@ -202,6 +202,74 @@ const WX = { Clear: "klar", FewClouds: "leicht bewÃ¶lkt", ScatteredClouds: "bewÃ
 const SESS = { Practice: "Training", Qualifying: "Qualifying", Race: "Rennen", Booking: "Buchung" };
 function modelName(m) {
   return m.replace(/^ks_/, "").split("_").map(w => /\d/.test(w) || w.length <= 3 ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1)).join(" ");
+}
+
+// ---------- smooth motion
+// Each car keeps its last positions with the server time they were measured at (not when they arrived here). The map shows
+// the cars a little in the past (the longest data interval, the network jitter and how old the positions already were when the
+// server sent them, over the last frames; bots without players nearby only update twice a second), on a curve through two
+// real positions and their speeds, so neither jitter nor the data rate makes the dots jump or stop.
+const motion = { off: null, last: null, hist: [], ages: [], lag: null, at: 0, dt: 0 };
+function motionFrame(serverMs, arrivedMs) {
+  const t = serverMs / 1000, off = arrivedMs / 1000 - t;
+  if (motion.last == null || t < motion.last - 1) { motion.off = off; motion.hist = []; motion.ages = []; motion.lag = null; } // first frame, or the server restarted
+  else if (t > motion.last) {
+    // local minus server clock from the quickest arrival; creeps up 2 ms/s so clock drift or a slower route can't stall it
+    motion.off = Math.min(off, motion.off + (t - motion.last) * 0.002);
+    motion.hist.push([t - motion.last, off - motion.off]);
+    if (motion.hist.length > 20) motion.hist.shift();
+  }
+  motion.last = t;
+  motion.ages.push(0);
+  if (motion.ages.length > 20) motion.ages.shift();
+}
+// the moment the map shows (server clock, seconds); once per drawn frame
+function motionTime(nowMs) {
+  if (motion.off == null) return null;
+  let gap = motion.hist.length ? 0 : 0.25, jit = 0;
+  for (const [g, j] of motion.hist) { gap = Math.max(gap, g); if (j < 0.5) jit = Math.max(jit, j); } // longer: a hiccup, not jitter
+  const age = Math.min(2, Math.max(0, ...motion.ages));
+  const want = motion.off + Math.min(2, gap) + jit + age + 0.06, now = nowMs / 1000, dt = now - motion.at;
+  motion.at = now; motion.dt = Math.min(0.1, Math.max(0, dt));
+  // a new delay is eased in (dots 10 % slower or 5 % faster for a moment) instead of a jump; at once at the start
+  // and after the page was hidden
+  if (motion.lag == null || motion.hist.length < 3 || dt > 0.5) motion.lag = want;
+  else if (now - motion.lag > motion.last) motion.lag += 0.5 * dt; // ran out of frames: time runs at half speed until the next one
+  else motion.lag += Math.max(-0.05 * dt, Math.min(0.1 * dt, want - motion.lag));
+  return now - motion.lag;
+}
+function motionAdd(c, ms, x, z, vx, vz) {
+  const s = c.s || (c.s = []), l = s[s.length - 1], t = ms / 1000, n = motion.ages.length - 1;
+  if (n >= 0 && motion.last - t < 2) motion.ages[n] = Math.max(motion.ages[n], motion.last - t);
+  if (l && t <= l.t) { if (t > l.t - 1) return; s.length = 0; } // the same position again, or a new clock
+  s.push({ t, x, z, vx, vz });
+  while (s.length > 2 && s[1].t < t - 3) s.shift(); // the map is never more than ~2.5 s behind
+}
+// where the car is at time rt (from motionTime): into c.dx, c.dz
+function motionPlace(c, rt) {
+  const s = c.s;
+  if (!s || !s.length || rt == null) return;
+  const b = s[s.length - 1], on = (p, a) => [p.x + p.vx * a, p.z + p.vz * a];
+  let x, z;
+  if (b.t <= rt) [x, z] = on(b, Math.min(1, rt - b.t)); // nothing newer yet: run on with its speed, then wait
+  else {
+    let j = s.length - 1;
+    while (j > 0 && s[j - 1].t > rt) j--;
+    const p = s[Math.max(0, j - 1)], q = s[j], h = q.t - p.t, u = h > 0 ? (rt - p.t) / h : 1;
+    // moved further than it can drive (reset, back to the pits): no curve
+    if (h <= 0 || Math.hypot(q.x - p.x, q.z - p.z) > 30 + 2 * h * Math.max(Math.hypot(p.vx, p.vz), Math.hypot(q.vx, q.vz))) { x = q.x; z = q.z; c.ex = c.ez = 0; }
+    else {
+      const u2 = u * u, u3 = u2 * u, a0 = 2 * u3 - 3 * u2 + 1, a1 = (u3 - 2 * u2 + u) * h, b0 = 3 * u2 - 2 * u3, b1 = (u3 - u2) * h;
+      x = a0 * p.x + a1 * p.vx + b0 * q.x + b1 * q.vx;
+      z = a0 * p.z + a1 * p.vz + b0 * q.z + b1 * q.vz;
+      // it ran on while nothing newer had come: glide from there back onto the curve instead of jumping
+      if (c.ran) { const [ox, oz] = on(c.ran, Math.min(1, rt - c.ran.t)); c.ex = ox + (c.ex || 0) - x; c.ez = oz + (c.ez || 0) - z; }
+    }
+  }
+  c.ran = b.t <= rt ? b : null;
+  const k = Math.exp(-motion.dt * 4);
+  c.ex = (c.ex || 0) * k; c.ez = (c.ez || 0) * k;
+  c.dx = x + c.ex; c.dz = z + c.ez;
 }
 
 // ---------- data
@@ -228,14 +296,13 @@ function onFrame(f) {
   const now = performance.now();
   if (f.track !== trackKey) { trackKey = f.track; loadTrack(); cars.clear(); traces.clear(); }
   frame = f;
+  motionFrame(f.t, now);
   const seen = new Set();
   for (const c of f.cars) {
     seen.add(c.id);
-    const old = cars.get(c.id);
-    const o = old || { dx: c.x, dz: c.z };
-    Object.assign(o, { x: c.x, z: c.z, vx: c.vx, vz: c.vz, at: now });
-    if (old && Math.hypot(old.dx - c.x, old.dz - c.z) > 80) { o.dx = c.x; o.dz = c.z; }
-    cars.set(c.id, o);
+    let o = cars.get(c.id);
+    if (!o) cars.set(c.id, o = { dx: c.x, dz: c.z });
+    motionAdd(o, c.ts ?? f.t, c.x, c.z, c.vx, c.vz);
     // speed over the lap
     let tr = traces.get(c.id);
     if (!tr) traces.set(c.id, tr = { lap: c.lap, cur: [], prev: [] });
@@ -363,12 +430,8 @@ function drawTrackLayer() {
 let lastDraw = performance.now();
 function drawMap() {
   const now = performance.now(), dt = Math.min(0.1, (now - lastDraw) / 1000); lastDraw = now;
-  const k = Math.min(1, dt * 12);
-  for (const c of cars.values()) {
-    const age = Math.min(0.6, (now - c.at) / 1000);
-    const tx = c.x + c.vx * age, tz = c.z + c.vz * age;
-    c.dx += (tx - c.dx) * k; c.dz += (tz - c.dz) * k;
-  }
+  const k = Math.min(1, dt * 12), rt = motionTime(now);
+  for (const c of cars.values()) motionPlace(c, rt);
   if (follow && cars.has(selected)) {
     const c = cars.get(selected), target = fitScale * 6;
     const moved = Math.abs(view.cx - c.dx) + Math.abs(view.cz - c.dz) > 0.5 / view.scale || Math.abs(view.scale - target) > 0.01;

@@ -75,7 +75,14 @@ public class WebPortalController : ControllerBase
 
     /// <summary>The admin page itself has no data; its APIs check the access.</summary>
     [HttpGet("/admin")]
-    public IActionResult AdminPage() => Html(DashboardPage.Html);
+    public IActionResult AdminPage()
+    {
+        // no other page may show it in a frame (clicks on kick/ban hidden under something else)
+        Response.Headers["X-Frame-Options"] = "DENY";
+        Response.Headers["Content-Security-Policy"] = "frame-ancestors 'none'";
+        Response.Headers.CacheControl = "no-store";
+        return Html(DashboardPage.Html);
+    }
 
     // ------------------------------------------------------------------ public APIs
 

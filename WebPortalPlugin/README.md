@@ -47,6 +47,8 @@ Das Dashboard läuft im Server selbst unter `http://127.0.0.1:<HTTP_PORT>/admin`
   wenn der Server über `tools/start-server.sh` bzw. das Desktop-Symbol läuft: `ServerToolsPlugin/scripts/server-supervisor.sh` startet ihn neu.
 - Oben rechts lassen sich die Datenrate (1–10 pro Sekunde) und die Bildrate der Karte (10–60 fps) einstellen. Weniger heißt
   weniger Last, wenn Spiel und Dashboard auf demselben PC laufen. Die Strecke wird nur neu gezeichnet, wenn sich die Ansicht ändert.
+  Die Karten (auch `/live`) zeigen die Autos um gut einen Datentakt verzögert (bei 4/s ≈ 0,4 s, bei 1/s ≈ 1,1 s) und fahren
+  zwischen zwei echten Positionen (mit dem Messzeitpunkt vom Server) entlang: kein Ruckeln, kein Stehenbleiben.
 
 ## Live-Timing (öffentlich)
 `http://<server>:<HTTP_PORT>/live`: Streckenkarte (ganze Strecke oder einem Auto folgen), Zeitenturm mit Abstand/Intervall

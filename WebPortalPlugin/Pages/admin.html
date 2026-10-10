@@ -241,7 +241,8 @@ button.btn.danger { background: #5a1f22; border-color: #8a2d31; }
 "use strict";
 const $ = id => document.getElementById(id);
 let password = "";
-try { password = localStorage.getItem("raceaiPw") || ""; } catch (e) {}
+// only for this tab (gone when it is closed), not stored on a borrowed computer for good
+try { password = sessionStorage.getItem("raceaiPw") || ""; localStorage.removeItem("raceaiPw"); } catch (e) {}
 let state = null, track = null, selected = null, follow = false, nameMode = 1, showSections = false;
 // CSS colours are read once (reading them every frame costs a lot)
 const CSSV = {};
@@ -263,6 +264,7 @@ async function api(path, body) {
     try { why = (await r.json()).reason || ""; } catch (e) {}
     $("pwErr").textContent = why === "remote" ? "Zugriff von außen ist aus (DashboardRemoteAccess in plugin_web_portal_cfg.yml)."
       : why === "nopassword" ? "Auf dem Server ist kein ADMIN_PASSWORD gesetzt."
+      : why === "locked" ? "Zu viele falsche Passwörter: 15 Minuten gesperrt."
       : password ? "Passwort falsch. Es muss genau ADMIN_PASSWORD aus der server_cfg.ini sein, die der Server gerade benutzt (nach dem Ändern neu starten). Der Server liest nur Zeichen ohne Umlaute/€/ß." : "";
     $("login").style.display = "flex"; throw new Error("forbidden");
   }
@@ -272,7 +274,7 @@ async function api(path, body) {
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), 2200); }
 async function act(path, body, ok) { try { await api(path, body); toast(ok || "OK"); } catch (e) { toast("Fehler: " + e.message); } }
 $("pw").onkeydown = e => { if (e.key === "Enter") $("pwOk").click(); };
-$("pwOk").onclick = () => { password = $("pw").value; $("pwErr").textContent = ""; try { localStorage.setItem("raceaiPw", password); } catch (e) {} $("login").style.display = "none"; loadTrack(); };
+$("pwOk").onclick = () => { password = $("pw").value; $("pwErr").textContent = ""; try { sessionStorage.setItem("raceaiPw", password); } catch (e) {} $("login").style.display = "none"; loadTrack(); };
 
 // ---------------------------------------------------------------- tabs
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
@@ -281,10 +283,78 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   if (b.dataset.tab === "log") loadLog();
 });
 
+// ---------------------------------------------------------------- smooth motion (same as on the live page)
+// Each car keeps its last positions with the server time they were measured at (not when they arrived here). The map shows
+// the cars a little in the past (the longest data interval, the network jitter and how old the positions already were when the
+// server sent them, over the last frames; bots without players nearby only update twice a second), on a curve through two
+// real positions and their speeds, so neither jitter nor the data rate makes the dots jump or stop.
+const motion = { off: null, last: null, hist: [], ages: [], lag: null, at: 0, dt: 0 };
+function motionFrame(serverMs, arrivedMs) {
+  const t = serverMs / 1000, off = arrivedMs / 1000 - t;
+  if (motion.last == null || t < motion.last - 1) { motion.off = off; motion.hist = []; motion.ages = []; motion.lag = null; } // first frame, or the server restarted
+  else if (t > motion.last) {
+    // local minus server clock from the quickest arrival; creeps up 2 ms/s so clock drift or a slower route can't stall it
+    motion.off = Math.min(off, motion.off + (t - motion.last) * 0.002);
+    motion.hist.push([t - motion.last, off - motion.off]);
+    if (motion.hist.length > 20) motion.hist.shift();
+  }
+  motion.last = t;
+  motion.ages.push(0);
+  if (motion.ages.length > 20) motion.ages.shift();
+}
+// the moment the map shows (server clock, seconds); once per drawn frame
+function motionTime(nowMs) {
+  if (motion.off == null) return null;
+  let gap = motion.hist.length ? 0 : 0.25, jit = 0;
+  for (const [g, j] of motion.hist) { gap = Math.max(gap, g); if (j < 0.5) jit = Math.max(jit, j); } // longer: a hiccup, not jitter
+  const age = Math.min(2, Math.max(0, ...motion.ages));
+  const want = motion.off + Math.min(2, gap) + jit + age + 0.06, now = nowMs / 1000, dt = now - motion.at;
+  motion.at = now; motion.dt = Math.min(0.1, Math.max(0, dt));
+  // a new delay is eased in (dots 10 % slower or 5 % faster for a moment) instead of a jump; at once at the start
+  // and after the page was hidden
+  if (motion.lag == null || motion.hist.length < 3 || dt > 0.5) motion.lag = want;
+  else if (now - motion.lag > motion.last) motion.lag += 0.5 * dt; // ran out of frames: time runs at half speed until the next one
+  else motion.lag += Math.max(-0.05 * dt, Math.min(0.1 * dt, want - motion.lag));
+  return now - motion.lag;
+}
+function motionAdd(c, ms, x, z, vx, vz) {
+  const s = c.s || (c.s = []), l = s[s.length - 1], t = ms / 1000, n = motion.ages.length - 1;
+  if (n >= 0 && motion.last - t < 2) motion.ages[n] = Math.max(motion.ages[n], motion.last - t);
+  if (l && t <= l.t) { if (t > l.t - 1) return; s.length = 0; } // the same position again, or a new clock
+  s.push({ t, x, z, vx, vz });
+  while (s.length > 2 && s[1].t < t - 3) s.shift(); // the map is never more than ~2.5 s behind
+}
+// where the car is at time rt (from motionTime): into c.dx, c.dz
+function motionPlace(c, rt) {
+  const s = c.s;
+  if (!s || !s.length || rt == null) return;
+  const b = s[s.length - 1], on = (p, a) => [p.x + p.vx * a, p.z + p.vz * a];
+  let x, z;
+  if (b.t <= rt) [x, z] = on(b, Math.min(1, rt - b.t)); // nothing newer yet: run on with its speed, then wait
+  else {
+    let j = s.length - 1;
+    while (j > 0 && s[j - 1].t > rt) j--;
+    const p = s[Math.max(0, j - 1)], q = s[j], h = q.t - p.t, u = h > 0 ? (rt - p.t) / h : 1;
+    // moved further than it can drive (reset, back to the pits): no curve
+    if (h <= 0 || Math.hypot(q.x - p.x, q.z - p.z) > 30 + 2 * h * Math.max(Math.hypot(p.vx, p.vz), Math.hypot(q.vx, q.vz))) { x = q.x; z = q.z; c.ex = c.ez = 0; }
+    else {
+      const u2 = u * u, u3 = u2 * u, a0 = 2 * u3 - 3 * u2 + 1, a1 = (u3 - 2 * u2 + u) * h, b0 = 3 * u2 - 2 * u3, b1 = (u3 - u2) * h;
+      x = a0 * p.x + a1 * p.vx + b0 * q.x + b1 * q.vx;
+      z = a0 * p.z + a1 * p.vz + b0 * q.z + b1 * q.vz;
+      // it ran on while nothing newer had come: glide from there back onto the curve instead of jumping
+      if (c.ran) { const [ox, oz] = on(c.ran, Math.min(1, rt - c.ran.t)); c.ex = ox + (c.ex || 0) - x; c.ez = oz + (c.ez || 0) - z; }
+    }
+  }
+  c.ran = b.t <= rt ? b : null;
+  const k = Math.exp(-motion.dt * 4);
+  c.ex = (c.ex || 0) * k; c.ez = (c.ez || 0) * k;
+  c.dx = x + c.ex; c.dz = z + c.ez;
+}
+
 // ---------------------------------------------------------------- map
 const cv = $("map"), ctx = cv.getContext("2d");
 let view = { cx: 0, cz: 0, scale: 1 }, bounds = null, dpr = 1;
-const cars = new Map(); // id -> {x,z,px,pz,t}
+const cars = new Map(); // id -> { s: positions with their server time, dx, dz: where it is drawn }
 
 function resize() { dpr = window.devicePixelRatio || 1; cv.width = cv.clientWidth * dpr; cv.height = cv.clientHeight * dpr; }
 let lastSize = "";
@@ -328,7 +398,7 @@ cv.addEventListener("dblclick", () => fit());
 function pick(e) {
   const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left) * dpr, my = (e.clientY - r.top) * dpr;
   let best = null, bd = 18 * dpr;
-  for (const [id, c] of cars) { const d = Math.hypot(sx(c.x) - mx, sz(c.z) - my); if (d < bd) { bd = d; best = id; } }
+  for (const [id, c] of cars) { const d = Math.hypot(sx(c.dx) - mx, sz(c.dz) - my); if (d < bd) { bd = d; best = id; } }
   if (best !== null) select(best);
 }
 $("btnFit").onclick = () => fit();
@@ -403,21 +473,15 @@ function frame(now) {
   lastFrame = now;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, cv.width, cv.height);
-  // where the car is now: last known position moved on with its speed (like the game does), the dot follows smoothly
-  const dtf = Math.min(0.1, (now - (frame.last || now)) / 1000); frame.last = now;
-  const blend = 1 - Math.exp(-dtf * 14);
-  for (const c of cars.values()) {
-    const age = Math.min(0.6, (now - c.t) / 1000);
-    const px = c.tx + c.vx * age, pz = c.tz + c.vz * age;
-    c.x += (px - c.x) * blend; c.z += (pz - c.z) * blend;
-  }
-  if (follow && selected !== null && cars.has(selected)) { const c = cars.get(selected); view.cx += (c.x - view.cx) * 0.2; view.cz += (c.z - view.cz) * 0.2; }
+  const rt = motionTime(performance.now());
+  for (const c of cars.values()) motionPlace(c, rt);
+  if (follow && selected !== null && cars.has(selected)) { const c = cars.get(selected); view.cx += (c.dx - view.cx) * 0.2; view.cz += (c.dz - view.cz) * 0.2; }
   drawTrack();
   if (state) {
     const list = [...state.cars].sort((a, b) => (a.id === selected) - (b.id === selected));
     for (const car of list) {
       const c = cars.get(car.id); if (!c) continue;
-      const x = sx(c.x), y = sz(c.z), r = (car.id === selected ? 8 : 6.5) * dpr;
+      const x = sx(c.dx), y = sz(c.dz), r = (car.id === selected ? 8 : 6.5) * dpr;
       ctx.beginPath(); ctx.arc(x, y, r, 0, 7);
       ctx.fillStyle = car.bot ? PCOL(car.personality) : cssVar("--accent");
       ctx.fill();
@@ -461,7 +525,8 @@ function showBotTab(on) {
 }
 async function poll() {
   try {
-    const [s, b] = await Promise.all([api("/api/admin/state"), loadBots()]);
+    // arrival time of the state itself (the bots may come later)
+    const [s, b] = await Promise.all([api("/api/admin/state").then(s => (s.at = performance.now(), s)), loadBots()]);
     s.ai = b ? b.ai : null;
     if (b) {
       for (const c of s.cars) { const x = b.bots[c.id]; if (x) Object.assign(c, x); }
@@ -482,12 +547,13 @@ async function poll() {
       (w.wetness > 0.05 ? ` · nass ${Math.round(w.wetness * 100)} %` : "") + ` · Grip ${Math.round(w.grip * 100)} %`;
     const bots = s.cars.filter(c => c.bot).length;
     $("countChip").textContent = `${s.cars.length - bots} Spieler · ${bots} Bots`;
-    const now = performance.now(), seen = new Set();
+    motionFrame(s.t, s.at);
+    const seen = new Set();
     for (const c of s.cars) {
       seen.add(c.id);
-      const o = cars.get(c.id);
-      if (!o || Math.hypot(o.tx - c.x, o.tz - c.z) > 300) cars.set(c.id, { x: c.x, z: c.z, tx: c.x, tz: c.z, vx: c.vx || 0, vz: c.vz || 0, t: now });
-      else { o.tx = c.x; o.tz = c.z; o.vx = c.vx || 0; o.vz = c.vz || 0; o.t = now; }
+      let o = cars.get(c.id);
+      if (!o) cars.set(c.id, o = { dx: c.x, dz: c.z });
+      motionAdd(o, c.ts ?? s.t, c.x, c.z, c.vx || 0, c.vz || 0);
     }
     for (const id of [...cars.keys()]) if (!seen.has(id)) cars.delete(id);
     if (!poll.tempInit) { poll.tempInit = true; $("tAir").value = w.ambient; $("tRoad").value = w.road; }

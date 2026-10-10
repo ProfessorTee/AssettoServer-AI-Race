@@ -339,6 +339,7 @@ public sealed class LiveFeed
                     w.WriteNumber("z", MathF.Round(c.Z, 1));
                     w.WriteNumber("vx", MathF.Round(c.Vx, 1));
                     w.WriteNumber("vz", MathF.Round(c.Vz, 1));
+                    w.WriteNumber("ts", c.T);
                     w.WriteNumber("v", MathF.Round(c.Speed));
                     w.WriteNumber("g", c.Gear);
                     w.WriteNumber("rpm", c.Rpm);
