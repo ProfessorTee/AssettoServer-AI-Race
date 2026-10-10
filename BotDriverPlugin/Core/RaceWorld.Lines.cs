@@ -95,9 +95,9 @@ public sealed partial class RaceWorld
 
         // every driver below the limit: brakes a bit too early here, waits a moment before full throttle there
         float skill = me.Driver.Pace + me.PaceNoise + me.PaceBoost + me.DayForm;
-        me.PlanBrakeMargin = DriverProfile.BrakeMargin(skill) * (0.3f + 1.4f * _rng.NextSingle())
+        me.PlanBrakeMargin = DriverProfile.BrakeMargin(skill) * (0.05f + 1.9f * _rng.NextSingle())
                              + 6f * MathF.Max(0, -me.Driver.Personality.BrakeBehavior) * _rng.NextSingle();
-        me.PlanExitDelay = DriverProfile.ExitHesitation(skill) * (0.2f + 1.6f * _rng.NextSingle());
+        me.PlanExitDelay = DriverProfile.ExitHesitation(skill) * (2.0f * _rng.NextSingle());
         // greedy drivers are on the throttle earlier (and sometimes too early, see the corner exit mistakes)
         me.PlanExitDelay *= 1.3f - 0.8f * Math.Clamp(me.Driver.Personality.ExitGreed, 0, 1);
 
@@ -121,7 +121,7 @@ public sealed partial class RaceWorld
 
         // braking: amateurs mostly brake too early and too softly, rarely a bit too late (the big ones are LateBrake mistakes)
         float br = _rng.NextSingle();
-        me.PlanBrake = br < 0.12f * ip ? 1 + 0.06f * ip : 1 - ip * 0.15f * _rng.NextSingle();
+        me.PlanBrake = br < 0.25f * ip ? 1 + 0.06f * ip : 1 - ip * 0.15f * _rng.NextSingle();
         me.PlanBrakeMargin += ip * 30f * _rng.NextSingle() * _rng.NextSingle();
 
         // exit: waits for the car to settle before full throttle, or lifts once in the middle of the corner

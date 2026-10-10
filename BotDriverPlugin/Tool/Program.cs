@@ -416,6 +416,8 @@ public static class Program
             }
             t200 = t;
             Console.WriteLine($"    0-100 {t100:F1}s  0-200 {t200:F1}s");
+            // full-throttle acceleration per 20 km/h band (to compare with a player's recorded laps)
+            Console.WriteLine("    accel m/s² " + string.Join("  ", Enumerable.Range(0, 11).Select(i => $"{i * 20 + 10}:{s.AccelAt((i * 20 + 10) / 3.6f, 1):F2}")));
         }
         if (s.ErsGain != null && s.ErsPower != null)
         {

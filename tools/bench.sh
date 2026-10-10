@@ -5,7 +5,7 @@
 #
 #   tools/bench.sh "label" [extra sim args]     e.g. tools/bench.sh "dive 0.985"
 #   tools/bench.sh --table                       only the table
-# Env: AC (game folder), MODELS, JOBS (parallel races, default: 2), SEED (first seed - 1, default 0: another SEED shows the noise).
+# Env: AC (game folder), MODELS, JOBS (parallel races, default: 4, pinned to cores 0-3), SEED (first seed - 1, default 0: another SEED shows the noise).
 set -uo pipefail
 cd "$(dirname "$0")/.."
 RESULTS=tools/bench-results.tsv
@@ -19,13 +19,13 @@ LABEL="${1:-}"; shift || true
 export PATH=$HOME/.dotnet:$PATH
 AC="${AC:-/mnt/GameDrive/SteamLibrary/steamapps/common/assettocorsa}"
 MODELS="${MODELS:-ks_toyota_supra_mkiv,ks_nissan_skyline_r34,ks_mazda_rx7_spirit_r,ks_nissan_370z}"
-JOBS="${JOBS:-2}"
+JOBS="${JOBS:-4}"
 SEED="${SEED:-0}"
-dotnet build BotDriverPlugin/Tool -c Release -v q >/dev/null || { echo "build failed"; exit 1; }
+nice -n 19 taskset -c 0-3 dotnet build BotDriverPlugin/Tool -c Release -v q >/dev/null || { echo "build failed"; exit 1; }
 TMP=$(mktemp -d)
 TOOL=$(ls BotDriverPlugin/Tool/bin/Release/*/BotDriverTool.dll | head -1)
 run() { # track layout laps seed (the dll directly: parallel "dotnet run"s get in each other's way)
-    nice -n 19 dotnet "$TOOL" sim --ac "$AC" --track "$AC/content/tracks/$1" --layout "$2" \
+    nice -n 19 taskset -c 0-3 dotnet "$TOOL" sim --ac "$AC" --track "$AC/content/tracks/$1" --layout "$2" \
         --models "$MODELS" --bots 20 --laps "$3" --style --seed "$4" "${EXTRA[@]}" > "$TMP/$1-$4.txt" 2>&1
 }
 export -f run; export AC MODELS TMP TOOL

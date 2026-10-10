@@ -51,17 +51,18 @@ public sealed class DriverProfile
     /// <summary>
     /// Error level for a strength: 0 at or above <paramref name="below"/> %, rising to 1 at <paramref name="full"/> %.
     /// </summary>
-    // A slower driver mostly brakes earlier and softer and is later on the throttle out of a corner;
-    // the speed through the corner itself drops much less (that's how a lap time gap between amateurs and pros looks).
-    public static float CornerSkill(float pace) => pace >= 1 ? pace : 1 - (1 - pace) * 0.5f;
-    // Braking itself stays fairly firm; slower drivers mostly brake earlier and then roll into the corner (see BrakeMargin),
-    // and they wait longer before going to full throttle (corner plan), instead of pressing every pedal only half way.
-    public static float BrakeSkill(float pace) => pace >= 1 ? pace : MathF.Max(0.55f, 1 - (1 - pace) * 0.8f);
+    // A slower driver mostly misjudges: brakes too early here (rarely too late), waits too long for the throttle there (see the
+    // corner plan); the speed through the corner itself drops much less (that's how a lap time gap between amateurs and pros looks).
+    // A steady, uniformly careful driver would be a rolling chicane: hard to pass, the whole field behind him slows down.
+    public static float CornerSkill(float pace) => pace >= 1 ? pace : 1 - (1 - pace) * 0.35f;
+    // Braking itself stays firm; slower drivers brake at the wrong point (mostly too early, then roll into the corner, see BrakeMargin)
+    // and wait longer before going to full throttle (corner plan), instead of pressing every pedal only half way.
+    public static float BrakeSkill(float pace) => pace >= 1 ? pace : MathF.Max(0.55f, 1 - (1 - pace) * 0.3f);
     public static float ThrottleSkill(float pace) => pace >= 1 ? pace : MathF.Max(0.55f, 1 - (1 - pace) * 0.7f);
     /// <summary>Average metres a driver brakes too early and rolls towards the corner at corner speed.</summary>
-    public static float BrakeMargin(float pace) => MathF.Pow(Math.Clamp(1 - pace, 0, 0.7f), 1.5f) * 100f;
+    public static float BrakeMargin(float pace) => MathF.Pow(Math.Clamp(1 - pace, 0, 0.7f), 1.5f) * 140f;
     /// <summary>Average seconds after the apex before going back to full throttle.</summary>
-    public static float ExitHesitation(float pace) => MathF.Pow(Math.Clamp(1 - pace, 0, 0.7f), 1.5f) * 2.0f;
+    public static float ExitHesitation(float pace) => MathF.Pow(Math.Clamp(1 - pace, 0, 0.7f), 1.5f) * 2.8f;
 
     public static float ErrorsFor(float strengthPercent, float below = 87, float full = 75)
         => below <= full ? 0 : Math.Clamp((below - strengthPercent) / (below - full), 0, 1);
@@ -1146,6 +1147,9 @@ public sealed partial class RaceWorld
             // attacking drivers brake a little later, a dive down the inside clearly later (that's how it gets alongside)
             float attackBrake = bot.OvertakeTargetId < 0 ? 0.9f : bot.Diving ? 0.985f + 0.05f * bot.Driver.Aggression : 0.9f + 0.07f * bot.Driver.Aggression;
             float decel = car.BrakeAt((vLim + v) * 0.5f, brakePace, bot.MassRatio) * attackBrake * lateBrake;
+            // downshifting on the brakes: the engine brakes the driven wheels too, so the brakes have grip to spare and the
+            // braking zone gets shorter (never past what the tyres can do)
+            decel = MathF.Min(decel + EngineBraking(bot, v), car.BrakeAt((vLim + v) * 0.5f, phys, bot.MassRatio) * lateBrake);
             // small speed drops (fast kinks) are taken with a gentle, early brush of the brakes, big ones with hard braking
             decel *= Math.Clamp(0.4f + 0.6f * (v - vLim) / 14f, 0.4f, 1f);
             // late brakers brake later (even more when attacking), smooth drivers earlier and softer (lift and coast)
@@ -2010,7 +2014,8 @@ public sealed partial class RaceWorld
             me.Throttle = MathF.Max(0, me.Throttle - dt / 0.1f);
             // down through the gears on the brakes (with a blip), not all at once on the way out of the corner
             UpdateGear(me, v);
-            accel = -MathF.Min(maxBrake, coast + me.Brake * (physBrake - coast)) + slopeG;
+            // the engine brake comes on top of the driver's braking, up to the tyres' limit
+            accel = -MathF.Min(MathF.Min(physBrake, maxBrake + EngineBraking(me, v)), coast + me.Brake * (physBrake - coast)) + slopeG;
             v = MathF.Max(target, v + accel * dt);
         }
         else

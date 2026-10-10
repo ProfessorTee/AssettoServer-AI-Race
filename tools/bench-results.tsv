@@ -12,3 +12,12 @@
 2026-10-10	3a8d30f+	XP_A attack range by closing	0.96	460	82	13.01	294	18
 2026-10-10	3a8d30f+	baseline 3a8d30f	0.97	481	78	11.11	276	8
 2026-10-10	3a8d30f+	XP cooldown x0.5	0.95	482	78	13.31	294	18
+2026-10-10	c0579fa+	base 88+-8	0.88	644	132	19.11	366	30
+2026-10-10	c0579fa+	XP skill shift 88+-8	0.82	636	66	17.30	343	22
+2026-10-10	c0579fa+	base 88+-8 (seeds +100)	1.60	604	110	17.88	367	12
+2026-10-10	c0579fa+	XP skill shift 88+-8 (seeds +100)	0.77	564	106	15.35	349	10
+2026-10-10	c0579fa+	skill shift (misjudging, firm braking)	0.97	459	110	12.86	291	14
+2026-10-10	c0579fa+	skill shift (misjudging, firm braking) (seeds +100)	1.11	454	102	11.56	281	20
+2026-10-10	c0579fa+	skill shift + engine brake 88+-8	0.41	582	110	18.38	328	26
+2026-10-10	c0579fa+	skill shift + engine brake 88+-8 (seeds +100)	0.45	593	112	17.68	357	16
+2026-10-10	c0579fa+	skill shift + engine brake	0.63	465	80	11.29	261	10
