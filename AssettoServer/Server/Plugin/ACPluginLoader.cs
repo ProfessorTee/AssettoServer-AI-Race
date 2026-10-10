@@ -43,7 +43,7 @@ public class ACPluginLoader
             {
                 Log.Verbose("Found plugin {PluginName}, {PluginPath}", dirName, pluginDll);
 
-                var loader = PluginLoader.CreateFromAssemblyFile(pluginDll, config => { config.PreferSharedTypes = true; });
+                var loader = SharedLoader(pluginDll);
 
                 PluginConfiguration config;
                 var configPath = Path.Combine(dir, "configuration.json");
@@ -130,6 +130,23 @@ public class ACPluginLoader
         }
         
         Log.Information("Loaded plugin {PluginName}", name);
+    }
+
+    // Race AI patch: one load context per plugin for the whole process. The server restarts in this process on every track change
+    // (rotation), and load contexts can't be unloaded: a new one per start kept every plugin's assemblies and compiled code
+    // in memory (~15 MB per track change). A plugin dll replaced on disk gets a new one.
+    private static readonly Dictionary<string, (DateTime Written, PluginLoader Loader)> Loaders = new();
+
+    private static PluginLoader SharedLoader(string pluginDll)
+    {
+        lock (Loaders)
+        {
+            var written = File.GetLastWriteTimeUtc(pluginDll);
+            if (Loaders.TryGetValue(pluginDll, out var known) && known.Written == written) return known.Loader;
+            var loader = PluginLoader.CreateFromAssemblyFile(pluginDll, config => { config.PreferSharedTypes = true; });
+            Loaders[pluginDll] = (written, loader);
+            return loader;
+        }
     }
 
     private static string ConfigurationTypeToFilename(string type, string ending = "yml")

@@ -212,6 +212,11 @@ public static class Program
             await host.RunAsync(token);
             await stoppedRegistration.DisposeAsync();
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // Race AI patch: an in-process restart (track rotation) cancels the services; a background service that throws on
+            // that (WeatherManager's timer) is no crash
+        }
         catch (Exception ex)
         {
             CrashReportHelper.HandleFatalException(ex);
