@@ -18,6 +18,8 @@ public sealed class TrackData
     public LineHeights? Heights { get; init; }
     /// <summary>Grass, gravel, sand ... beside the track with their grip and damping (surfaces.ini), null without kn5 files.</summary>
     public RoadSurface? OffTrack { get; init; }
+    /// <summary>The valid road itself (bumps and kerbs under the wheels of bots driving with the vehicle model), null without kn5 files.</summary>
+    public RoadSurface? Road { get; init; }
     /// <summary>data/ideal_line.ai as an offset from the AI line, null when the track has none (or a copy of the AI line).</summary>
     public IdealLine? Ideal { get; init; }
 
@@ -44,13 +46,14 @@ public sealed class TrackData
             Log.Debug(ex, "BotDriver: ideal_line.ai not readable");
         }
         LineHeights? heights = null;
-        RoadSurface? offTrack = null;
+        RoadSurface? offTrack = null, roadSurface = null;
         try
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             if (RoadSurface.Load(trackRoot, layout) is { } road)
             {
                 heights = LineHeights.Build(line, road);
+                roadSurface = road;
                 Log.Information("BotDriver: road surface {Triangles} triangles, height beside the line up to {Max:F2} m off ({Ms} ms)", road.Triangles, heights.Max, sw.ElapsedMilliseconds);
             }
             offTrack = RoadSurface.Load(trackRoot, layout, valid: false);
@@ -68,7 +71,7 @@ public sealed class TrackData
         Log.Information("BotDriver: racing line {Length:F0} m, start/finish at {Start:F0} m, {Hints} AI hints, {Sections} sections",
             line.Length, map.StartLineS, info.SpeedHints.Count + info.MaxSpeedsKmh.Count, info.Sections.Count);
 
-        return new TrackData { Map = map, Heights = heights, OffTrack = offTrack, Ideal = ideal };
+        return new TrackData { Map = map, Heights = heights, OffTrack = offTrack, Road = roadSurface, Ideal = ideal };
     }
 
     /// <summary>Content folders to search: the server's own content folder first, then the game installation.</summary>

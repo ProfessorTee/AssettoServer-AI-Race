@@ -226,6 +226,13 @@ public class BotDriverConfiguration : IValidateConfiguration<BotDriverConfigurat
     [YamlMember(Description = "Use the track's data/ai_hints.ini (slower sections, max speeds) like the Kunos AI")]
     public bool UseTrackHints { get; set; } = true;
 
+    [YamlMember(Description = "Bots drive with a vehicle model after Assetto Corsa (tyres, suspension, engine, brakes, the Kunos driver) instead of set speeds. " +
+                              "On in this physics branch (bots-physics); false = the kinematic bots of the main branch")]
+    public bool PhysicsDriving { get; set; } = true;
+
+    [YamlMember(Description = "Vehicle model: scale on the AI's extra lateral grip (ai.ini ULTRA_GRIP of the car, AC default 1.2). 1.0 = like the AC AI")]
+    public float PhysicsCorneringGrip { get; set; } = 1f;
+
     [YamlMember(Description = "Slipstream: 1.0 = 100 % (normal), 0 = off, 2.0 = twice as strong")]
     public float SlipstreamStrength { get; set; } = 1.0f;
 

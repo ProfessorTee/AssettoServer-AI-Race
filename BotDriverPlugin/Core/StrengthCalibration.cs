@@ -182,7 +182,10 @@ public sealed class StrengthCalibration
             FuelRate = 1,
             TyreWearRate = 1,
             TyreWearScale = template.TyreWearScale,
-            PitStops = false
+            PitStops = false,
+            PhysicsDriving = template.PhysicsDriving,
+            PhysicsCorneringGrip = template.PhysicsCorneringGrip,
+            PhysicsPlanGrip = template.PhysicsPlanGrip,
         };
         var world = new RaceWorld(line, settings) { MaxStep = step };
         var bot = new RaceBot

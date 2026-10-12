@@ -427,6 +427,28 @@ public static class SelfTest
         var dirty = new RaceBot { Id = 50, Name = "A", Car = new CarSpec(), Driver = DriverProfile.FromLevel(95, 50), Speed = 60 };
         dirty.DirtyAir = 1;
         Check($"dirty air costs grip in a fast corner ({RaceWorld.DirtyAirGrip(dirty):F3})", RaceWorld.DirtyAirGrip(dirty) is < 0.97f and > 0.85f);
+
+        // vehicle model: a plain RWD car on a skid pad (fixed wheel angle, 90 km/h) settles at a plausible lateral acceleration
+        // with the front at its limit first (understeer), and holds its speed against drag
+        var tyre = new BotDriverPlugin.Core.Physics.TyreData { DyRef = 1.25f, DxRef = 1.25f, Fz0 = 3000, LsExpY = 0.8f, LsExpX = 0.85f, FalloffLevel = 0.85f, FalloffSpeed = 3, Radius = 0.32f };
+        var vd = new BotDriverPlugin.Core.Physics.VehicleData
+        {
+            Mass = 1400, YawInertia = 2300, RollInertia = 500, PitchInertia = 2100, Wheelbase = 2.6f, A = 1.25f, B = 1.35f,
+            FrontSusp = new() { Arb = 20000, BaseY = -0.1f }, RearSusp = new() { Arb = 10000, BaseY = -0.1f },
+            Front = tyre, Rear = tyre, Torque = Enumerable.Repeat(400f, 80).ToArray(), Limiter = 7500, IdleRpm = 1000, Ratios = [3, 2, 1.5f, 1.2f, 1, 0.85f],
+            Final = 3.5f, BrakeTorque = 2500, BrakeFront = 0.65f, MaxSteer = 0.55f,
+            Wings = [new() { Area = 1, AoaCd = new TrackGeometry.Lut([0f], [0.5f]) }],
+        };
+        var vs = new BotDriverPlugin.Core.Physics.VehicleState { Vx = 25 };
+        var vin = new BotDriverPlugin.Core.Physics.VehicleInputs { Steer = 0.06f, MassRatio = 1, Grip = 1, Ratio = 1.2f * 3.5f };
+        for (int i = 0; i < 300 * 10; i++)
+        {
+            vin.Throttle = Math.Clamp(0.3f + (25 - vs.Vx) * 0.5f, 0, 1);
+            BotDriverPlugin.Core.Physics.Vehicle.Step(vd, vs, vin, 1f / 300);
+        }
+        float skidG = vs.Vx * MathF.Abs(vs.R) / CarSpec.G;
+        Check($"vehicle model skid pad: {skidG:F2} g at {vs.Vx * 3.6f:F0} km/h, slip F/R {vs.FrontSlip:F2}/{vs.RearSlip:F2}",
+            skidG is > 0.8f and < 1.35f && vs.FrontSlip > vs.RearSlip && MathF.Abs(vs.Vx - 25) < 1.5f);
         float Line(RaceBot b) => line.WrapS((float)b.Distance);
     }
 

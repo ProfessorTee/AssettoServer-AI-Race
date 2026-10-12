@@ -34,6 +34,7 @@ public static class Program
                 "fuel" => Fuel(opts),
                 "car" => Car(opts),
                 "acd" => Acd(opts),
+                "physstep" => PhysStep(opts),
                 "selftest" => SelfTest.Run(opts),
                 "strength" => Strength(opts),
                 "width" => Width(opts),
@@ -161,6 +162,55 @@ public static class Program
         return 0;
     }
 
+    /// <summary>Vehicle model check: constant steering at constant speed on a flat plane, the steady state per wheel angle.</summary>
+    private static void SkidPad(BotDriverPlugin.Core.Physics.VehicleData d, float speed)
+    {
+        Console.WriteLine($"  physics: mass {d.Mass:F0} kg (sprung {d.SprungMass:F0}), Iz {d.YawInertia:F0}, L {d.Wheelbase:F2} a {d.A:F2} b {d.B:F2}, cg h {d.CgHeight:F3} pitch {d.StaticPitch * 57.3f:F2}°, drive {d.Drive}, diff {d.RearDiff}, " +
+                          $"tyres F {d.Front.DyRef:F2}/{d.Front.Fz0:F0}/{d.Front.LsExpY:F2}/{d.Front.PeakAngle * 57.3f:F1}° R {d.Rear.DyRef:F2}/{d.Rear.Fz0:F0}/{d.Rear.LsExpY:F2}/{d.Rear.PeakAngle * 57.3f:F1}°, " +
+                          $"brake {d.BrakeTorque:F0} Nm {d.BrakeFront:F2} front, {d.Wings.Count} wings, turbos {d.Turbos.Count}, max steer {d.MaxSteer * 57.3f:F0}°, rack {d.RackPerDeg * 1000:F2} mm/° sign {d.RackSign}, ultra grip {d.AiUltraGrip:F2}");
+        foreach (var (name, sa) in new[] { ("front", d.FrontSusp), ("rear", d.RearSusp) })
+        {
+            float z0 = name == "front" ? d.StaticHub[0] : d.StaticHub[2];
+            Console.WriteLine($"  {name} {sa.Type} geometry={sa.HasGeometry}{(sa.GeometryError != null ? $" ({sa.GeometryError})" : "")} k={sa.SpringRate:F0} arb={sa.Arb:F0} hub={sa.HubMass:F0} kg");
+            for (float z = -0.06f; z <= 0.061f; z += 0.03f)
+            {
+                var (ti, toe) = sa.Angles(z, 0);
+                var (dy, dx, dxh, dp) = sa.Jacking(z);
+                Console.WriteLine($"    travel {z * 1000,4:F0} mm: camber {-ti * 57.3f,5:F2}° toe-in {toe * 57.3f,5:F2}° cp in/z {dy,5:F2} cp fwd/z {dx,5:F2} hub fwd/z {dxh,5:F2} pitch/z {dp,5:F2}");
+            }
+            if (sa.RackCount > 1)
+                foreach (float deg in new[] { 5f, 15f, 30f })
+                {
+                    float rack = d.RackSign * d.RackPerDeg * deg;
+                    float inner = -sa.Angles(0, -rack).ToeIn, outer = sa.Angles(0, rack).ToeIn;
+                    Console.WriteLine($"    steer {deg}°: wheels {inner * 57.3f:F1}° / {outer * 57.3f:F1}°");
+                }
+        }
+        var pl = BotDriverPlugin.Core.Physics.Envelope.Measure(d, 1, ai: true, plan: true);
+        Console.WriteLine($"  AC AI plans with: {pl.LatSlow / 9.81f:F2} g at 80 km/h, {pl.LatFast / 9.81f:F2} g at 200 km/h");
+        foreach (float lg in new[] { 1f, d.AiUltraGrip })
+        {
+            var e = BotDriverPlugin.Core.Physics.Envelope.Measure(d, lg, ai: true);
+            Console.WriteLine($"  envelope (lateral grip x{lg:F2}, AI help): {e.LatSlow / 9.81f:F2} g at 80 km/h, {e.LatFast / 9.81f:F2} g at 200 km/h -> grip {e.Grip:F2} + downforce {e.Downforce * 1e4f:F1}e-4/(m/s)², braking {e.BrakeGrip:F2} g + {e.AeroBrake * 1e4f:F1}e-4");
+        }
+        Console.WriteLine($"  skid pad at {speed * 3.6f:F0} km/h: steer°  ay g  radius m  slip angle F/R (1 = peak)  body slip°");
+        for (float deg = 0.5f; deg <= 8; deg += 0.5f)
+        {
+            var inp = new BotDriverPlugin.Core.Physics.VehicleInputs { MassRatio = 1, Grip = 1, Ratio = BotDriverPlugin.Core.Physics.Envelope.RatioFor(d, speed) };
+            var st = BotDriverPlugin.Core.Physics.Envelope.Rolling(d, speed, ref inp);
+            inp.Steer = deg / 57.3f;
+            bool spun = false;
+            for (int i = 0; i < 300 * 12; i++)
+            {
+                inp.Throttle = Math.Clamp(0.3f + (speed - st.Vx) * 0.5f, 0, 1);
+                BotDriverPlugin.Core.Physics.Vehicle.Step(d, st, inp, 1f / 300);
+                if (MathF.Abs(MathF.Atan2(st.Vy, st.Vx)) > 0.5f) { spun = true; break; }
+            }
+            float ay = st.Vx * st.R;
+            Console.WriteLine(spun ? $"    {deg,4:F1}  spun" : $"    {deg,4:F1}  {ay / 9.81f,5:F2}  {(MathF.Abs(st.R) > 1e-3f ? st.Vx / st.R : 0),7:F0}  {st.FrontSlip,5:F2}/{st.RearSlip,5:F2}  {MathF.Atan2(st.Vy, st.Vx) * 57.3f,6:F1}");
+        }
+    }
+
     private static int Car(Options o)
     {
         string? ac = o.Get("ac");
@@ -169,6 +219,7 @@ public static class Program
         {
             var spec = CarDataLoader.Load(cars, model, log: Console.WriteLine);
             PrintSpec(spec);
+            if (o.Has("physics") && spec.Physics is { } pd) SkidPad(pd, o.Float("speed", 25));
             foreach (var c in spec.Compounds)
                 Console.WriteLine($"  {(c == spec.DefaultCompound ? "*" : " ")} {c}: grip x{c.Grip:F3}, best at {c.Optimum:F0} °C, " +
                                   $"wear 0/20/50/100 vkm {c.GripAt(0):F3}/{c.GripAt(20):F3}/{c.GripAt(50):F3}/{c.GripAt(100):F3}{(c.IsSlick ? ", slick" : c.IsWet ? ", wet" : "")}");
@@ -281,6 +332,29 @@ public static class Program
         return 0;
     }
 
+    /// <summary>Vehicle model debug: steps from a steady speed with fixed inputs, printing the wheels and the engine.</summary>
+    private static int PhysStep(Options o)
+    {
+        string cars = o.Get("cars") ?? Path.Join(o.Get("ac") ?? ".", "content", "cars");
+        var d = CarDataLoader.Load(cars, o.Get("model") ?? throw new ArgumentException("--model required")).Physics!;
+        float v = o.Float("speed", 10);
+        var inp = new BotDriverPlugin.Core.Physics.VehicleInputs { MassRatio = 1, Grip = 1, LateralGrip = o.Float("lat", 1), NoFalloff = o.Has("nofalloff"), AiAbs = o.Has("aiabs") };
+        int gear = o.Int("gear", 0);
+        inp.Ratio = gear > 0 ? d.Ratios[gear - 1] * d.Final : BotDriverPlugin.Core.Physics.Envelope.RatioFor(d, v);
+        var st = BotDriverPlugin.Core.Physics.Envelope.Rolling(d, v, ref inp);
+        inp.Throttle = o.Float("throttle", 0);
+        inp.Brake = o.Float("brake", 0);
+        inp.Steer = o.Float("steer", 0) / 57.3f;
+        int n = o.Int("steps", 60), every = o.Int("every", 3);
+        for (int i = 0; i < n; i++)
+        {
+            BotDriverPlugin.Core.Physics.Vehicle.Step(d, st, inp, 1f / 300);
+            if (i % every == 0)
+                Console.WriteLine(FormattableString.Invariant($"{i,4} v={st.Vx:F2} ax={st.Ax:F2} ay={st.Ay:F2} rpm={st.EngineRpm:F0} clutch={st.ClutchLocked} w={st.Omega[0]:F1}/{st.Omega[1]:F1}/{st.Omega[2]:F1}/{st.Omega[3]:F1} k={st.Kappa[0]:F3}/{st.Kappa[1]:F3}/{st.Kappa[2]:F3}/{st.Kappa[3]:F3} a={st.Alpha[2] * 57.3f:F2} nd={st.NdSlip[0]:F2}/{st.NdSlip[1]:F2}/{st.NdSlip[2]:F2}/{st.NdSlip[3]:F2} fz={st.Load[0]:F0}/{st.Load[1]:F0}/{st.Load[2]:F0}/{st.Load[3]:F0} h={st.H:F3} p={st.Pitch * 57.3f:F2}"));
+        }
+        return 0;
+    }
+
     private static int Acd(Options o)
     {
         string cars = o.Get("cars") ?? Path.Join(o.Get("ac") ?? ".", "content", "cars");
@@ -380,7 +454,7 @@ public static class Program
         var line = new RacingLine(FastLaneFile.Read(FastLanePath(trackRoot, layout)));
         var info = TrackInfo.LoadLayoutData(LayoutDataDir(trackRoot, layout));
         line.ApplyHints(info.SpeedHints, info.MaxSpeedsKmh);
-        var settings = new RaceWorldSettings { HumanErrors = !o.Has("no-errors") };
+        var settings = new RaceWorldSettings { HumanErrors = !o.Has("no-errors"), PhysicsDriving = o.Has("physics") };
         int threads = o.Int("threads", 0);
         foreach (var model in (o.Get("models") ?? "ks_mercedes_amg_gt3").Split(','))
         {

@@ -168,6 +168,16 @@ public static partial class CarDataLoader
             spec.SpoolUp = Math.Clamp(Tau("LAG_UP", 0.995f), 0.05f, 4f);
             spec.SpoolDown = Math.Clamp(Tau("LAG_DN", 0.995f), 0.05f, 4f);
         }
+        var turboData = engine.Sections.Where(s => s.StartsWith("TURBO_", StringComparison.OrdinalIgnoreCase)).Select(section => new Physics.TurboData
+        {
+            MaxBoost = engine.GetFloat(section, "MAX_BOOST", 0),
+            Wastegate = engine.GetFloat(section, "WASTEGATE", 0),
+            ReferenceRpm = MathF.Max(1, engine.GetFloat(section, "REFERENCE_RPM", 0)),
+            Gamma = MathF.Max(0.1f, engine.GetFloat(section, "GAMMA", 1)),
+            LagUp = engine.GetFloat(section, "LAG_UP", 0.99f),
+            LagDn = engine.GetFloat(section, "LAG_DN", 0.99f),
+            Control = TurboController(files, section["TURBO_".Length..]),
+        }).ToList();
         float BoostAt(float rpm) => turbos.Sum(t => MathF.Min(t.Ctrl?.Invoke(rpm) ?? t.Max, t.Full * MathF.Pow(Math.Clamp(rpm / t.Ref, 0, 1), MathF.Max(0.1f, t.Gamma))));
         float restrictor = 1 - Math.Clamp(restrictorPercent, 0, 100) / 100f * 0.5f;
 
@@ -252,6 +262,7 @@ public static partial class CarDataLoader
 
         // aero: sum lift and drag areas of all wings at their default angle
         float clA = 0, cdA = 0;
+        var wingAngles = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
         if (files.ContainsKey("aero.ini"))
         {
             var aero = Ini(files, "aero.ini");
@@ -277,6 +288,7 @@ public static partial class CarDataLoader
                 float cl = LutValue(files, aero.Get(wing, "LUT_AOA_CL"), angle) * aero.GetFloat(wing, "CL_GAIN", 1) * area;
                 float cd = LutValue(files, aero.Get(wing, "LUT_AOA_CD"), angle) * aero.GetFloat(wing, "CD_GAIN", 1) * area;
                 clA += cl;
+                wingAngles[wing] = angle;
                 cdA += cd;
                 for (int z = 0; z < 4; z++)
                 {
@@ -366,6 +378,9 @@ public static partial class CarDataLoader
 
         spec.GearTopSpeedsKmh = ratios.Select(r => limiter / 60f * 2 * MathF.PI * driveRadius / (r * final) * 3.6f).ToArray();
         if (spec.GearTopSpeedsKmh.Length == 0) spec.GearTopSpeedsKmh = [spec.TopSpeed * 3.6f];
+        if (ratios.Count > 0)
+            spec.Physics = Physics.VehicleData.Read(files, car, tyres, tyreF, tyreR, spec, mass, wheelbase, cgFront, traction, ratios, final, limiter,
+                rpm => torque.At(rpm) * torqueScale, turboData, w => wingAngles.TryGetValue(w, out var a) ? a : 0, DragScale, AirDensityHalf);
 
         if (files.ContainsKey("ai.ini"))
         {

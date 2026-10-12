@@ -54,6 +54,7 @@ public static class Simulator
             BotContacts = !o.Has("no-contacts"),
             Damage = !o.Has("no-damage"),
             GripFactor = o.Float("grip", 1),
+            PhysicsDriving = o.Has("physics"),
             AmbientTemp = o.Float("ambient", 22),
             RoadTemp = o.Float("road", 30),
         };
@@ -63,8 +64,11 @@ public static class Simulator
         if (!o.Has("no-ideal"))
             world.Ideal = IdealLine.Load(Path.Join(Path.GetDirectoryName(Path.GetDirectoryName(Program.FastLanePath(trackRoot, layout)))!, "data", "ideal_line.ai"), line);
         if (!o.Has("no-surfaces")) world.OffTrack = RoadSurface.Load(trackRoot, layout, valid: false);
+        if (o.Has("physics") && !o.Has("no-road")) world.Road = RoadSurface.Load(trackRoot, layout);
         if (o.Get("step") != null) world.MaxStep = o.Float("step", 0.025f);
         world.MeasureJumps = o.Has("jumps");
+        int contactLines = 0;
+        if (o.Has("contacts")) world.ContactLog = l => { if (contactLines++ < 40) Console.WriteLine("contact " + l); };
         var pitPath = Path.Join(Path.GetDirectoryName(Program.FastLanePath(trackRoot, layout))!, "pit_lane.ai");
         if (File.Exists(pitPath) && !o.Has("no-pits"))
         {
@@ -331,8 +335,10 @@ public static class Simulator
         if (!hotlap)
         {
             // held up: best race lap against the lap time the bot's strength gives (traffic costs time, the faster drivers stuck in trains most)
-            var loss = world.Bots.Where(b => b.BestLapSeconds < 1e6f && calibrations.ContainsKey(b.Car))
-                .Select(b => (b, l: b.BestLapSeconds - calibrations[b.Car].LapTimeFor(b.Driver.Level))).OrderByDescending(x => x.l).ToList();
+            // (bots driving with the vehicle model have a copy of their car spec: found by the model)
+            StrengthCalibration? CalOf(CarSpec c) => calibrations.TryGetValue(c, out var k) ? k : calibrations.FirstOrDefault(x => x.Key.Model == c.Model).Value;
+            var loss = world.Bots.Where(b => b.BestLapSeconds < 1e6f && CalOf(b.Car) != null)
+                .Select(b => (b, l: b.BestLapSeconds - CalOf(b.Car)!.LapTimeFor(b.Driver.Level))).OrderByDescending(x => x.l).ToList();
             if (loss.Count > 0)
                 Console.WriteLine($"held up: best lap vs strength target avg +{loss.Average(x => x.l):F2} s, median +{loss[loss.Count / 2].l:F2} s, " +
                                   $"over 2 s: {loss.Count(x => x.l > 2)} of {loss.Count}; worst " +
@@ -595,6 +601,7 @@ public static class Simulator
     {
         private readonly RaceWorld _w;
         private int _overlapFrames, _offTrackFrames, _frames;
+        private readonly List<string> _overlapLog = new();
         private float _maxPenetration, _maxLatSpeed, _maxOffTrack;
         private readonly long[] _pedals = new long[6];
         private readonly Dictionary<int, int> _order = new();
@@ -734,6 +741,8 @@ public static class Simulator
                     float latPen = (a.Car.Width + b.Car.Width) / 2 - dOff;
                     if (longPen > 0.05f && latPen > 0.05f)
                     {
+                        if (_overlapFrames % 25 == 0 && _overlapLog.Count < 12)
+                            _overlapLog.Add(FormattableString.Invariant($"  {now,7:F1}s overlap {a.Name}/{b.Name} long {longPen:F2} lat {latPen:F2} at {sa:F0} m, v {a.Speed * 3.6f:F0}/{b.Speed * 3.6f:F0} km/h, off {a.Offset:F2}/{b.Offset:F2}, mistake {a.Mistake}/{b.Mistake}, phys {(a.Phys != null ? 1 : 0)}/{(b.Phys != null ? 1 : 0)}"));
                         _overlapFrames++;
                         _maxPenetration = MathF.Max(_maxPenetration, MathF.Min(longPen, latPen));
                     }
@@ -764,6 +773,7 @@ public static class Simulator
             long tot = Math.Max(1, _pedals.Sum());
             Console.WriteLine($"pedals: full throttle {_pedals[0] * 100 / tot} %, part throttle {_pedals[1] * 100 / tot} %, coasting {_pedals[2] * 100 / tot} %, " +
                               $"light brake {_pedals[3] * 100 / tot} %, medium {_pedals[4] * 100 / tot} %, hard {_pedals[5] * 100 / tot} %");
+            foreach (var l in _overlapLog) Console.WriteLine(l);
             Console.WriteLine($"overlap frames {_overlapFrames} (max penetration {_maxPenetration:F2} m), off-track frames {_offTrackFrames} (max {_maxOffTrack:F2} m), " +
                               $"position changes {_positionChanges / 2}, max lateral speed {_maxLatSpeed:F1} m/s, frames {_frames}");
             Console.WriteLine($"flashes: {_w.Bots.Sum(b => b.FlashCount)} ({string.Join(", ", _w.Bots.Where(b => b.FlashCount > 0).Select(b => $"{b.Driver.Personality.Name} {b.FlashCount}"))})");

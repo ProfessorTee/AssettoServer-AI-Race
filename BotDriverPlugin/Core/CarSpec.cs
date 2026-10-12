@@ -116,6 +116,34 @@ public sealed class CarSpec
     public float BodyRepairTime { get; set; } = 20f;
     public float SuspRepairTime { get; set; } = 30f;
 
+    /// <summary>Data for the vehicle model (<see cref="RaceWorldSettings.PhysicsDriving"/>), null when the car's data files are missing.</summary>
+    public Physics.VehicleData? Physics { get; set; }
+    /// <summary>True for the copy whose grip and braking numbers were measured on the vehicle model (<see cref="ForPhysics"/>).</summary>
+    public bool PhysicsTuned { get; private set; }
+    private CarSpec? _physicsCopy;
+
+    /// <summary>
+    /// This car with the grip the AC AI plans its corners with (the tyres' plain friction with the load transfer, Physics.Envelope.PlanLateral)
+    /// and the braking the vehicle model really has (measured), for the racecraft to plan with.
+    /// </summary>
+    public CarSpec ForPhysics()
+    {
+        if (Physics == null || PhysicsTuned) return this;
+        lock (this)
+        {
+            if (_physicsCopy != null) return _physicsCopy;
+            var e = BotDriverPlugin.Core.Physics.Envelope.Measure(Physics, 1f, ai: true, plan: true);
+            var c = Clone();
+            c.LateralGrip = e.Grip;
+            c.Downforce = e.Downforce;
+            c.BrakeGrip = e.BrakeGrip;
+            c.AeroBrake = e.AeroBrake;
+            c.PhysicsTuned = true;
+            c.Source = $"{Source}, physics: {e.LatSlow / G:F2} g at 80 km/h, {e.LatFast / G:F2} g at 200 km/h, braking {e.BrakeGrip:F2} g";
+            return _physicsCopy = c;
+        }
+    }
+
     /// <summary>All compounds of tyres.ini (empty when unknown) and the default one (the car's grip, wear and temperature above are its).</summary>
     public List<Compound> Compounds { get; set; } = [];
     public Compound? DefaultCompound { get; set; }

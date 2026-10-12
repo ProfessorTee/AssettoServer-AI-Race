@@ -65,7 +65,7 @@ public sealed class FieldStrength
     private static string CalibrationBaseKey(string trackKey, RacingLine line, CarSpec spec, RaceWorldSettings s, string variant)
         => Hash(string.Join("|", trackKey, line.Length.ToString("F1", CultureInfo.InvariantCulture),
             spec.Model, variant, spec.TopSpeed, spec.DragCoefficient, spec.LateralGrip, spec.BrakeGrip, spec.ReferenceMass, spec.FuelCapacity,
-            s.HumanErrors, s.LineErrors, s.Spins, s.GrassMoments, s.UseTrackHints, s.EdgeMargin, s.TyreWearScale, RaceWorld.DefaultStep));
+            s.HumanErrors, s.LineErrors, s.Spins, s.GrassMoments, s.UseTrackHints, s.EdgeMargin, s.TyreWearScale, RaceWorld.DefaultStep, s.PhysicsDriving, s.PhysicsCorneringGrip, s.PhysicsPlanGrip));
 
     // still cache/raceai/ (the folder of the Race AI plugin this was before): existing calibrations stay valid
     private static string CalibrationDir(string trackKey) => Path.Join("cache", "raceai", trackKey);

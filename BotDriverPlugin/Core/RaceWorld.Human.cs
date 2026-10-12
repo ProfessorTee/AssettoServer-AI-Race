@@ -538,6 +538,7 @@ public sealed partial class RaceWorld
         other.LastContactWith = me.Id;
         me.ContactCount++;
         other.ContactCount++;
+        ContactLog?.Invoke(FormattableString.Invariant($"{_now,7:F1}s {(sideBySide ? "side" : "rear")} {me.Name}/{other.Name} at {Line.WrapS((float)me.Distance):F0} m, v {me.Speed * 3.6f:F0}/{other.Speed * 3.6f:F0}, off {me.Offset:F2}/{other.Offset:F2} tgt {me.TargetOffset:F2}/{other.TargetOffset:F2}, closing {closing:F2}, k {Line.CurvatureAt(Line.WrapS((float)me.Distance)):F4}, ot {me.OvertakeTargetId}/{other.OvertakeTargetId}, mistake {me.Mistake}/{other.Mistake}"));
 
         if (sideBySide)
         {

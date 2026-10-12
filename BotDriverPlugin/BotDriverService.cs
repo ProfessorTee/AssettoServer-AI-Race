@@ -165,6 +165,8 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
             HeightOffset = _config.HeightOffset,
             CoolDownPace = _config.CoolDownPace,
             UseTrackHints = _config.UseTrackHints,
+            PhysicsDriving = _config.PhysicsDriving,
+            PhysicsCorneringGrip = Math.Clamp(_config.PhysicsCorneringGrip, 0.8f, 1.5f),
             SlipstreamStrength = 0.35f * _config.SlipstreamStrength,
             YellowFlags = _config.YellowFlags,
             ImpatienceTime = _config.ImpatienceSeconds,
@@ -202,6 +204,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
             PitLane = _config.PitStops ? _track.PitLane : null,
             Heights = _track.Heights,
             OffTrack = _track.OffTrack,
+            Road = _track.Road,
             Ideal = _track.Ideal,
             UnstuckAfter = _config.UnstuckSeconds,
             GhostAfter = _config.GhostAfterSeconds

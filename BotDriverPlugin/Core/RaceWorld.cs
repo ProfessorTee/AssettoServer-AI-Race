@@ -106,7 +106,7 @@ public sealed class RaceBot
 {
     public int Id { get; init; }
     public string Name { get; set; } = "";
-    public CarSpec Car { get; init; } = new();
+    public CarSpec Car { get; set; } = new();
     public DriverProfile Driver { get; init; } = new();
     public BotPhase Phase { get; set; } = BotPhase.Hidden;
 
@@ -282,6 +282,14 @@ public sealed class RaceBot
     /// <summary>Visual yaw of the car body relative to its direction of travel (rad, + = towards +offset).</summary>
     public float Yaw { get; internal set; }
     internal float SteerExtraDeg, RearSlip = 1f;
+    /// <summary>Vehicle model state while driving with physics (null = kinematic).</summary>
+    internal Physics.VehicleState? Phys;
+    /// <summary>The AC AI driver's own state (steering PID, genome) when driving with the vehicle model.</summary>
+    internal PhysicsDriver? PhysAi;
+    /// <summary>A car alongside (last Think).</summary>
+    internal bool Alongside;
+    /// <summary>The corner that limits the speed now (last <see cref="RaceWorld.LineSpeedLimit"/>): how far ahead and its speed.</summary>
+    internal float LimitDist = float.PositiveInfinity, LimitSpeed;
     internal bool FrontLock;
     internal double MarginOverrideUntil;
     /// <summary>Stuck in a cluster of stopped cars: sorting it out.</summary>
@@ -339,6 +347,8 @@ public sealed class RaceBot
     internal float LineShiftNow;
     internal float MisjudgeTowards;
     internal double LastContactAt = double.NegativeInfinity;
+    /// <summary>Last time the car overlapped another one (touching).</summary>
+    internal double LastOverlapAt = double.NegativeInfinity;
     internal int LastContactWith = -1;
     public int MistakeCount { get; internal set; }
     public int SpinCount { get; internal set; }
@@ -441,6 +451,15 @@ public sealed class RaceWorldSettings
     public float CoolDownPace { get; set; } = 0.6f;
     /// <summary>Respect the track's ai_hints.ini (slower sections / max speeds), like the Kunos AI does.</summary>
     public bool UseTrackHints { get; set; } = true;
+    /// <summary>Drive with the vehicle model (Core/Physics) instead of setting speeds directly. Prototype.</summary>
+    public bool PhysicsDriving { get; set; }
+    /// <summary>Vehicle model: scale on the AI's extra lateral grip (the car's ai.ini ULTRA_GRIP, AC default 1.2). 1 = like the AC AI.</summary>
+    public float PhysicsCorneringGrip { get; set; } = 1f;
+    /// <summary>
+    /// Vehicle model: share of the measured steady-state grip (without the AI's extra grip) the racecraft plans corners with. The AC AI
+    /// plans with the plain tyre grip and keeps the ultra grip as its reserve.
+    /// </summary>
+    public float PhysicsPlanGrip { get; set; } = 1f;
     /// <summary>Overall grip of the track surface (dynamic track grip, rain). 1 = dry, fully rubbered in.</summary>
     public float GripFactor { get; set; } = 1f;
     /// <summary>Maximum share of aero drag removed when directly behind another car (0 = no slipstream).</summary>
@@ -538,6 +557,8 @@ public sealed partial class RaceWorld
     public LineHeights? Heights { get; set; }
     /// <summary>Surfaces beside the track (null: every run-off is grass).</summary>
     public RoadSurface? OffTrack { get; set; }
+    /// <summary>Every bot contact (test tool).</summary>
+    public Action<string>? ContactLog { get; set; }
     /// <summary>The track's ideal line (null: only the AI line).</summary>
     public IdealLine? Ideal { get; set; }
 
@@ -972,6 +993,8 @@ public sealed partial class RaceWorld
 
         foreach (var bot in Bots)
         {
+            // with the vehicle model the racecraft plans with what the physics car can really do
+            if (Settings.PhysicsDriving && bot.Car.Physics != null && !bot.Car.PhysicsTuned) bot.Car = bot.Car.ForPhysics();
             switch (bot.Phase)
             {
                 case BotPhase.Racing:
@@ -1093,9 +1116,18 @@ public sealed partial class RaceWorld
         if (_now < bot.MistakeUntil) skill -= 0.08f; // braked too early / too carefully
         if (Settings.RainCaution) skill -= WetFactor() * 0.05f; // careful in the wet
         if (bot.SavingTyres) skill -= 0.012f;
-        float phys = Settings.GripFactor * bot.CarGrip * (bot.Phase == BotPhase.CoolDown ? Settings.CoolDownPace : 1);
+        float phys = Settings.GripFactor * bot.CarGrip * (bot.Phase == BotPhase.CoolDown ? Settings.CoolDownPace : 1) * (bot.Phys != null ? Settings.PhysicsPlanGrip : 1);
         float pace = DriverProfile.CornerSkill(skill) * phys;
         float brakePace = DriverProfile.BrakeSkill(skill) * phys;
+        // AC AI's genome: its push differs a little in every 5 % of the lap
+        if (bot.PhysAi is { } pa)
+        {
+            float g = pa.GenomeAt(Line.WrapS((float)bot.Distance), Line.Length);
+            // and with a car alongside it pushes less (AC: × (1 − 0.1·(n − 1)) for n cars side by side)
+            if (bot.Alongside) g *= 0.9f;
+            pace *= g;
+            brakePace *= g;
+        }
 
         float v = MathF.Max(bot.Speed, 10);
         float horizon = v * v / (2 * car.BrakeAt(0, brakePace, bot.MassRatio)) + 40;
@@ -1106,6 +1138,7 @@ public sealed partial class RaceWorld
         float step = MathF.Max(Line.Spacing, 2f);
         bool plan = bot.PlanActive && bot.Phase == BotPhase.Racing;
         bool shifted = plan && (bot.LineShiftNow != 0 || bot.PlanKind != CornerLineKind.Clean);
+        bot.LimitDist = float.PositiveInfinity;
 
         for (float d = 0; d <= horizon; d += step)
         {
@@ -1170,7 +1203,12 @@ public sealed partial class RaceWorld
             if (bot.Phase == BotPhase.Racing && v - vLim > 5)
                 margin = plan && (inPlan || Line.Delta(s0 + d, bot.PlanStartS) >= 0) ? bot.PlanBrakeMargin : DriverProfile.BrakeMargin(skill);
             float allowed = MathF.Sqrt(vLim * vLim + 2 * decel * MathF.Max(0, d - margin));
-            if (allowed < best) best = allowed;
+            if (allowed < best)
+            {
+                best = allowed;
+                bot.LimitDist = d;
+                bot.LimitSpeed = vLim;
+            }
         }
 
         return best;
@@ -1749,6 +1787,7 @@ public sealed partial class RaceWorld
         MistakeThink(me, ref vTarget);
         if (sc) vTarget = MathF.Min(vTarget, Settings.SafetyCarSpeed);
         me.TargetSpeed = MathF.Max(0, vTarget);
+        me.Alongside = alongside;
         if (me.Id == TraceBotId && Trace != null && _now - _lastTrace >= 0.5)
         {
             _lastTrace = _now;
@@ -1920,9 +1959,13 @@ public sealed partial class RaceWorld
         => me.Clone != null ? me.Car.Width / 2 - CloneProfile.KerbLimit + 0.2f : MathF.Max(0, -EdgeMarginFor(me)) + 0.05f;
 
     /// <summary>Room left to a car alongside: the personality's (careful drivers leave more, aggressive ones squeeze), never less to players.</summary>
+    private const float PhysicsSideRoom = 0.5f;
+
     private float SideMarginFor(RaceBot me, in Neighbor o)
     {
         float room = me.Clone != null ? 0 : me.Driver.Personality.Room;
+        // a car driven by the vehicle model doesn't hit its line to the centimetre (it cuts a tight corner by a metre or so): more room
+        if (me.Phys != null) room += PhysicsSideRoom;
         return o.IsBot ? MathF.Max(0.05f, Settings.SideMargin + room) : MathF.Max(Settings.SideMargin, Settings.PlayerSideMargin) + MathF.Max(0, room) * 0.5f;
     }
 
@@ -1981,6 +2024,8 @@ public sealed partial class RaceWorld
 
     private void Integrate(RaceBot me, float dt)
     {
+        if (UsesPhysics(me)) { PhysicsIntegrate(me, dt); return; }
+        me.Phys = null;
         float phys = Settings.GripFactor * me.CarGrip;
         float skill = me.Driver.Pace + me.PaceNoise + me.PaceBoost + me.DayForm;
         float pace = DriverProfile.CornerSkill(skill) * phys;
@@ -2144,6 +2189,9 @@ public sealed partial class RaceWorld
 
                 float longPen = longClear - MathF.Abs(ds);
                 float latPen = latClear - MathF.Abs(dOff);
+                // touching: the AC AI's spring to its line rests for a second (AC: car+0x3508, the last collision)
+                me.LastOverlapAt = _now;
+                if (o.IsBot) o.Bot!.LastOverlapAt = _now;
 
                 if (o.IsBot && latPen > 0.03f && longPen > 0.05f)
                 {
@@ -2386,8 +2434,8 @@ public sealed partial class RaceWorld
             float r = 1f / MathF.Abs(k) - bot.Offset * MathF.Sign(k);
             k = MathF.Sign(k) / MathF.Max(r, 4f);
         }
-        float wheel = MathF.Atan(bot.Car.Wheelbase * k) * 180 / MathF.PI;
-        wheel = Math.Clamp(wheel + bot.SteerExtraDeg, -32, 32);
+        float wheel = bot.Phys is { } vs ? vs.Steer * 180 / MathF.PI : MathF.Atan(bot.Car.Wheelbase * k) * 180 / MathF.PI + bot.SteerExtraDeg;
+        wheel = Math.Clamp(wheel, -32, 32);
 
         var (gear, rpm) = GearAndRpm(bot);
         // launch: revs held up by the slipping clutch (and the spinning wheels), or dropping when it bogs down

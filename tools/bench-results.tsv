@@ -55,3 +55,10 @@
 2026-10-11	d2b2163+	LN default (seeds +100)	0.72	470	82	11.92	327	12
 2026-10-11	d2b2163+	LN 88+-8 (seeds +100)	0.14	609	94	18.02	350	22
 2026-10-11	d2b2163+	LN rev grid 87+-7 (seeds +100)	2.61	869	182	29.44	562	30
+2026-10-12	f609e31+	AC model: kinematic check	0.63	492	122	11.02	312	14
+2026-10-12	f609e31+	AC model: physics	3.24	420	282	34.58	305	114
+2026-10-12	f609e31+	AC model: physics, contact bounce	2.85	420	164	36.10	305	86
+2026-10-12	f609e31+	AC model: physics, start fix	3.22	461	286	28.51	274	82
+2026-10-12	f609e31+	AC model: physics, push alongside	3.24	463	204	29.87	271	102
+2026-10-12	f609e31+	AC model: physics, side room 0.5	3.58	447	124	29.39	265	26
+2026-10-12	f609e31+	check uncommitted physics work (kinematic)	0.63	492	122	11.02	312	14
