@@ -571,15 +571,24 @@ public sealed partial class RaceWorld
             var p0 = Line.PositionAt(ws, 0);
             var p = Line.PositionAt(ws, wn);
             float bump = 0, grip = 1;
-            if (Road != null && Road.HeightAt(p0.X, p0.Z, p0.Y) is { } h0 && Road.HeightAt(p.X, p.Z, p.Y + h0 - p0.Y) is { } hw)
+            float? h0 = Road?.HeightAt(p0.X, p0.Z, p0.Y);
+            float baseY = p.Y + (h0 ?? p0.Y) - p0.Y; // the line's road plane under the wheel
+            if (Road != null && h0 != null && Road.HeightAt(p.X, p.Z, baseY) is { } hw)
             {
-                bump = hw - h0 - (p.Y - p0.Y);
-                // more than 10 cm off the line's road plane is a mesh artefact (another surface found, a seam), not a bump or kerb
-                if (MathF.Abs(bump) > 0.1f) bump = 0;
-                if (Road.SurfaceAt(p.X, p.Z, p.Y + h0 - p0.Y) is { } rs) grip = rs.Friction;
+                var rs = Road.SurfaceAt(p.X, p.Z, baseY);
+                bump = hw - baseY;
+                // further off the line's road plane than a kerb (25 cm) or, on plain road, 10 cm is a mesh artefact (another surface, a seam)
+                bool kerb = rs?.Key.Contains("KERB", StringComparison.OrdinalIgnoreCase) == true;
+                if (MathF.Abs(bump) > (kerb ? 0.25f : 0.1f)) bump = 0;
+                if (rs != null) grip = rs.Value.Friction;
             }
-            else if (OffTrack != null && OffTrack.SurfaceAt(p.X, p.Z, p.Y) is { } surf)
-                grip = surf.Friction;
+            else if (OffTrack != null && OffTrack.HeightAt(p.X, p.Z, baseY) is { } ho)
+            {
+                // beside the road: the grass/gravel's own height (ditches, banks) up to 30 cm, its grip
+                bump = ho - baseY;
+                if (MathF.Abs(bump) > 0.3f) bump = 0;
+                if (OffTrack.SurfaceAt(p.X, p.Z, baseY) is { } surf) grip = surf.Friction;
+            }
             st.Road[i] = bump;
             st.RoadGrip[i] = grip;
         }
