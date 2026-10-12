@@ -94,7 +94,7 @@ public static class Simulator
                 Id = i,
                 Name = BotNames.Default[i % BotNames.Default.Length],
                 Car = spec,
-                Driver = DriverProfile.FromStrength(strengths[i], cal.PaceFor(strengths[i]), aggr)
+                Driver = DriverProfile.FromStrength(strengths[i], StrengthCalibration.PaceFor(strengths[i]), aggr)
             };
             world.Bots.Add(bot);
             if (info.PitBoxes.FindIndex(p => p.Index == i) is var bi and >= 0 && info.PitBoxes[bi] is var box)

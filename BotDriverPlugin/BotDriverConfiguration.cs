@@ -35,11 +35,6 @@ public enum PlayerGridPosition
     Middle
 }
 
-public enum StrengthReference
-{
-    Field,
-    Car
-}
 
 public enum StrengthDistribution
 {
@@ -84,15 +79,13 @@ public class BotDriverConfiguration : IValidateConfiguration<BotDriverConfigurat
                               "Keep EnableAi in extra_cfg.yml switched off, otherwise the traffic AI takes over these slots.")]
     public List<int> BotSlots { get; set; } = [];
 
-    [YamlMember(Description = "AI strength in percent of the lap the AC AI drives at level 100 % (95 = lap time / 0.95). Turned into the AC AI level per car")]
+    [YamlMember(Description = "AI strength in percent = the AC AI level, as in single player (95 = AI_LEVEL 95)")]
     public float AiStrength { get; set; } = 94;
 
     [YamlMember(Description = "+/- range around AiStrength that is spread over the bots, e.g. 94 +/- 3 gives bots from 91 to 97 %")]
     public float AiStrengthSpread { get; set; } = 3;
 
-    [YamlMember(Description = "What 100 % means: Field = the median best lap of all bot cars (same strength = same lap time in every car, like a BoP), " +
-                              "Car = each car's own best lap")]
-    public StrengthReference AiStrengthReference { get; set; } = StrengthReference.Field;
+    [YamlMember(DefaultValuesHandling = DefaultValuesHandling.OmitNull)] public object? AiStrengthReference { get; set; }
 
     [YamlMember(Description = "How the range is spread: Even (evenly spaced, e.g. 80 +/- 10 with 5 bots = 70, 75, 80, 85, 90, shuffled over the bots) or Random")]
     public StrengthDistribution AiStrengthDistribution { get; set; } = StrengthDistribution.Even;

@@ -39,7 +39,7 @@ public static class SelfTest
         Check($"strength spread [{string.Join(", ", dist)}]", dist.SequenceEqual(new[] { 70f, 75f, 80f, 85f, 90f }));
         var car = TestCar();
         var calib = StrengthCalibration.Measure(line, car, new RaceWorldSettings());
-        float l95 = calib.PaceFor(95), l90 = calib.PaceFor(90);
+        float l95 = StrengthCalibration.PaceFor(95), l90 = StrengthCalibration.PaceFor(90);
         Check($"calibration level 1 = {calib.BestLap:F1} s, 95 % -> level {l95:F3}, 90 % -> level {l90:F3}", l95 < 1 && l90 < l95 && l90 > 0.3f);
         float lap95 = StrengthCalibration.FlyingLap(line, car, l95, new RaceWorldSettings());
         Check($"95 % drives {lap95:F1} s (target {calib.LapTimeFor(95):F1} s)", MathF.Abs(lap95 - calib.LapTimeFor(95)) < 1.0f);
@@ -87,7 +87,7 @@ public static class SelfTest
     }
 
     private static RaceBot NewBot(int id, CarSpec car, StrengthCalibration cal, float strength, float aggression = 50)
-        => new() { Id = id, Name = $"Bot {id}", Car = car, Driver = DriverProfile.FromStrength(strength, cal.PaceFor(strength), aggression) };
+        => new() { Id = id, Name = $"Bot {id}", Car = car, Driver = DriverProfile.FromStrength(strength, StrengthCalibration.PaceFor(strength), aggression) };
 
     /// <summary>A race of 8 bots, slowest first: everybody finishes, no deep overlaps, nothing NaN, the mistakes happen.</summary>
     private static void RaceTest(RacingLine line, StrengthCalibration cal, Options o)

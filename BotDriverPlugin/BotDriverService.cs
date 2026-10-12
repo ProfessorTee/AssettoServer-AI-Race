@@ -267,7 +267,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
                 slotIndex, entryCar.Model, bot.Name, strength, aggression);
         }
 
-        if (_config.AiStrengthReference == StrengthReference.Field && _field.AnyCalibrations)
+        if (_field.AnyCalibrations)
             _field.ApplyCalibrations(world, log: true);
 
         foreach (var bot in world.Bots.OrderByDescending(b => b.Driver.Level).Where(_ => DebugOn))

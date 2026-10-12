@@ -2,9 +2,8 @@ using TrackGeometry;
 namespace BotDriverPlugin.Core;
 
 /// <summary>
-/// Turns an AI strength in percent into the AC AI's level, per car:
-/// 100 % = the lap the AI drives at level 1 on this track, 95 % = a lap time of that / 0.95, and so on.
-/// Measured once per car by driving simulated flying laps at a few levels.
+/// The flying lap times of a car at a few AC AI levels (strength in % = AI level, as in AC), for the target laps and the
+/// fuel and tyre use. Measured once per car by driving simulated flying laps.
 /// </summary>
 public sealed class StrengthCalibration
 {
@@ -73,33 +72,17 @@ public sealed class StrengthCalibration
         return new StrengthCalibration(saved.LapTimes);
     }
 
-    /// <summary>Target lap time for a strength in percent.</summary>
-    public float LapTimeFor(float strengthPercent, float? referenceBestLap = null)
-        => (referenceBestLap ?? BestLap) / Math.Clamp(strengthPercent / 100f, 0.3f, 1.2f);
+    /// <summary>The AC AI level for a strength: like AC's AI_LEVEL, 95 % = level 0.95 (above 100 % the push goes past AC's maximum).</summary>
+    public static float PaceFor(float strengthPercent) => Math.Clamp(strengthPercent / 100f, 0.25f, 1.1f);
 
-    /// <summary>AI level that gives the lap time of <paramref name="strengthPercent"/>.</summary>
-    public float PaceFor(float strengthPercent, float? referenceBestLap = null)
+    /// <summary>The flying lap at a strength's AI level (interpolated in the measured table, extrapolated past it).</summary>
+    public float LapTimeFor(float strengthPercent)
     {
-        float target = LapTimeFor(strengthPercent, referenceBestLap);
-        // lap time falls with pace: interpolate / extrapolate in the table
-        for (int i = 0; i < Paces.Length - 1; i++)
-        {
-            if (target <= _lapTimes[i] && target >= _lapTimes[i + 1])
-            {
-                float t = (_lapTimes[i] - target) / MathF.Max(1e-3f, _lapTimes[i] - _lapTimes[i + 1]);
-                return Paces[i] + (Paces[i + 1] - Paces[i]) * t;
-            }
-        }
-        if (target > _lapTimes[0])
-        {
-            float slope = (Paces[1] - Paces[0]) / MathF.Max(1e-3f, _lapTimes[0] - _lapTimes[1]);
-            return MathF.Max(0.25f, Paces[0] - (target - _lapTimes[0]) * slope);
-        }
-        {
-            int n = Paces.Length;
-            float slope = (Paces[n - 1] - Paces[n - 2]) / MathF.Max(1e-3f, _lapTimes[n - 2] - _lapTimes[n - 1]);
-            return MathF.Min(1.08f, Paces[n - 1] + (_lapTimes[n - 1] - target) * slope);
-        }
+        float pace = PaceFor(strengthPercent);
+        int i = 0;
+        while (i < Paces.Length - 2 && pace > Paces[i + 1]) i++;
+        float t = (pace - Paces[i]) / (Paces[i + 1] - Paces[i]);
+        return MathF.Max(_lapTimes[^1] * 0.95f, _lapTimes[i] + (_lapTimes[i + 1] - _lapTimes[i]) * t);
     }
 
     /// <summary>

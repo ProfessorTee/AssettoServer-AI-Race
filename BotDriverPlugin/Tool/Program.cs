@@ -354,7 +354,7 @@ public static class Program
             Console.WriteLine($"{model}: best lap {Simulator.Fmt(cal.BestLap)} ({sw.ElapsedMilliseconds} ms wall, {cpu.TotalMilliseconds:F0} ms CPU, " +
                               $"{(GC.GetTotalAllocatedBytes() - alloc) / 1048576} MB allocated, GC {GC.CollectionCount(0) - gc0}/{GC.CollectionCount(2) - gc2}), table {string.Join(" ", cal.LapTimes.Select(Simulator.Fmt))}");
             foreach (var pct in new[] { 100f, 97, 95, 94, 92, 90, 85, 80, 75, 70 })
-                Console.WriteLine($"   {pct,4:F0} % -> AI level {cal.PaceFor(pct):F3}  target {Simulator.Fmt(cal.LapTimeFor(pct))}");
+                Console.WriteLine($"   {pct,4:F0} % -> AI level {StrengthCalibration.PaceFor(pct):F3}  target {Simulator.Fmt(cal.LapTimeFor(pct))}");
         }
         return 0;
     }

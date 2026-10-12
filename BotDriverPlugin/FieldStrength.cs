@@ -29,9 +29,6 @@ public sealed class FieldStrength
     private readonly BotRace _race;
     private readonly ConfigWriter _configWriter;
     private readonly Dictionary<CarSpec, StrengthCalibration> _calibrations = new();
-    private float? _referenceBestLap;
-    /// <summary>The lap time of 100 % (median of the bot cars), null when every car has its own.</summary>
-    public float? ReferenceBestLap => _referenceBestLap;
 
     public FieldStrength(BotRace race, ConfigWriter configWriter)
     {
@@ -131,17 +128,9 @@ public sealed class FieldStrength
         return cal;
     }
 
-    /// <summary>100 % reference (median best lap of the bot cars) and every bot's pace from its strength.</summary>
+    /// <summary>Every bot's AI level from its strength (once its car is calibrated).</summary>
     public void ApplyCalibrations(RaceWorld world, bool log)
     {
-        if (_config.AiStrengthReference == StrengthReference.Field && _calibrations.Count > 0)
-        {
-            var bests = _calibrations.Values.Select(c => c.BestLap).OrderBy(x => x).ToList();
-            _referenceBestLap = bests[bests.Count / 2];
-            if (log)
-                Log.Information("BotDriver: 100 % = {Lap} (median best lap of the bot cars); e.g. 95 % = {Lap95}, 90 % = {Lap90}",
-                    FormatLap(_referenceBestLap.Value), FormatLap(_referenceBestLap.Value / 0.95f), FormatLap(_referenceBestLap.Value / 0.9f));
-        }
         foreach (var bot in world.Bots)
             if (_calibrations.TryGetValue(bot.Car, out var cal))
                 ApplyStrength(bot, bot.Driver.Level, cal);
@@ -316,7 +305,7 @@ public sealed class FieldStrength
     public void ApplyStrength(RaceBot bot, float strength, StrengthCalibration cal)
     {
         bot.Driver.Level = strength;
-        bot.Driver.Pace = cal.PaceFor(strength, _referenceBestLap);
+        bot.Driver.Pace = StrengthCalibration.PaceFor(strength);
     }
 
     public bool SetFeature(string feature, bool on)
@@ -352,7 +341,7 @@ public sealed class FieldStrength
 
     /// <summary>The lap time a bot aims for at its strength, null without a calibration of its car.</summary>
     public float? TargetLap(RaceBot bot)
-        => _calibrations.TryGetValue(bot.Car, out var cal) ? cal.LapTimeFor(bot.Driver.Level, _referenceBestLap) : null;
+        => _calibrations.TryGetValue(bot.Car, out var cal) ? cal.LapTimeFor(bot.Driver.Level) : null;
 
     public void Stop() => _background.Cancel();
 
