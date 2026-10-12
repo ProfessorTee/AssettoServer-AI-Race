@@ -6,3 +6,6 @@ absolut sicher ist und sie sonst deutlich aufgehalten würden.
 - Vor/nach Fahrverhalten-Änderungen messen: `tools/bench.sh "was geändert"` (18 Rennen parallel, ~1,5 min, Tabelle vorher/nachher in `tools/bench-results.tsv`; einzelne Läufe streuen stark), Selftest muss OK sein.
 - Aufnahmen echter Runden des Nutzers: `~/Downloads/Server_Files/<datum>/recordings/...` (`sim --hotlap --rec <ordner>` vergleicht Bremspunkte und Kurventempo pro Kurve, `--dump` schreibt die Runde als CSV).
 - AC-Pfad: /mnt/GameDrive/SteamLibrary/steamapps/common/assettocorsa. Doku: README.md, UEBERGABE.md.
+- Zwei Varianten: `main` = kinematische Bots (dieses Plugin, wird ausgeliefert). Branch `bots-physics` (Arbeitsordner
+  `~/Projekte/AssettoServer-AI-Race-physics`, git worktree) = Bots mit Fahrphysik nach AC, Analyse und Stand in
+  `BotDriverPlugin/UEBERGABE_AC_KI.md` dort. Racecraft-Verbesserungen aus `main` bei Bedarf in den Branch mergen.
