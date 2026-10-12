@@ -261,6 +261,12 @@ public static class Program
     {
         var (trackRoot, layout, _) = ResolvePaths(o);
         var line = new RacingLine(FastLaneFile.Read(FastLanePath(trackRoot, layout)));
+        {
+            // the line's camber against its own lateral tilt (the poses' roll sign)
+            float dot = 0, cc = 0, ll = 0;
+            for (int i = 0; i < line.Count; i++) { dot += line.Camber[i] * line.Lateral[i].Y; cc += line.Camber[i] * line.Camber[i]; ll += line.Lateral[i].Y * line.Lateral[i].Y; }
+            Console.WriteLine($"camber vs lateral tilt: correlation {dot / MathF.Sqrt(MathF.Max(1e-9f, cc * ll)):F3}, rms camber {MathF.Sqrt(cc / line.Count) * 57.3f:F2}°, rms tilt {MathF.Sqrt(ll / line.Count) * 57.3f:F2}°");
+        }
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var road = RoadSurface.Load(trackRoot, layout);
         if (road == null) { Console.WriteLine("no road meshes"); return 1; }

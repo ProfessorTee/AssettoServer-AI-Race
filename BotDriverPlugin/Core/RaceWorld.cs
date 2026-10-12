@@ -832,6 +832,8 @@ public sealed partial class RaceWorld
             MathF.Atan2(dir.Z, dir.X) - MathF.PI / 2,
             (MathF.Atan2(new Vector2(dir.Z, dir.X).Length(), dir.Y) - MathF.PI / 2) * -1f,
             Line.CamberAt(s));
+        if (bot.Phys != null && bot.Car.Physics is { } pd && Road != null)
+            OnWheels(ref pos, ref rotation, dir, lat, pd);
 
         float wheel = Math.Clamp((bot.Phys?.Steer ?? 0) * 180 / MathF.PI, -32, 32);
         var (gear, rpm) = GearAndRpm(bot);
@@ -843,6 +845,31 @@ public sealed partial class RaceWorld
             Line.WrapS(s - Settings.StartLineS) / Line.Length,
             throttle, hazards, bot.ClearAhead,
             bot.FrontLock ? 0f : 1f, bot.RearSlip);
+    }
+
+    /// <summary>
+    /// The car standing on the real road under its four wheels (kerbs, crown, bumps; the road mesh, not the AI line's flat road): height from
+    /// their mean, pitch from front against rear, roll from side to side. A wheel off the road stands on the grass/gravel mesh, beyond all meshes on the line's plane.
+    /// </summary>
+    private void OnWheels(ref Vector3 pos, ref Vector3 rotation, Vector3 dir, Vector3 lat, Physics.VehicleData d)
+    {
+        var fh = Vector3.Normalize(new Vector3(dir.X, 0, dir.Z));
+        var side = Vector3.Normalize(new Vector3(-fh.Z, 0, fh.X));
+        if (Vector3.Dot(side, lat) < 0) side = -side;
+        var c = pos;
+        float baseY = c.Y - Settings.HeightOffset;
+        float H(float x, float y)
+        {
+            var p = c + fh * x + side * y;
+            float lineY = baseY + lat.Y * y + dir.Y * x;
+            return Road!.HeightAt(p.X, p.Z, lineY) ?? OffTrack?.HeightAt(p.X, p.Z, lineY) ?? lineY;
+        }
+        float fp = H(d.A, d.TrackFront / 2), fm = H(d.A, -d.TrackFront / 2), rp = H(-d.B, d.TrackRear / 2), rm = H(-d.B, -d.TrackRear / 2);
+        pos.Y = (fp + fm + rp + rm) / 4 + Settings.HeightOffset;
+        rotation.Y = MathF.Atan2((fp + fm - rp - rm) / 2, d.A + d.B);
+        // (the same sign as the line's camber: asin of the lateral's tilt, checked on TM/NS/RBR)
+        float track = (d.TrackFront + d.TrackRear) / 2;
+        rotation.Z = MathF.Asin(Math.Clamp((fp + rp - fm - rm) / 2 / track, -0.5f, 0.5f));
     }
 
     private static Vector3 Rotate(Vector3 dir, Vector3 lat, float yaw)

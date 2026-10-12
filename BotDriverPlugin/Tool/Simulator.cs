@@ -423,7 +423,8 @@ public static class Simulator
         private readonly Dictionary<int, (Vector3 P, Vector3 V, float Yaw, float Rate)> _prev = new();
         private readonly List<float> _jump = new(), _jerk = new(), _slip = new();
         private int _big;
-        private readonly List<float> _lineErr = new();
+        private readonly List<string> _rollAt = new();
+        private readonly List<float> _lineErr = new(), _dz = new(), _roll = new(), _pitch = new();
         private readonly List<(float Slip, string Where)> _worst = new();
 
         public void Sample(RaceWorld world, float dt)
@@ -439,6 +440,11 @@ public static class Simulator
                     float jump = (p.Position - (q.P + q.V * dt)).Length();
                     float rate = MathF.IEEERemainder(yaw - q.Yaw, 2 * MathF.PI) / dt;
                     _jump.Add(jump);
+                    _dz.Add(MathF.Abs(p.Position.Y - q.P.Y - q.V.Y * dt));
+                    float rd = MathF.Abs(p.Rotation.Z - world.Line.CamberAt(world.Line.WrapS((float)b.Distance))) * 57.3f;
+                    _roll.Add(rd);
+                    if (rd > 6 && _rollAt.Count < 400) _rollAt.Add(FormattableString.Invariant($"s={world.Line.WrapS((float)b.Distance):F0} off={b.Offset:F1} roll={p.Rotation.Z * 57.3f:F1} line={world.Line.CamberAt(world.Line.WrapS((float)b.Distance)) * 57.3f:F1} room={world.Line.RoomMinusAt(world.Line.WrapS((float)b.Distance)):F1}/{world.Line.RoomPlusAt(world.Line.WrapS((float)b.Distance)):F1}"));
+                    _pitch.Add(MathF.Abs(p.Rotation.Y) * 57.3f);
                     if (jump > 0.5f) _big++;
                     if (!float.IsNaN(q.Rate)) _jerk.Add(MathF.Abs(rate - q.Rate) * 57.3f);
                     var dir = p.Position - q.P;
@@ -463,6 +469,8 @@ public static class Simulator
         public void Print()
         {
             Console.WriteLine($"poses: extrapolation error m {Q(_jump)}, over 0.5 m {_big}x");
+            Console.WriteLine($"poses: height step m {Q(_dz)}, roll vs line camber deg {Q(_roll)}, |pitch| deg {Q(_pitch)}");
+            foreach (var r in _rollAt.Where((_, i) => i % 25 == 0)) Console.WriteLine("   roll " + r);
             Console.WriteLine($"poses: yaw rate change deg/s per packet {Q(_jerk)}");
             Console.WriteLine($"poses: body vs travel direction deg {Q(_slip)}, over 8° {_worst.Count}x ({100f * _worst.Count / Math.Max(1, _slip.Count):F1} %)");
             Console.WriteLine($"poses: off its wanted line m {Q(_lineErr)}, over 2 m {100f * _lineErr.Count(x => x > 2) / Math.Max(1, _lineErr.Count):F1} %");
