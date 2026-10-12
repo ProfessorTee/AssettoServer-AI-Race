@@ -89,7 +89,7 @@ Physik-Bots im Branch `bots-physics`.
     (`+0x24`) nur, solange der μ-Faktor ≤ 1 ist. Darüber gilt ebenfalls 1,0, also derselbe Effekt. Unter Version 5 gibt es
     keinen Falloff.
 
-**Für BotDriver nicht übertragbar.** Unsere Bots sind kinematisch, Physik-Hilfen gibt es bei uns nicht. Wichtig ist das
+**Auf `main` nicht übertragbar** (kinematische Bots). Im Physik-Fork `bots-physics` sind diese Hilfen nachgebaut (`RaceWorld.Kunos.cs`). Wichtig ist das
 aber für Vergleiche: Die Rundenzeit der AC-KI ist keine faire Messlatte für „menschliche“ Pace.
 
 ### 2. Kurvengeschwindigkeit aus echter Reifenphysik

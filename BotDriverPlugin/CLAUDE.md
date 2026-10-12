@@ -1,4 +1,5 @@
 # Sitzung: BotDriverPlugin
+> Branch `bots-physics`: Physik-Fork, die Bots fahren als Kunos-KI auf einem Fahrzeugmodell (README, UEBERGABE.md „Physik-Fork“).
 Ziel: Bots fahren so realistisch/menschlich wie möglich. Nutzer-Vorlieben: kein freiwilliges Vorbeilassen schnellerer Autos;
 aggressive Fahrer nutzen die ganze Breite und verlieren Plätze nur durch eigene Fehler; Chill-Fahrer überholen nur, wenn es
 absolut sicher ist und sie sonst deutlich aufgehalten würden.

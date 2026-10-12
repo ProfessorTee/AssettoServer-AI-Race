@@ -1,5 +1,9 @@
 # Race-AI für AssettoServer: Übergabe (Stand 28.09.2026, 2. Sitzung, Teil 9)
 
+> **Physik-Fork (`bots-physics`):** Die Teile 1–24 unten sind die Geschichte des kinematischen Plugins auf `main`.
+> Vieles davon (Persönlichkeiten, Klone, Duelle, Übernahme, Gummiband, Safety Car, Flaggen, Ansagen, Linienfehler, Racecraft)
+> gibt es in diesem Fork nicht mehr. Der aktuelle Stand steht am Ende unter „Physik-Fork“ und im README.
+
 ## Status
 - Der Core-Patch und das Plugin **kompilieren** gegen AssettoServer master (Basis `e92d253`, entspricht Release `v0.0.55-pre42`).
 - **End-to-End-Test** mit dem echten Server (linux-x64) und einem simulierten AC-Client (Handshake, Checksummen, UDP, Ping,
@@ -308,3 +312,20 @@ Mit dem .NET 11 SDK (`~/.dotnet`): `tools/build.sh` → kompletter Server in `ou
   Kalibrierung), `RaceAnnouncer` (Chat-Meldungen). Fahrerwechsel (/bot, /play), Rejoin und Klon-Übernahme entfernt (nicht nahtlos ohne
   Eingriffe ins Spiel); dafür `CarTakeover`: verliert ein Spieler im Rennen die Verbindung, fährt ein Bot (Klon, falls aufgezeichnet,
   sonst Stärke nach seiner Bestzeit) sein Auto ins Ziel, ohne Rückgabe.
+
+## Physik-Fork `bots-physics` (Stand 2026-10-12)
+- Entscheidung des Nutzers: `main` bleibt das kinematische Plugin, der Fork fährt „komplett Kunos“: Fahrzeugmodell (`Core/Physics`)
+  plus der aus `acs.exe` nachgebaute AIDriver (`Core/RaceWorld.Kunos.cs`, Details in `UEBERGABE_AC_KI.md`). Behalten: Boxenstopps,
+  Reifen, Sprit, Schaden. Entfernt: alles, was nicht zur Physik passt (siehe Hinweis oben). Alte Konfig-Schlüssel bleiben als
+  wirkungslose `object?`-Stubs, weil der YAML-Lader keine unbekannten Schlüssel duldet.
+- Stärke = KI-Level wie im Einzelspieler (`StrengthCalibration.PaceFor` = Stärke/100); die Kalibrierung liefert nur noch Zielrunden.
+- Grip pro Auto auf den Kunos-Plan kalibriert (`Envelope.Calibrate`, `VehicleData.GripScale` ×1,08–1,14), Stabilitätshilfe (`ExtraMz`).
+- Posen: Richtung aus Linie + Psi, Höhe/Nicken/Wanken aus dem Strecken-Mesh unter allen 4 Rädern (`OnWheels`); Curbs bis 25 cm und
+  Gras-/Kies-Höhe auch in der Physik (`SampleRoad`).
+- Reifen: AC-Wärmemodell und Druck (`TyreHeat`), Bots wählen den Kaltdruck nach Level, Stil (`PressureStyle`), Wetter und dem letzten Stint.
+  Heizdecken nach `TYRE_BLANKETS_ALLOWED`.
+- Start: Gasstöße und Startdrehzahl in der Aufstellung (`GridRevs`), durchdrehende Räder und Fehlstarts nach Level; Strafe nach `START_RULE`
+  (Box oder Durchfahrt, `RequestDriveThrough`).
+- Last laut Nutzer auf dem echten Server: Spitze 2 % CPU, 400 MB RAM bei voller Bot-Zahl.
+- Offen: Start, Fehlstart, Heizdecken und Kerb-Physik nicht im Spiel getestet; Kunos-Fahrer überholt zögerlich; Hinterachse beim harten
+  Anbremsen mit Runterschalten zu nervös; Druck auf Federrate/Flanke, Graining, Blasen nicht nachgebaut.
