@@ -313,19 +313,46 @@ Mit dem .NET 11 SDK (`~/.dotnet`): `tools/build.sh` → kompletter Server in `ou
   Eingriffe ins Spiel); dafür `CarTakeover`: verliert ein Spieler im Rennen die Verbindung, fährt ein Bot (Klon, falls aufgezeichnet,
   sonst Stärke nach seiner Bestzeit) sein Auto ins Ziel, ohne Rückgabe.
 
-## Physik-Fork `bots-physics` (Stand 2026-10-12)
-- Entscheidung des Nutzers: `main` bleibt das kinematische Plugin, der Fork fährt „komplett Kunos“: Fahrzeugmodell (`Core/Physics`)
-  plus der aus `acs.exe` nachgebaute AIDriver (`Core/RaceWorld.Kunos.cs`, Details in `UEBERGABE_AC_KI.md`). Behalten: Boxenstopps,
-  Reifen, Sprit, Schaden. Entfernt: alles, was nicht zur Physik passt (siehe Hinweis oben). Alte Konfig-Schlüssel bleiben als
-  wirkungslose `object?`-Stubs, weil der YAML-Lader keine unbekannten Schlüssel duldet.
-- Stärke = KI-Level wie im Einzelspieler (`StrengthCalibration.PaceFor` = Stärke/100); die Kalibrierung liefert nur noch Zielrunden.
-- Grip pro Auto auf den Kunos-Plan kalibriert (`Envelope.Calibrate`, `VehicleData.GripScale` ×1,08–1,14), Stabilitätshilfe (`ExtraMz`).
-- Posen: Richtung aus Linie + Psi, Höhe/Nicken/Wanken aus dem Strecken-Mesh unter allen 4 Rädern (`OnWheels`); Curbs bis 25 cm und
-  Gras-/Kies-Höhe auch in der Physik (`SampleRoad`).
-- Reifen: AC-Wärmemodell und Druck (`TyreHeat`), Bots wählen den Kaltdruck nach Level, Stil (`PressureStyle`), Wetter und dem letzten Stint.
-  Heizdecken nach `TYRE_BLANKETS_ALLOWED`.
-- Start: Gasstöße und Startdrehzahl in der Aufstellung (`GridRevs`), durchdrehende Räder und Fehlstarts nach Level; Strafe nach `START_RULE`
-  (Box oder Durchfahrt, `RequestDriveThrough`).
-- Last laut Nutzer auf dem echten Server: Spitze 2 % CPU, 400 MB RAM bei voller Bot-Zahl.
-- Offen: Start, Fehlstart, Heizdecken und Kerb-Physik nicht im Spiel getestet; Kunos-Fahrer überholt zögerlich; Hinterachse beim harten
-  Anbremsen mit Runterschalten zu nervös; Druck auf Federrate/Flanke, Graining, Blasen nicht nachgebaut.
+## Physik-Fork `bots-physics` (Stand 2026-10-12 abends, Commit e8dcb0b) — ÜBERGABE FÜR DIE NÄCHSTE SITZUNG
+
+### Wo, wie
+- Worktree `~/Projekte/AssettoServer-AI-Race-physics`, Branch `bots-physics` (gepusht). `main` (`~/Projekte/AssettoServer-AI-Race`) bleibt
+  das kinematische Plugin; dort arbeitet evtl. eine andere Sitzung (WebPortal/Shared) — nur eigene Dateien committen.
+- Nutzer-Regeln: kurz auf Deutsch antworten, Code/Commits Englisch, keine Zwischenmeldungen; Builds/Sims **immer `nice -n 19`**
+  (Nutzer spielt AC am selben PC), alle Kerne ok. Nach jedem getesteten Schritt committen + pushen (Co-Authored-By-Zeilen).
+  Update-Pakete: neuer Ordner `~/Downloads/Server_Files/Update_<n>_Physik_Test/plugins/BotDriverPlugin/BotDriverPlugin.dll` + `LIESMICH.txt`
+  (zuletzt **Update_44**). Bauen: `tools/build.sh` (-> `out-linux-x64/`). Prüfen: `Tool selftest`, `sim ... --poses`, `tools/bench.sh`, `tools/passtest.sh`.
+- Echter Server laut Nutzer: Spitze 2 % CPU, 400 MB RAM bei voller Bot-Zahl → Rechenzeit ist kein Thema, Details dürfen mehr kosten.
+- AC-Binary-Reverse: `acs.exe` + `acs.pdb` unter `/mnt/GameDrive/SteamLibrary/steamapps/common/assettocorsa`; REA-MCP (Ghidra) zum
+  Dekompilieren, Adressen über `llvm-pdbutil dump --publics` (VA = 0x140001000 + Offset), `llvm-objdump -d` für Assembler-Suche.
+  Funde stehen in `UEBERGABE_AC_KI.md` (Fahrer) und in den Kommentaren von `Core/Physics/TyreHeat.cs` (Reifen).
+
+### Aufbau
+- `Core/Physics/`: `Vehicle.cs` (4-Rad-Modell, 300 Hz), `Tyre.cs` (SCTM v10 + Druck/Thermik-Daten), `TyreHeat.cs` (AC-Wärmemodell 12×3+Kern,
+  Druck), `Suspension.cs`, `Envelope.cs` (Messung, `Calibrate` = Grip auf Kunos-Plan), `VehicleData.cs`.
+- `Core/RaceWorld.Kunos.cs`: Kunos-Fahrer (PlanSpeed=getLABraking, Awareness=stepCarsAwareness2, Push/Genom, Humanizer, Decide=stepSteer/
+  stepGasBrake, Hilfen inkl. Stabilitätshilfe `ExtraMz`), `SampleRoad` (Curbs ≤25 cm, Gras-Höhe ≤30 cm).
+- `Core/RaceWorld.cs`: Welt, Start (`GridStart`, `Launch`, `GridRevs`), Posen (`GetPose`, `OnWheels` = 4-Rad-Höhe aus Mesh, geglättet 50 ms),
+  Kontakte (`OnContact` → `Impulse`). `RaceWorld.Damage.cs`: `Impulse`, `ContactPoint`, `BotContact`, Schaden. `RaceWorld.Pit.cs`: Box,
+  Durchfahrtsstrafe. `RaceWorld.Tyres.cs`: Mischung, `ChoosePressures`, Heizdecken.
+- Stärke: `AiStrength` % = KI-Level (`StrengthCalibration.PaceFor`), Kalibrierung nur für Zielrunden.
+
+### Diese Sitzung erledigt (Update 36–44)
+Grip-Kalibrierung, Ausrichtung im Client, Stärke=Level, Posen auf 4 Rädern + Curbs (Physik und Optik), Reifentemperatur/-druck nach AC
+(aus acs.exe), Druckwahl nach Level/Stil/Wetter, Heizdecken nach `TYRE_BLANKETS_ALLOWED`, Start (Hochdrehen im Leerlauf, Durchdrehen und
+Fehlstart nach Level, Strafe nach `START_RULE`), Autos nicht mehr im Boden, Kontakte als Impulse (Drehung), kein Start-Radschlupf mehr per Default,
+README/Doku auf den Fork umgeschrieben.
+
+### Offen / vom Nutzer zuletzt gemeldet (Update 44 noch NICHT vom Nutzer getestet)
+1. **Rauch am Start** — Ursache unklar. Update 43 sendet in der Aufstellung Leerlauf und Raddrehzahl 0, Update 44 nimmt den Kunos-Start-
+   Schlupf raus. Falls weiter Rauch: Zeitpunkt klären (vor/nach Ampel), Telemetrie (`/bots_debug on`) und `BotSlot.WriteStatus`
+   (TyreAngularSpeed, Gear, Gas) prüfen; evtl. leitet CSP Schlupf aus Gas/Drehzahl ab.
+2. **Curbs springen** — jetzt gedämpft (50 ms). Falls weiter unruhig: Federweg aus dem Modell (`st.Travel`, `st.Pitch/Roll`) für die Pose
+   nehmen statt Mesh-Höhen; Vorzeichen am Client prüfen.
+3. **Reaktion auf Treffer** — jetzt Impulse (1,3 × Schließgeschwindigkeit × reduzierte Masse). Am Client prüfen: zu stark/schwach?
+   Spielermasse unbekannt (= Bot-Masse angenommen). `ResolveOverlaps` schiebt Autos weiterhin direkt (Teleport) → ggf. auch als Impuls.
+4. Seit Update 44 im Sim mehr Querstellung (>8°: 2,0 % statt 0,8 %), nicht untersucht (Start-TC-Änderung? höheres Level?).
+5. Kunos-Fahrer überholt zögerlich (passtest ~20/40); Hinterachse beim harten Anbremsen + Runterschalten nervös.
+6. Nicht nachgebaut: Druck auf Federrate/Flanke (Nutzer unsicher, ob sinnvoll), Graining/Blasen.
+7. graphify-Graph des Forks: `graphify-out/` (gitignored), Gemini-Key als fish-Variable `GEMINI_API_KEY` gesetzt (Nutzer sollte ihn rotieren,
+   er stand im Chat).
