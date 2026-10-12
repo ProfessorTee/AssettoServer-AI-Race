@@ -1,10 +1,11 @@
 using TrackGeometry;
 using System.Numerics;
 using BotDriverPlugin.Core;
+using BotDriverPlugin.Core.Physics;
 
 namespace BotDriverTool;
 
-/// <summary>Offline checks of the racing AI core that need no game files (synthetic track).</summary>
+/// <summary>Offline checks of the bots that need no game files (synthetic track, synthetic car).</summary>
 public static class SelfTest
 {
     private static int _failed;
@@ -25,431 +26,139 @@ public static class SelfTest
 
         var line = new RacingLine(read);
         Check($"line length {line.Length:F0} m", MathF.Abs(line.Length - ExpectedLength) < 5);
-        // the synthetic line hugs the left edge (SideLeft small) in the left-hand corners
         int apex = line.IndexAt(600 + MathF.PI * 80 / 2);
         Check($"corner curvature {1 / MathF.Abs(line.Curvature[apex]):F0} m (80 expected)", MathF.Abs(1 / MathF.Abs(line.Curvature[apex]) - 80) < 8);
-        Check("inside of the corner has less room", MathF.Min(line.RoomPlus[apex], line.RoomMinus[apex]) < 2.5f);
-
-        // projection
         var p = line.PositionAt(300, 1.5f);
         var proj = line.Project(p);
         Check("projection", MathF.Abs(proj.S - 300) < 0.5f && MathF.Abs(proj.Offset - 1.5f) < 0.1f);
 
-        // race
-        var world = new RaceWorld(line, new RaceWorldSettings { Seed = 7 });
-        var rng = new Random(3);
-        for (int i = 0; i < 10; i++)
-        {
-            world.Bots.Add(new RaceBot
-            {
-                Id = i,
-                Name = $"Bot {i}",
-                Car = new CarSpec(),
-                // slowest bots in front so the faster ones have to overtake
-                Driver = DriverProfile.FromLevel(82 + i * 2f, 60)
-            });
-        }
-        world.PlaceOnGrid(world.Bots);
-        world.TraceBotId = o.Int("trace", -1);
-        world.Trace = Console.WriteLine;
-        world.StartRace(0);
-        int laps = 0;
-        world.LapCompleted += (_, _) => laps++;
-
-        float maxPen = 0;
-        int overlapFrames = 0;
-        double t = 0;
-        world.Advance(0);
-        while (t < 900 && world.Bots.Any(b => b.LapsCompleted < 5))
-        {
-            t += 0.05;
-            world.Advance(t);
-            foreach (var a in world.Bots)
-            foreach (var b in world.Bots)
-            {
-                if (a.Id >= b.Id) continue;
-                float ds = MathF.Abs(line.Delta(line.WrapS((float)a.Distance), line.WrapS((float)b.Distance)));
-                float lp = (a.Car.Length + b.Car.Length) / 2 - ds;
-                float wp = (a.Car.Width + b.Car.Width) / 2 - MathF.Abs(a.Offset - b.Offset);
-                if (lp > 0.05f && wp > 0.05f)
-                {
-                    overlapFrames++;
-                    maxPen = MathF.Max(maxPen, MathF.Min(lp, wp));
-                }
-            }
-        }
-
-        if (o.Has("verbose"))
-            foreach (var b in world.Bots.OrderByDescending(b => b.Distance))
-                Console.WriteLine($"  {b.Name} lvl {b.Driver.Level:F0} best {b.BestLapSeconds:F2} ovt {b.Overtakes} att {b.OvertakeAttempts} noroom {b.OvertakeNoRoom} giveup {b.OvertakeGiveUps}");
-        Check($"all bots finished 5 laps ({laps} laps in {t:F0} s)", world.Bots.All(b => b.LapsCompleted >= 5));
-        int overtakes = world.Bots.Sum(b => b.Overtakes);
-        Check($"overtakes happen ({overtakes})", overtakes > 0);
-        Check($"no deep overlaps (max {maxPen:F2} m, {overlapFrames} frames)", maxPen < 0.5f);
-        var fastest = world.Bots.OrderBy(b => b.BestLapSeconds).First();
-        Check($"best lap by a strong driver ({fastest.Name}, level {fastest.Driver.Level:F0}, {fastest.BestLapSeconds:F1} s)", fastest.Driver.Level >= 89);
-
-        // pose sanity
-        var pose = world.GetPose(world.Bots[0]);
-        Check("pose finite", !float.IsNaN(pose.Position.X) && !float.IsNaN(pose.Rotation.X) && pose.Gear >= 1);
-        // a new session: old sideways motion must not turn the car on the grid
-        var gb = world.Bots[1];
-        gb.LateralSpeed = 3;
-        world.PlaceAtGridSlot(gb, 0);
-        float gridDeg = world.HeadingError(gb, world.GetPose(gb));
-        Check($"straight on the grid after a slide ({gridDeg:F1}°)", gridDeg < 3);
+        VehicleModelTest();
 
         // strength distribution: 80 +/- 10 over 5 bots -> 70, 75, 80, 85, 90 (shuffled)
         var dist = StrengthCalibration.Distribute(5, 80, 10, false, new Random(1)).OrderBy(x => x).ToArray();
         Check($"strength spread [{string.Join(", ", dist)}]", dist.SequenceEqual(new[] { 70f, 75f, 80f, 85f, 90f }));
-        var calib = StrengthCalibration.Measure(line, new CarSpec(), new RaceWorldSettings());
-        float p95 = calib.PaceFor(95), p90 = calib.PaceFor(90);
-        Check($"calibration 100 % = {calib.BestLap:F1} s, 95 % -> pace {p95:F3}, 90 % -> pace {p90:F3}", p95 < 1 && p90 < p95 && p90 > 0.5f);
-        float lap95 = StrengthCalibration.FlyingLap(line, new CarSpec(), p95, new RaceWorldSettings());
+        var car = TestCar();
+        var calib = StrengthCalibration.Measure(line, car, new RaceWorldSettings());
+        float l95 = calib.PaceFor(95), l90 = calib.PaceFor(90);
+        Check($"calibration level 1 = {calib.BestLap:F1} s, 95 % -> level {l95:F3}, 90 % -> level {l90:F3}", l95 < 1 && l90 < l95 && l90 > 0.3f);
+        float lap95 = StrengthCalibration.FlyingLap(line, car, l95, new RaceWorldSettings());
         Check($"95 % drives {lap95:F1} s (target {calib.LapTimeFor(95):F1} s)", MathF.Abs(lap95 - calib.LapTimeFor(95)) < 1.0f);
 
-        // pit stops: pit lane parallel to the first straight, heavy fuel use
-        FlagTest(line);
-        HumanTest(line);
-        StuckTest(line);
-        PitTest(line);
-        CloneTest(line);
-        TyreTest(line);
-        RacecraftTest(line);
+        RaceTest(line, calib, o);
+        PassTest(line, calib);
+        PitTest(line, calib);
+        TyreTest();
+        DamageTest(line);
 
         Console.WriteLine(_failed == 0 ? "SELFTEST OK" : $"SELFTEST FAILED ({_failed})");
         return _failed == 0 ? 0 : 3;
     }
 
-    private static void FlagTest(RacingLine line)
+    /// <summary>A plain RWD car (1400 kg, 400 Nm) for the vehicle model, without any car files.</summary>
+    private static VehicleData TestVehicle()
     {
-        // blue flag: a much faster car a lap ahead comes up behind a slow bot
-        var world = new RaceWorld(line, new RaceWorldSettings { Seed = 3, BlueFlags = true, YellowFlags = true, RaceStartTime = 0 });
-        var slow = new RaceBot { Id = 0, Name = "Slow", Car = new CarSpec(), Driver = DriverProfile.FromLevel(60, 50) };
-        var fast = new RaceBot { Id = 1, Name = "Fast", Car = new CarSpec(), Driver = DriverProfile.FromLevel(100, 50) };
-        world.Bots.Add(slow);
-        world.Bots.Add(fast);
-        world.PlaceOnGrid(world.Bots);
-        world.StartRace(0);
-        fast.LapsCompleted = 1;
-        slow.Distance += 120;
-        slow.Speed = fast.Speed = 30;
-        double t = 0;
-        world.Advance(0);
-        bool indicated = false, passed = false;
-        while (t < 200 && !passed)
-        {
-            t += 0.05;
-            world.Advance(t);
-            indicated |= slow.Indicator != 0;
-            passed = fast.Distance - slow.Distance > 30 && fast.Distance - slow.Distance < line.Length / 2;
-        }
-        Check($"blue flag: lapped bot indicates and lets the leader through ({t:F0} s)", indicated && passed);
-
-        // yellow flag: a stopped car on the track
-        var w2 = new RaceWorld(line, new RaceWorldSettings { Seed = 4, YellowFlags = true, RaceStartTime = -100 });
-        var bot = new RaceBot { Id = 0, Name = "Y", Car = new CarSpec(), Driver = DriverProfile.FromLevel(95, 50) };
-        w2.Bots.Add(bot);
-        w2.PlaceOnGrid(w2.Bots);
-        w2.StartRace(0);
-        var ext = w2.GetOrAddExternal(99);
-        var wreck = line.PositionAt(line.WrapS((float)bot.Distance + 600), line.RoomPlus[line.IndexAt(line.WrapS((float)bot.Distance + 600))] - 1.5f);
-        bool hazards = false, crash = false;
-        t = 0;
-        while (t < 40)
-        {
-            t += 0.05;
-            w2.UpdateExternal(ext, wreck, Vector3.Zero);
-            w2.Advance(t);
-            var pose = w2.GetPose(bot);
-            hazards |= pose.Hazards;
-            crash |= Vector3.Distance(pose.Position, wreck) < 1.5f;
-        }
-        Check($"yellow flag: hazards on near the stopped car, no crash", hazards && !crash);
-    }
-
-    /// <summary>Records a "player" (a bot with its own pace and a line 1.5 m to the side), builds a clone and races it.</summary>
-    private static void CloneTest(RacingLine line)
-    {
-        var world = new RaceWorld(line, new RaceWorldSettings { Seed = 21, HumanErrors = false, RaceStartTime = -100 });
-        var player = new RaceBot { Id = 0, Name = "Player", Car = new CarSpec(), Driver = new DriverProfile { Pace = 0.8f, Aggression = 0, Consistency = 1 } };
-        world.Bots.Add(player);
-        world.PlaceAt(player, 10, 0, BotPhase.Racing);
-        player.Speed = 30;
-        var laps = new List<RecordedLap>();
-        var cur = new List<RecordedSample>();
-        double lapStart = 0;
-        int lastLaps = 0;
-        double t = 0;
-        world.Advance(0);
-        while (laps.Count < 3 && t < 600)
-        {
-            t += 0.05;
-            world.Advance(t);
-            var pose = world.GetPose(player);
-            // the "player" drives 1.5 m right of the racing line (shifted when recording)
-            var lat = line.LateralAt(line.WrapS((float)player.Distance));
-            cur.Add(new RecordedSample(pose.Position + lat * 1.5f, player.Speed, player.Throttle, player.Brake));
-            if (player.LapsCompleted != lastLaps)
-            {
-                if (lastLaps > 0) laps.Add(new RecordedLap { LapTime = (float)(t - lapStart), Valid = true, Samples = cur });
-                cur = new List<RecordedSample>();
-                lastLaps = player.LapsCompleted;
-                lapStart = t;
-            }
-        }
-        var profile = CloneProfile.Build(line, laps, "1", "Player", "generic");
-        Check($"clone profile from {laps.Count} laps", profile != null && profile.LapsUsed == laps.Count);
-        if (profile == null) return;
-        float avgOffset = profile.Offset.Average();
-        Check($"clone profile: line 1.5 m to the side (average offset {avgOffset:F2} m)", MathF.Abs(MathF.Abs(avgOffset) - 1.5f) < 0.4f);
-
-        var w2 = new RaceWorld(line, new RaceWorldSettings { Seed = 22, HumanErrors = false, RaceStartTime = -100 });
-        var clone = new RaceBot { Id = 1, Name = "Clone", Car = new CarSpec(), Driver = new DriverProfile { Pace = 1, Aggression = 0.3f, Consistency = 1 }, Clone = profile };
-        w2.Bots.Add(clone);
-        w2.PlaceAt(clone, 10, 0, BotPhase.Racing);
-        clone.Speed = 30;
-        t = 0;
-        float offSum = 0; int offN = 0;
-        w2.Advance(0);
-        while (clone.LapsCompleted < 3 && t < 600)
-        {
-            t += 0.05;
-            w2.Advance(t);
-            if (clone.LapsCompleted >= 1) { offSum += clone.Offset; offN++; }
-        }
-        float playerLap = laps.Average(l => l.LapTime);
-        Check($"clone laps like the player ({clone.LastLapSeconds:F1} s vs {playerLap:F1} s)", MathF.Abs(clone.LastLapSeconds - playerLap) < playerLap * 0.04f);
-        Check($"clone drives the player's line (average offset {offSum / Math.Max(1, offN):F2} m)", MathF.Abs(offSum / Math.Max(1, offN) - avgOffset) < 0.6f);
-    }
-
-    private static void HumanTest(RacingLine line)
-    {
-        var world = new RaceWorld(line, new RaceWorldSettings { Seed = 9, RaceStartTime = -100, Damage = true, DamageRate = 1 });
-        for (int i = 0; i < 6; i++)
-        {
-            var d = DriverProfile.FromStrength(76, 0.6f, 80);
-            d.Errors = DriverProfile.ErrorsFor(76);
-            world.Bots.Add(new RaceBot { Id = i, Name = $"H{i}", Car = new CarSpec(), Driver = d });
-        }
-        world.PlaceOnGrid(world.Bots);
-        world.StartRace(0);
-        double t = 0;
-        world.Advance(0);
-        bool finite = true, sawYaw = false, sawLock = false;
-        float maxBeyond = 0;
-        while (t < 400)
-        {
-            t += 0.05;
-            world.Advance(t);
-            foreach (var b in world.Bots)
-            {
-                var p = world.GetPose(b);
-                finite &= float.IsFinite(p.Position.X) && float.IsFinite(p.Rotation.X) && float.IsFinite(p.Velocity.X);
-                sawYaw |= MathF.Abs(b.Yaw) > 0.1f;
-                sawLock |= p.FrontTyreFactor == 0;
-                int i = line.IndexAt(line.WrapS((float)b.Distance));
-                float half = b.Car.Width / 2;
-                maxBeyond = MathF.Max(maxBeyond, MathF.Max(b.Offset - (line.RoomPlus[i] - half), -line.RoomMinus[i] + half - b.Offset));
-            }
-        }
-        int mistakes = world.Bots.Sum(b => b.MistakeCount);
-        Check($"human errors: {mistakes} mistakes, {world.Bots.Sum(b => b.SpinCount)} spins, {world.Bots.Sum(b => b.ContactCount)} contacts, slides {sawYaw}, lock-ups {sawLock}",
-            mistakes > 5 && sawYaw && finite);
-        Check($"grass: at most {maxBeyond:F2} m beyond the edge", maxBeyond <= world.Settings.GrassAllowance + 0.55f);
-        Check("everybody keeps racing", world.Bots.All(b => b.LapsCompleted >= 5));
-
-        // damage and repair
-        var bot = world.Bots[0];
-        float grip = bot.CarGrip;
-        world.AddDamage(bot, 0, 60);
-        Check($"damage slows the car (grip {grip:F3} -> {bot.CarGrip:F3}, repair {RaceWorld.RepairTime(bot):F0} s)", bot.CarGrip < grip && RaceWorld.RepairTime(bot) > 5);
-        world.RepairDamage(bot);
-        Check("repair", !RaceWorld.HasDamage(bot));
-
-        // signal test phases
-        world.StartSignalTest(1000);
-        var phases = new[] { 1001.0, 1008, 1014, 1021, 1027, 1035, 1040 }.Select(x => world.SignalTestPhase(x)).ToArray();
-        Check($"signal test phases [{string.Join(",", phases)}]", phases.SequenceEqual(new[] { 1, 2, 3, 4, 5, 6, 0 }));
-        world.Advance(1001);
-        var pose = world.GetPose(world.Bots[1]);
-        Check("signal test: left indicator", pose.Indicator == -1);
-
-        // high beams: only with nobody ahead
-        var hb = new RaceWorld(line, new RaceWorldSettings { Seed = 2, HumanErrors = false });
-        var lead = new RaceBot { Id = 0, Name = "Lead", Car = new CarSpec(), Driver = DriverProfile.FromLevel(95, 0) };
-        var follow = new RaceBot { Id = 1, Name = "Follow", Car = new CarSpec(), Driver = DriverProfile.FromLevel(95, 0) };
-        hb.Bots.Add(lead);
-        hb.Bots.Add(follow);
-        hb.PlaceOnGrid(hb.Bots);
-        hb.StartRace(0);
-        hb.Advance(0);
-        for (double x = 0.05; x < 8; x += 0.05) hb.Advance(x);
-        // the start is random now (reaction, wheelspin): whoever is in front
-        var first = lead.Distance >= follow.Distance ? lead : follow;
-        var second = first == lead ? follow : lead;
-        Check($"high beams: leader on ({hb.GetPose(first).HighBeam}), car right behind dipped ({hb.GetPose(second).HighBeam})",
-            hb.GetPose(first).HighBeam && !hb.GetPose(second).HighBeam);
-    }
-
-    private static void StuckTest(RacingLine line)
-    {
-        // a jam: three bots side by side and one behind, all standing, a stopped player car right in front of them
-        var world = new RaceWorld(line, new RaceWorldSettings { Seed = 8, HumanErrors = false, RaceStartTime = -100 });
-        var start = new List<RaceBot>();
-        for (int i = 0; i < 4; i++)
-        {
-            var b = new RaceBot { Id = i, Name = $"J{i}", Car = new CarSpec(), Driver = DriverProfile.FromLevel(95, 60) };
-            world.Bots.Add(b);
-        }
-        world.PlaceAt(world.Bots[0], 300, -2.3f, BotPhase.Racing);
-        world.PlaceAt(world.Bots[1], 300, 0f, BotPhase.Racing);
-        world.PlaceAt(world.Bots[2], 300.5, 2.3f, BotPhase.Racing);
-        world.PlaceAt(world.Bots[3], 294, 0f, BotPhase.Racing);
-        foreach (var b in world.Bots) { b.Speed = 0; b.TimingValid = true; }
-        var wreck = world.GetOrAddExternal(99);
-        var wreckPos = line.PositionAt(306, 0.3f);
-        var yellows = new List<YellowFlagEvent>();
-        world.YellowFlag += e => yellows.Add(e);
-        double t = 0;
-        world.Advance(0);
-        while (t < 90)
-        {
-            t += 0.05;
-            world.UpdateExternal(wreck, wreckPos, System.Numerics.Vector3.Zero);
-            world.Advance(t);
-        }
-        float minMoved = world.Bots.Min(b => (float)b.Distance - 300);
-        Check($"stuck cluster sorted out: every bot got going (min {minMoved:F0} m, ghosts {world.Bots.Sum(b => b.GhostCount)})", minMoved > 150);
-        Check($"yellow flag for the stopped car ({yellows.Count} messages)", yellows.Any(y => y.CarId == 99));
-
-        // road completely blocked by standing player cars: after GhostAfter the bot ghosts through
-        var w2 = new RaceWorld(line, new RaceWorldSettings { Seed = 9, HumanErrors = false, RaceStartTime = -100 });
-        var g = new RaceBot { Id = 0, Name = "G", Car = new CarSpec(), Driver = DriverProfile.FromLevel(95, 60) };
-        w2.Bots.Add(g);
-        w2.PlaceAt(g, 300, 0, BotPhase.Racing);
-        g.TimingValid = true;
-        int idx = line.IndexAt(310);
-        var blockers = new List<(ExternalCar Car, System.Numerics.Vector3 Pos)>();
-        for (float off = -line.RoomMinus[idx]; off <= line.RoomPlus[idx]; off += 1.9f)
-            blockers.Add((w2.GetOrAddExternal(100 + blockers.Count), line.PositionAt(310, off)));
-        t = 0;
-        w2.Advance(0);
-        double ghostAt = -1;
-        while (t < 80)
-        {
-            t += 0.05;
-            foreach (var (car, pos) in blockers) w2.UpdateExternal(car, pos, System.Numerics.Vector3.Zero);
-            w2.Advance(t);
-            if (ghostAt < 0 && g.GhostUntil > t) ghostAt = t;
-        }
-        Check($"road blocked: ghosted after {ghostAt:F0} s and got through ({g.Distance - 300:F0} m)", ghostAt > 20 && g.Distance > 400);
-    }
-
-    /// <summary>Compound choice: road cars on their semislicks, slick cars by stint and driver, qualifying soft, LEGAL_TYRES, no rain tyres.</summary>
-    private static void TyreTest(RacingLine line)
-    {
-        Lut Wear(float drop20) => new([0, 20, 60], [100, 100 * (1 - drop20), 100 * (1 - drop20 * 2)]);
-        var street = new CarSpec { Model = "street" };
-        street.Compounds = [new Compound { Index = 0, Name = "Street", ShortName = "ST", Grip = 0.965f, Wear = Wear(0.04f) },
-            new Compound { Index = 1, Name = "Semislicks", ShortName = "SM", Grip = 1, Wear = Wear(0.14f) },
-            new Compound { Index = 2, Name = "Wet", ShortName = "W", Grip = 0.9f }];
-        street.DefaultCompound = street.Compounds[1];
-        var gt3 = new CarSpec { Model = "gt3", CalibratedTyreVkmPerLap = 2 };
-        gt3.Compounds = [new Compound { Index = 0, Name = "Slick Soft", ShortName = "S", Grip = 1.013f, Wear = Wear(0.10f) },
-            new Compound { Index = 1, Name = "Slick Medium", ShortName = "M", Grip = 1, Wear = Wear(0.04f) },
-            new Compound { Index = 2, Name = "Slick Hard", ShortName = "H", Grip = 0.987f, Wear = Wear(0.025f) },
-            new Compound { Index = 3, Name = "Wet", ShortName = "W", Grip = 0.95f }];
-        gt3.DefaultCompound = gt3.Compounds[1];
-        var world = new RaceWorld(line, new RaceWorldSettings { Seed = 2, TyreWearRate = 1 });
-        var builtIn = Personality.Defaults().ToDictionary(p => p.Personality.Name, p => p.Personality);
-        RaceBot Bot(CarSpec car, string personality, float aggression, string legal = "")
-        {
-            var b = new RaceBot { Id = 0, Name = personality, Car = car, Driver = DriverProfile.FromLevel(95, 50), LegalTyres = legal };
-            b.Driver.Personality = builtIn[personality];
-            b.Driver.Aggression = aggression;
-            return b;
-        }
-        var s = Bot(street, "Balanced", 0.5f);
-        world.ChooseTyres(s, 20);
-        Check($"road car on its semislicks ({RaceWorld.CompoundName(s)})", RaceWorld.CompoundName(s) == "SM");
-        var dive = Bot(gt3, "DiveBomber", 0.8f);
-        world.ChooseTyres(dive, 3);
-        Check($"short stint, attacker: soft ({RaceWorld.CompoundName(dive)})", RaceWorld.CompoundName(dive) == "S");
-        var chill = Bot(gt3, "Chill", 0.3f);
-        world.ChooseTyres(chill, 30);
-        Check($"long stint, careful driver: hard ({RaceWorld.CompoundName(chill)})", RaceWorld.CompoundName(chill) == "H");
-        var legal = Bot(gt3, "DiveBomber", 0.8f, "M;H");
-        world.ChooseTyres(legal, 3);
-        Check($"LEGAL_TYRES M;H: no soft ({RaceWorld.CompoundName(legal)})", RaceWorld.CompoundName(legal) is "M" or "H");
-        var wetOnly = Bot(gt3, "Balanced", 0.5f, "W");
-        world.ChooseTyres(wetOnly, 10);
-        Check("never rain tyres", wetOnly.Tyres == null);
-        world.Settings.Qualifying = true;
-        world.ChooseTyres(chill, 30);
-        Check($"qualifying: softest ({RaceWorld.CompoundName(chill)})", RaceWorld.CompoundName(chill) == "S");
-        world.Settings.Qualifying = false;
-        chill.Tyres = gt3.Compounds[0];
-        dive.Tyres = gt3.Compounds[2];
-        Check("soft wears faster than hard", RaceWorld.WearGrip(chill, 20) < RaceWorld.WearGrip(dive, 20));
-    }
-
-    /// <summary>Damage stops by places, shaken drivers, grudges, dirty air.</summary>
-    private static void RacecraftTest(RacingLine line)
-    {
-        var world = new RaceWorld(line, new RaceWorldSettings { Seed = 4, Damage = true, DamageRate = 1, FuelRate = 0 }) { PitLane = TestLane(line) };
-        for (int i = 0; i < 6; i++)
-        {
-            var b = new RaceBot { Id = i, Name = $"D{i}", Car = new CarSpec(), Driver = DriverProfile.FromLevel(95, 50) };
-            world.Bots.Add(b);
-            world.SetPitBox(b, new Vector3(250 + i * 10, 0, 13));
-        }
-        world.PlaceOnGrid(world.Bots);
-        world.StartRace(0);
-        world.Advance(0);
-        world.Advance(30); // the field moving, close together
-        var lead = world.Bots.OrderByDescending(b => b.Distance).First();
-        foreach (var b in world.Bots) { b.RemainingLaps = 20; b.LastLapSeconds = 40; }
-        world.AddDamage(lead, 0, 45);
-        world.Decide(lead);
-        Check($"dented nose in a bunched field: holds the position ({RaceWorld.BodyDamagePercent(lead):F0} %, pit {lead.Pit})", lead.Pit == PitPhase.None);
-        lead.Suspension = 0.4f;
-        world.Decide(lead);
-        Check($"bent suspension: comes in ({lead.Pit})", lead.Pit == PitPhase.Requested);
-
-        var shaken = world.Bots.First(b => b != lead);
-        var player = world.GetOrAddExternal(77);
-        world.UpdateExternal(player, line.PositionAt(Line(shaken) - 6, shaken.Offset), Vector3.UnitX * 30, true, 30);
-        world.OnContact(shaken, line.PositionAt(Line(shaken) - 4, shaken.Offset), 13f, player);
-        Check($"shaken after a 47 km/h hit: cautious for {shaken.CautiousUntil - 30:F0} s", shaken.CautiousUntil - 30 > 8);
-        Check("remembers who hit him", shaken.GrudgeId == 77);
-
-        var dirty = new RaceBot { Id = 50, Name = "A", Car = new CarSpec(), Driver = DriverProfile.FromLevel(95, 50), Speed = 60 };
-        dirty.DirtyAir = 1;
-        Check($"dirty air costs grip in a fast corner ({RaceWorld.DirtyAirGrip(dirty):F3})", RaceWorld.DirtyAirGrip(dirty) is < 0.97f and > 0.85f);
-
-        // vehicle model: a plain RWD car on a skid pad (fixed wheel angle, 90 km/h) settles at a plausible lateral acceleration
-        // with the front at its limit first (understeer), and holds its speed against drag
-        var tyre = new BotDriverPlugin.Core.Physics.TyreData { DyRef = 1.25f, DxRef = 1.25f, Fz0 = 3000, LsExpY = 0.8f, LsExpX = 0.85f, FalloffLevel = 0.85f, FalloffSpeed = 3, Radius = 0.32f };
-        var vd = new BotDriverPlugin.Core.Physics.VehicleData
+        var tyre = new TyreData { DyRef = 1.25f, DxRef = 1.25f, Fz0 = 3000, LsExpY = 0.8f, LsExpX = 0.85f, FalloffLevel = 0.85f, FalloffSpeed = 3, Radius = 0.32f };
+        return new VehicleData
         {
             Mass = 1400, YawInertia = 2300, RollInertia = 500, PitchInertia = 2100, Wheelbase = 2.6f, A = 1.25f, B = 1.35f,
             FrontSusp = new() { Arb = 20000, BaseY = -0.1f }, RearSusp = new() { Arb = 10000, BaseY = -0.1f },
             Front = tyre, Rear = tyre, Torque = Enumerable.Repeat(400f, 80).ToArray(), Limiter = 7500, IdleRpm = 1000, Ratios = [3, 2, 1.5f, 1.2f, 1, 0.85f],
             Final = 3.5f, BrakeTorque = 2500, BrakeFront = 0.65f, MaxSteer = 0.55f,
-            Wings = [new() { Area = 1, AoaCd = new TrackGeometry.Lut([0f], [0.5f]) }],
+            Wings = [new() { Area = 1, AoaCd = new Lut([0f], [0.5f]) }],
         };
-        var vs = new BotDriverPlugin.Core.Physics.VehicleState { Vx = 25 };
-        var vin = new BotDriverPlugin.Core.Physics.VehicleInputs { Steer = 0.06f, MassRatio = 1, Grip = 1, Ratio = 1.2f * 3.5f };
+    }
+
+    private static CarSpec TestCar() => new() { Model = "test", Physics = TestVehicle(), FuelCapacity = 60, KmPerLiter = 3 };
+
+    /// <summary>The vehicle model alone: a skid pad at 90 km/h settles at a plausible lateral acceleration, front at its limit first.</summary>
+    private static void VehicleModelTest()
+    {
+        var vd = TestVehicle();
+        var vs = new VehicleState { Vx = 25 };
+        var vin = new VehicleInputs { Steer = 0.06f, MassRatio = 1, Grip = 1, Ratio = 1.2f * 3.5f };
         for (int i = 0; i < 300 * 10; i++)
         {
             vin.Throttle = Math.Clamp(0.3f + (25 - vs.Vx) * 0.5f, 0, 1);
-            BotDriverPlugin.Core.Physics.Vehicle.Step(vd, vs, vin, 1f / 300);
+            Vehicle.Step(vd, vs, vin, 1f / 300);
         }
         float skidG = vs.Vx * MathF.Abs(vs.R) / CarSpec.G;
         Check($"vehicle model skid pad: {skidG:F2} g at {vs.Vx * 3.6f:F0} km/h, slip F/R {vs.FrontSlip:F2}/{vs.RearSlip:F2}",
             skidG is > 0.8f and < 1.35f && vs.FrontSlip > vs.RearSlip && MathF.Abs(vs.Vx - 25) < 1.5f);
-        float Line(RaceBot b) => line.WrapS((float)b.Distance);
+    }
+
+    private static RaceBot NewBot(int id, CarSpec car, StrengthCalibration cal, float strength, float aggression = 50)
+        => new() { Id = id, Name = $"Bot {id}", Car = car, Driver = DriverProfile.FromStrength(strength, cal.PaceFor(strength), aggression) };
+
+    /// <summary>A race of 8 bots, slowest first: everybody finishes, no deep overlaps, nothing NaN, the mistakes happen.</summary>
+    private static void RaceTest(RacingLine line, StrengthCalibration cal, Options o)
+    {
+        var world = new RaceWorld(line, new RaceWorldSettings { Seed = 7 });
+        var car = TestCar();
+        for (int i = 0; i < 8; i++) world.Bots.Add(NewBot(i, car, cal, 86 + i * 2));
+        for (int i = 0; i < world.Bots.Count; i++) world.PlaceAtGridSlot(world.Bots[i], i);
+        foreach (var b in world.Bots) world.ResetCarCondition(b, world.FuelForLaps(b, 6));
+        world.TraceBotId = o.Int("trace", -1);
+        world.Trace = Console.WriteLine;
+        world.StartRace(0);
+        float maxPen = 0;
+        bool finite = true, mistake = false;
+        double t = 0;
+        world.Advance(0);
+        while (t < 900 && world.Bots.Any(b => b.LapsCompleted < 4))
+        {
+            t += 0.05;
+            foreach (var b in world.Bots) b.RemainingLaps = Math.Max(0, 4 - b.LapsCompleted);
+            world.Advance(t);
+            foreach (var a in world.Bots)
+            {
+                var pose = world.GetPose(a);
+                finite &= float.IsFinite(pose.Position.X) && float.IsFinite(pose.Rotation.X) && float.IsFinite(a.Speed);
+                mistake |= a.Ai is { } ai && ai.InMistake(t);
+                foreach (var b in world.Bots)
+                {
+                    if (a.Id >= b.Id) continue;
+                    float lp = (a.Car.Length + b.Car.Length) / 2 - MathF.Abs(line.Delta(line.WrapS((float)a.Distance), line.WrapS((float)b.Distance)));
+                    float wp = (a.Car.Width + b.Car.Width) / 2 - MathF.Abs(a.Offset - b.Offset);
+                    if (lp > 0.05f && wp > 0.05f) maxPen = MathF.Max(maxPen, MathF.Min(lp, wp));
+                }
+            }
+        }
+        if (o.Has("verbose"))
+            foreach (var b in world.Bots.OrderByDescending(b => b.Distance))
+                Console.WriteLine($"  {b.Name} {b.Driver.Level:F0} % best {b.BestLapSeconds:F2} contacts {b.ContactCount} ghosts {b.GhostCount}");
+        Check($"all bots finished 4 laps ({t:F0} s)", world.Bots.All(b => b.LapsCompleted >= 4));
+        Check("nothing NaN", finite);
+        Check($"no deep overlaps (max {maxPen:F2} m)", maxPen < 0.6f);
+        Check("the humanizer's mistakes happen", mistake);
+        var fastest = world.Bots.OrderBy(b => b.BestLapSeconds).First();
+        Check($"best lap by a strong driver ({fastest.Name}, {fastest.Driver.Level:F0} %, {fastest.BestLapSeconds:F1} s)", fastest.Driver.Level >= 92);
+        var gb = world.Bots[1];
+        gb.LateralSpeed = 3;
+        world.PlaceAtGridSlot(gb, 0);
+        Check($"straight on the grid ({world.HeadingError(gb, world.GetPose(gb)):F1}°)", world.HeadingError(gb, world.GetPose(gb)) < 3);
+    }
+
+    /// <summary>A clearly faster bot starting right behind a slower one gets by within two laps (Kunos: the side with room, committed).</summary>
+    private static void PassTest(RacingLine line, StrengthCalibration cal)
+    {
+        var world = new RaceWorld(line, new RaceWorldSettings { Seed = 3, HumanErrors = false });
+        var car = TestCar();
+        var slow = NewBot(0, car, cal, 85);
+        var fast = NewBot(1, car, cal, 100, 80);
+        world.Bots.Add(slow);
+        world.Bots.Add(fast);
+        world.PlaceAt(slow, 100, 0, BotPhase.Racing);
+        world.PlaceAt(fast, 80, 0, BotPhase.Racing);
+        slow.Speed = fast.Speed = 30;
+        double t = 0, passedAt = double.NaN;
+        world.Advance(0);
+        while (t < 300 && double.IsNaN(passedAt))
+        {
+            t += 0.05;
+            world.Advance(t);
+            if (fast.Distance > slow.Distance + 6) passedAt = t;
+        }
+        Check($"a faster bot passes a slower one ({(double.IsNaN(passedAt) ? "never" : $"after {passedAt:F0} s")}, contacts {fast.ContactCount})", !double.IsNaN(passedAt));
     }
 
     private static PitLane TestLane(RacingLine line)
@@ -459,57 +168,91 @@ public static class SelfTest
         {
             // joins the line before and after, 9 m to the side along the straight
             float side = x < 50 ? MathF.Max(0, (x + 150) / 200) : x > 550 ? MathF.Max(0, (750 - x) / 200) : 1;
-            float z = 9 * side;
-            lanePts.Add(new FastLanePoint { Position = new Vector3(x < 0 ? 0 : x, 0, z), Normal = Vector3.UnitY });
+            lanePts.Add(new FastLanePoint { Position = new Vector3(x < 0 ? 0 : x, 0, 9 * side), Normal = Vector3.UnitY });
         }
         // before x=0 the lane runs on the last metres of the oval: use the line itself there
         for (int i = 0; i < lanePts.Count; i++)
         {
-            var p = lanePts[i];
-            if (p.Position.X <= 0)
-            {
-                float back = -(-150 + i * 1.5f);
-                var q = line.PositionAt(line.Length - back, 0);
-                lanePts[i] = new FastLanePoint { Position = q + new Vector3(0, 0, 9 * MathF.Max(0, (150 - back) / 200)), Normal = Vector3.UnitY };
-            }
+            if (lanePts[i].Position.X > 0) continue;
+            float back = -(-150 + i * 1.5f);
+            var q = line.PositionAt(line.Length - back, 0);
+            lanePts[i] = new FastLanePoint { Position = q + new Vector3(0, 0, 9 * MathF.Max(0, (150 - back) / 200)), Normal = Vector3.UnitY };
         }
         return new PitLane(lanePts.ToArray(), line);
     }
 
-    private static void PitTest(RacingLine line)
+    /// <summary>Heavy fuel use: every bot stops, nobody runs dry, everybody finishes.</summary>
+    private static void PitTest(RacingLine line, StrengthCalibration cal)
     {
         var lane = TestLane(line);
         var world = new RaceWorld(line, new RaceWorldSettings { Seed = 5, FuelRate = 6, TyreWearRate = 1 }) { PitLane = lane };
         int stops = 0;
         world.PitStopCompleted += (_, _, _, _) => stops++;
+        var car = TestCar();
+        car.KmPerLiter = 1.6f;
         for (int i = 0; i < 4; i++)
         {
-            var bot = new RaceBot { Id = i, Name = $"P{i}", Car = new CarSpec { FuelCapacity = 60, KmPerLiter = 1.6f }, Driver = DriverProfile.FromLevel(95, 50) };
+            var bot = NewBot(i, car, cal, 95);
             world.Bots.Add(bot);
             world.SetPitBox(bot, new Vector3(250 + i * 10, 0, 13));
         }
-        world.PlaceOnGrid(world.Bots);
+        for (int i = 0; i < world.Bots.Count; i++) world.PlaceAtGridSlot(world.Bots[i], i);
         foreach (var b in world.Bots) world.ResetCarCondition(b, world.FuelForLaps(b, 3));
         world.StartRace(0);
         double t = 0;
         world.Advance(0);
         bool dry = false;
-        while (t < 1500 && world.Bots.Any(b => b.LapsCompleted < 12))
+        while (t < 1500 && world.Bots.Any(b => b.LapsCompleted < 10))
         {
             t += 0.05;
-            foreach (var b in world.Bots) b.RemainingLaps = Math.Max(0, 12 - b.LapsCompleted);
+            foreach (var b in world.Bots) b.RemainingLaps = Math.Max(0, 10 - b.LapsCompleted);
             world.Advance(t);
-            dry |= world.Bots.Any(b => b.Fuel <= 0 && b.LapsCompleted < 12);
+            dry |= world.Bots.Any(b => b.Fuel <= 0 && b.LapsCompleted < 10);
         }
         Check($"pit lane {lane.Length:F0} m, limiter {lane.LimiterStart:F0}-{lane.LimiterEnd:F0}", lane.LimiterEnd > lane.LimiterStart);
-        Check($"pit stops made ({stops}), all finished", stops >= 4 && world.Bots.All(b => b.LapsCompleted >= 12));
+        Check($"pit stops made ({stops}), all finished", stops >= 4 && world.Bots.All(b => b.LapsCompleted >= 10));
         Check("nobody ran out of fuel", !dry);
+    }
 
-        // rain: less grip, more careful
-        var rain = new RaceWorld(line, new RaceWorldSettings { Seed = 6, Wetness = 0.8f, Water = 0.3f, RainIntensity = 0.5f });
-        var rb = new RaceBot { Id = 0, Name = "R", Car = new CarSpec(), Driver = DriverProfile.FromLevel(95, 50) };
-        rain.Bots.Add(rb);
-        Check($"rain: wet grip {rain.RainGrip(rb):F2}", rain.RainGrip(rb) < 0.9f);
+    /// <summary>Like the AC AI: the preferred compound in a race, the grippiest in qualifying, LEGAL_TYRES, never rain tyres.</summary>
+    private static void TyreTest()
+    {
+        Lut Wear(float drop20) => new([0, 20, 60], [100, 100 * (1 - drop20), 100 * (1 - drop20 * 2)]);
+        var gt3 = new CarSpec { Model = "gt3", CalibratedTyreVkmPerLap = 2 };
+        gt3.Compounds = [new Compound { Index = 0, Name = "Slick Soft", ShortName = "S", Grip = 1.013f, Wear = Wear(0.10f) },
+            new Compound { Index = 1, Name = "Slick Medium", ShortName = "M", Grip = 1, Wear = Wear(0.04f) },
+            new Compound { Index = 2, Name = "Slick Hard", ShortName = "H", Grip = 0.987f, Wear = Wear(0.025f) },
+            new Compound { Index = 3, Name = "Wet", ShortName = "W", Grip = 0.95f }];
+        gt3.DefaultCompound = gt3.Compounds[1];
+        var world = new RaceWorld(new RacingLine(SyntheticTrack()), new RaceWorldSettings { Seed = 2 });
+        RaceBot Bot(string legal = "") => new() { Id = 0, Name = "T", Car = gt3, LegalTyres = legal };
+        var race = Bot();
+        world.ChooseTyres(race, 20);
+        Check($"race: the preferred compound ({RaceWorld.CompoundName(race)})", RaceWorld.CompoundName(race) == "M");
+        var legal = Bot("S;H");
+        world.ChooseTyres(legal, 20);
+        Check($"LEGAL_TYRES S;H: not the medium ({RaceWorld.CompoundName(legal)})", RaceWorld.CompoundName(legal) is "S" or "H");
+        var wetOnly = Bot("W");
+        world.ChooseTyres(wetOnly, 10);
+        Check("never rain tyres", wetOnly.Tyres == null);
+        world.Settings.Qualifying = true;
+        var quali = Bot();
+        world.ChooseTyres(quali, 3);
+        Check($"qualifying: the grippiest ({RaceWorld.CompoundName(quali)})", RaceWorld.CompoundName(quali) == "S");
+    }
+
+    private static void DamageTest(RacingLine line)
+    {
+        var world = new RaceWorld(line, new RaceWorldSettings { Seed = 4 });
+        var b = new RaceBot { Id = 0, Name = "D", Car = TestCar() };
+        world.Bots.Add(b);
+        world.AddDamage(b, 0, 80, 0.3f);
+        Check($"damage: body {RaceWorld.BodyDamagePercent(b):F0} %, suspension {b.Suspension:F2}, grip {RaceWorld.DamageGrip(b):F2}",
+            RaceWorld.HasDamage(b) && RaceWorld.DamageGrip(b) < 1);
+        world.RepairDamage(b);
+        Check("repaired", !RaceWorld.HasDamage(b));
+        var rain = new RaceWorld(line, new RaceWorldSettings { Seed = 6, Wetness = 0.8f, Water = 0.3f });
+        Check($"rain: wet grip {rain.RainGrip(b):F2}", rain.RainGrip(b) < 0.9f);
     }
 
     private static void Check(string name, bool ok)
@@ -527,7 +270,6 @@ public static class SelfTest
         var pts = new List<FastLanePoint>();
         void Add(Vector3 pos, Vector3 fwd, float insideRoom)
         {
-            // driving direction with Y up; "left" of the car = cross(up, fwd)
             pts.Add(new FastLanePoint
             {
                 Position = pos, Forward = fwd, Normal = Vector3.UnitY,

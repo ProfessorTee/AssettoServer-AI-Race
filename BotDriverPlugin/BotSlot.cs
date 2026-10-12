@@ -24,9 +24,6 @@ public sealed class BotSlot : IExternalAiController
     /// <summary>Last <see cref="RaceBot.DamageVersion"/> sent to the clients.</summary>
     public int SentDamageVersion { get; set; } = -1;
 
-    /// <summary>Set when this is a player's car a bot took over when he lost the connection (the Steam ID of the player).</summary>
-    public ulong? TakeoverGuid { get; init; }
-    public string TakeoverPlayer { get; init; } = "";
     /// <summary>Collisions switched off for the clients (emergency ghost).</summary>
     public bool Ghosted { get; set; }
 
@@ -37,17 +34,11 @@ public sealed class BotSlot : IExternalAiController
         Nation = nation;
     }
 
-    /// <summary>
-    /// Where the pose goes: the slot's status, or for a taken-over player's car an own status object (his last updates, still on their
-    /// way, must not move the bot).
-    /// </summary>
-    private readonly CarStatus _standInStatus = new();
-    public CarStatus Status => TakeoverGuid != null ? _standInStatus : EntryCar.Status;
+    public CarStatus Status => EntryCar.Status;
 
     public CarStatus? GetStatusForCar(EntryCar toCar) => Active ? Status : null;
 
-    public void WriteStatus(in BotPose pose, long serverTimeMs, CarStatusFlags lights, CarStatusFlags wipers, bool flashLights = true, bool flashDaytime = true,
-        bool highBeams = true)
+    public void WriteStatus(in BotPose pose, long serverTimeMs, CarStatusFlags lights, CarStatusFlags wipers, bool highBeams = true)
     {
         var status = Status;
         status.Timestamp = serverTimeMs;
@@ -76,17 +67,9 @@ public sealed class BotSlot : IExternalAiController
         bool lightsOn = (lights & CarStatusFlags.LightsOn) != 0;
         // at night: high beams when nobody is ahead
         bool high = lightsOn && highBeams && pose.HighBeam;
-        if (pose.Flash && flashLights)
-        {
-            // flash: toggle the high beams at night, lights on during the day
-            if (lightsOn) high = !high;
-            else if (flashDaytime) flags |= CarStatusFlags.LightsOn;
-        }
         if (high) flags &= ~CarStatusFlags.HighBeamsOff;
         if (pose.Braking) flags |= CarStatusFlags.BrakeLightsOn;
         if (pose.Hazards) flags |= CarStatusFlags.HazardsOn;
-        else if (pose.Indicator < 0) flags |= CarStatusFlags.IndicateLeft;
-        else if (pose.Indicator > 0) flags |= CarStatusFlags.IndicateRight;
         status.StatusFlag = flags;
     }
 

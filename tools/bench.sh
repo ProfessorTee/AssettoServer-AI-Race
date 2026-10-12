@@ -26,7 +26,7 @@ TMP=$(mktemp -d)
 TOOL=$(ls BotDriverPlugin/Tool/bin/Release/*/BotDriverTool.dll | head -1)
 run() { # track layout laps seed (the dll directly: parallel "dotnet run"s get in each other's way)
     nice -n 19 dotnet "$TOOL" sim --ac "$AC" --track "$AC/content/tracks/$1" --layout "$2" \
-        --models "$MODELS" --bots 20 --laps "$3" --style --seed "$4" "${EXTRA[@]}" > "$TMP/$1-$4.txt" 2>&1
+        --models "$MODELS" --bots 20 --laps "$3" --seed "$4" "${EXTRA[@]}" > "$TMP/$1-$4.txt" 2>&1
 }
 export -f run; export AC MODELS TMP TOOL
 EXTRA=("$@")
@@ -46,8 +46,8 @@ def summ(prefix):
         m = re.search(r'held up: best lap vs strength target avg \+?(-?[0-9.]+)', t)
         if not m: continue
         h.append(float(m.group(1)))
-        p += sum(int(x) for x in re.findall(r'end:passed (\d+)', t))
-        c += sum(int(x) for x in re.findall(r'contacts +(\d+) +grass', t))
+        p += sum(int(x) for x in re.findall(r'position changes (\d+)', t))
+        c += sum(int(x) for x in re.findall(r'contacts (\d+) ghosts', t))
     return f"{sum(h)/max(1,len(h)):.2f}\t{p}\t{c}"
 print(summ("trialmountain") + "\t" + summ("ks_nordschleife"))
 PY

@@ -28,6 +28,17 @@ public static class Envelope
     }
 
     /// <summary>
+    /// Sets <see cref="VehicleData.GripScale"/> so the car on the skid pad (lateral grip × 1, no falloff) holds what the AC AI plans with at
+    /// the slow speed; never less grip than the tyres' own, at most 40 % more.
+    /// </summary>
+    public static void Calibrate(VehicleData d)
+    {
+        d.GripScale = 1;
+        float real = MaxLateral(d, SlowSpeed, 1, true);
+        if (real > 0) d.GripScale = Math.Clamp(PlanLateral(d, SlowSpeed) / real, 1, 1.4f);
+    }
+
+    /// <summary>
     /// The grip the AC AI plans its corners with (AIDriver via 0x14027a510 / 0x14027a260): the tyres' plain friction (D at their loads, no
     /// camber, no slip losses) with the load moved to the outside wheels (CG height over track, with 0.9 of that grip), downforce on top;
     /// both axles limited to what the other can hold at the car's weight split, and never more than the car rolling over (track / 2 / CG height).

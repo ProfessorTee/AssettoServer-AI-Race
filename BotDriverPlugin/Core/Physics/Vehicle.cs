@@ -85,6 +85,8 @@ public struct VehicleInputs
     public float GravityX, GravityY;
     /// <summary>Extra forces on the body in the car's frame (N): the AC AI's spring to its line and brake help.</summary>
     public float ExtraFx, ExtraFy;
+    /// <summary>Extra yaw moment (N·m, AI help).</summary>
+    public float ExtraMz;
     /// <summary>Time since the last gear change started (s, NaN = none for a while) and whether it was a downshift (autoclutch, autoblip).</summary>
     public float ShiftTime;
     public bool Downshift;
@@ -397,7 +399,7 @@ public static class Vehicle
             float vlLocal = vl;
             float KappaRaw(float w) => slow ? Math.Clamp(0.5f * (w * radius - vlLocal), -1, 1) : (w * radius - vlLocal) / denom;
             float dKdW = f * radius * (slow ? 0.5f : 1 / denom);
-            float u = (inp.Grip > 0 ? inp.Grip : 1) * st.RoadGrip[i];
+            float u = (inp.Grip > 0 ? inp.Grip : 1) * st.RoadGrip[i] * d.GripScale;
 
             float k0 = st.Kappa[i] + f * (KappaRaw(w0) - st.Kappa[i]);
             var (fx0, fy, nd) = t.Solve(fz, alpha, k0, lean[i], speed, u, inp.NoFalloff);
@@ -498,7 +500,7 @@ public static class Vehicle
         st.Ay = (fyBody + inp.ExtraFy + m * inp.GravityY) / m;
         vx += (st.Ax + r * vy) * dt;
         vy += (st.Ay - r * vx) * dt;
-        r += mz / (d.YawInertia * massRatio) * dt;
+        r += (mz + inp.ExtraMz) / (d.YawInertia * massRatio) * dt;
         // standing and creeping: below walking pace the slip angles mean nothing, the car rolls like a cart
         float wBlend = Math.Clamp((MathF.Abs(vx) - 0.5f) / 1.5f, 0, 1);
         if (wBlend < 1)

@@ -35,52 +35,18 @@ public sealed partial class RaceWorld
     public static string CompoundName(RaceBot bot) => (bot.Tyres ?? bot.Car.DefaultCompound)?.ShortName ?? "";
 
     /// <summary>
-    /// Picks the compound for the next stint, like a driver with his engineer:
-    /// cars on road tyres (JDM, street cars) take the grippiest one they may use (their best semislicks);
-    /// cars on slicks weigh grip against wear over the stint with the compounds' own wear curves and warm-up windows (a soft is quick
-    /// for a few laps, then drops off; a hard needs more heat), plus the driver's taste: aggressive attackers like a soft, smooth and
-    /// careful drivers a hard. Qualifying: the softest. Only what LEGAL_TYRES allows.
+    /// The compound for the next stint, like the AC AI (RaceManager / ai_tyres.ini): in qualifying the grippiest one, otherwise the car's
+    /// preferred one (tyres.ini COMPOUND_DEFAULT); only what LEGAL_TYRES allows, never rain tyres (players don't get any either).
     /// </summary>
     public void ChooseTyres(RaceBot bot, float stintLaps, bool coldStart = false)
     {
         var car = bot.Car;
         var legal = string.IsNullOrWhiteSpace(bot.LegalTyres) ? null
             : bot.LegalTyres.Split(';', ',').Select(x => x.Trim()).Where(x => x != "").ToHashSet(StringComparer.OrdinalIgnoreCase);
-        // rain tyres don't work (players don't get any either): never chosen
         var options = car.Compounds.Where(c => !c.IsWet && (legal == null || legal.Contains(c.ShortName))).ToList();
         if (options.Count == 0) { bot.Tyres = null; return; }
-        if (car.DefaultCompound?.IsSlick != true || options.All(c => !c.IsSlick) || Settings.Qualifying)
-        {
-            bot.Tyres = options.MaxBy(c => c.Grip);
-            return;
-        }
-        options = options.Where(c => c.IsSlick).ToList();
-        float minGrip = options.Min(c => c.Grip), maxGrip = options.Max(c => c.Grip);
-        int laps = (int)Math.Clamp(MathF.Round(stintLaps), 1, 60);
-        float vkm = Settings.TyreWearRate > 0 ? TyreVkmPerLap(bot) : 0;
-        var p = bot.Driver.Personality;
-        // taste: +1 likes it soft (attacks, late on the brakes, greedy), -1 likes it hard (smooth, careful, saves the tyres)
-        float taste = Math.Clamp((bot.Driver.Aggression - 0.5f) * 1.2f + (p.Attack - 0.55f) * 0.8f + 0.4f * p.BrakeBehavior - 0.6f * p.Smoothness, -1, 1);
-        float start = coldStart ? ColdTyreTemperature() : float.NaN;
-        Compound? best = null;
-        float bestCost = float.MaxValue;
-        foreach (var c in options)
-        {
-            // share of the lap time lost against perfect tyres, lap by lap through the stint
-            float cost = 0;
-            for (int i = 0; i < laps; i++) cost += 1 - MathF.Sqrt(c.Grip * c.GripAt((i + 0.5f) * vkm) / maxGrip);
-            // out of the pits on cold tyres: about half a lap below the window (a hard needs longer)
-            if (coldStart)
-            {
-                float tg = c.TempCurve is { } curve ? Math.Clamp(curve.At(start), 0.7f, 1f) : TyreTempGrip(start - (c.Optimum - TyreOptimum));
-                cost += 0.5f * (1 - MathF.Sqrt(tg));
-            }
-            float soft = maxGrip > minGrip ? (c.Grip - minGrip) / (maxGrip - minGrip) : 0.5f;
-            cost -= (0.012f * taste + 0.003f * (float)NextGaussian()) * soft * laps;
-            if (cost < bestCost) { bestCost = cost; best = c; }
-        }
-        bot.Tyres = best;
-        if (best != null) RaiseIncident(bot.Id, -1, "tyres", $"{best} for {laps} lap(s)");
+        if (Settings.Qualifying) { bot.Tyres = options.MaxBy(c => c.Grip); return; }
+        bot.Tyres = options.FirstOrDefault(c => c == car.DefaultCompound) ?? options.MaxBy(c => c.Grip);
     }
 
     public void SetTyreTemperature(RaceBot bot, float temperature)
@@ -100,11 +66,10 @@ public sealed partial class RaceWorld
         float wet = Math.Clamp(Settings.Wetness + 2 * Settings.Water, 0, 2);
 
         // heating: work done by the tyre (load x speed), a lot more while sliding or locking up
-        float slide = bot.Mistake is MistakeKind.Slide or MistakeKind.Spin ? 1.2f : 0f;
+        float slide = bot.RearSlip > 1 ? 1.2f : 0f;
         float lock_ = bot.FrontLock ? 1.2f : 0f;
         const float h = 0.061f;
-        // in dirty air the car slides more in the corners: hotter tyres
-        float wake = 1 + 0.25f * bot.DirtyAir * latUsage;
+        const float wake = 1;
         float heatF = h * v * (0.2f + 1.2f * MathF.Max(latUsage, brakeUsage) + lock_) * wake;
         float heatR = h * v * (0.2f + 1.2f * MathF.Max(latUsage, driveUsage) + slide) * wake;
         // cooling: towards the road temperature, faster at speed (air flow) and a lot faster in the wet
@@ -130,21 +95,5 @@ public sealed partial class RaceWorld
         float hot = t > 100 ? 1 + (t - 100) * 0.03f : 1;
         float cold = MathF.Min(bot.TyreTempFront, bot.TyreTempRear) < 55 ? 1.1f : 1;
         return hot * cold;
-    }
-
-    /// <summary>Out-lap in practice / qualifying with cold tyres: weave a little on the straights to warm them up.</summary>
-    private bool WantsTyreWarmWeave(RaceBot me, float myS)
-    {
-        if (me.Phase != BotPhase.Racing || me.InPitLane) return false;
-        if (Settings.SafetyCar)
-        {
-            // behind the safety car: keep the tyres warm on every straight
-            if (me.Speed < 12) return false;
-            return MathF.Abs(Line.CurvatureAt(myS)) < 1 / 300f && MathF.Abs(Line.CurvatureAt(myS + 40)) < 1 / 300f;
-        }
-        if (Settings.IsRace || me.TimingValid) return false;
-        if (MathF.Min(me.TyreTempFront, me.TyreTempRear) > 65 || me.Speed < 20) return false;
-        if (MathF.Abs(Line.CurvatureAt(myS)) > 1 / 400f || MathF.Abs(Line.CurvatureAt(myS + 60)) > 1 / 400f) return false;
-        return true;
     }
 }

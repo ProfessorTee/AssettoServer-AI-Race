@@ -30,14 +30,12 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
 
     // the shared race state (BotRace); these names keep the service's code short
     private readonly BotRace _race;
-    private readonly RaceAnnouncer _announcer;
     private readonly FieldStrength _field;
-    /// <summary>Strength, personalities, switches and calibration of the bots.</summary>
+    /// <summary>Strength, switches and calibration of the bots.</summary>
     public FieldStrength Field => _field;
     private readonly GridDirector _grid;
     /// <summary>Grid, pit boxes and the bots' way into and out of a session.</summary>
     public GridDirector Grid => _grid;
-    private readonly CarTakeover _takeover;
     private object _lock => _race.Lock;
     private ConfigWriter _configWriter = null!;
     private readonly ConcurrentQueue<(byte BotSessionId, byte OtherSessionId, Vector3 OtherPosition, float Speed)> _contacts = new();
@@ -46,7 +44,6 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
     private Random _rng => _race.Rng;
     private Dictionary<(string, float, int), CarSpec> _specCache => _race.SpecCache;
     private List<string> _carRoots { get => _race.CarRoots; set => _race.CarRoots = value; }
-    private CloneLibrary? _clones;
 
     private static string FormatLap(float seconds) => TimeSpan.FromSeconds(seconds).ToString(@"m\:ss\.fff");
 
@@ -72,7 +69,6 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         SharedSettingsResolver.Resolve(config, sharedSettings);
         _race = new BotRace(config, serverConfig, entryCarManager, sessionManager);
         _race.Debug = config.Debug;
-        _announcer = new RaceAnnouncer(_race);
         _config = config;
         _serverConfig = serverConfig;
         _entryCarManager = entryCarManager;
@@ -82,10 +78,6 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         _configWriter = new ConfigWriter(serverConfig, "plugin_bot_driver_cfg.yml", "BotDriver");
         _field = new FieldStrength(_race, _configWriter);
         _grid = new GridDirector(_race, _field, _configWriter);
-        _takeover = new CarTakeover(_race, _field, () => _clones);
-        // duels: a player's lap against the recorded clone
-        _entryCarManager.ClientConnected += (c, _) => c.LapCompleted += OnDuelLap;
-        _entryCarManager.ClientDisconnected += (c, _) => c.LapCompleted -= OnDuelLap;
     }
 
     /// <summary>Entry list slots that are bots, as configured (also used by the slot filter before the service has started).</summary>
@@ -158,55 +150,31 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
             ParkHeightAdjust = _config.ParkHeightAdjust,
             HighBeamRange = _config.HighBeamRange,
             SpotHeightOffset = RaceWorld.MeasureSpotHeight(_track.Line, _track.Info.StartGrid.Select(g => g.Position)),
-            EdgeMargin = _config.EdgeMargin,
-            SideMargin = _config.SideMargin,
-            PlayerSideMargin = _config.PlayerSideMargin,
-            PlayerOverlap = _config.PlayerOverlap,
             HeightOffset = _config.HeightOffset,
             CoolDownPace = _config.CoolDownPace,
             UseTrackHints = _config.UseTrackHints,
-            PhysicsDriving = _config.PhysicsDriving,
             PhysicsCorneringGrip = Math.Clamp(_config.PhysicsCorneringGrip, 0.8f, 1.5f),
-            SlipstreamStrength = 0.35f * _config.SlipstreamStrength,
-            YellowFlags = _config.YellowFlags,
-            ImpatienceTime = _config.ImpatienceSeconds,
-            FlashStartDelay = _config.FlashStartDelaySeconds,
-            PitLimiterFlash = _config.PitLimiterFlash,
+            HumanErrors = _config.HumanErrors,
+            PushVariation = _config.PushVariation,
             FuelRate = _config.Fuel ? _serverConfig.Server.FuelConsumptionRate : 0,
             TyreWearRate = _config.TyreWear ? _serverConfig.Server.TyreConsumptionRate : 0,
             TyreWearScale = 0.15f * _config.TyreWearFactor,
-            TyreChangeGrip = _config.TyreChangeGrip,
             PitStops = _config.PitStops,
             PitSpeedLimit = _config.PitSpeedKmh / 3.6f,
-            HumanErrors = _config.HumanErrors,
-            Spins = _config.HumanErrors && _config.Spins,
-            GrassMoments = _config.GrassMoments,
-            LineErrors = _config.LineErrors,
             BotContacts = _config.BotContacts,
             Damage = _config.BotDamage && _serverConfig.Server.MechanicalDamageRate > 0,
             DamageRate = _serverConfig.Server.MechanicalDamageRate * _config.BotDamageFactor,
             RainGripLoss = _config.RainGripLoss,
             ServerRainReduction = (float)_serverConfig.Extra.RainTrackGripReductionPercent,
-            RainCaution = _config.RainCaution,
-            PersonalLines = _config.PersonalLines,
-            RealisticStart = _config.RealisticStart,
-            RubberBand = Math.Clamp(_config.RubberBanding / 100f, 0, 1),
-            RubberBandAhead = Math.Clamp(_config.RubberBandingAhead / 100f, 0, 0.2f),
-            RubberBandBehind = Math.Clamp(_config.RubberBandingBehind / 100f, 0, 0.2f),
-            RubberBandDistance = MathF.Max(10, _config.RubberBandingDistance),
-            RubberBandTime = MathF.Max(0, _config.RubberBandingTime)
         };
-        Log.Information("BotDriver: human errors {Errors} (below {Below} %), spins {Spins}, grass {Grass}, contacts {Contacts}, damage {Damage} ({Rate:P0})",
-            settings.HumanErrors ? "on" : "off", _config.HumanErrorsBelow, settings.Spins ? "on" : "off", settings.GrassMoments ? "on" : "off",
-            settings.BotContacts ? "on" : "off", settings.Damage ? "on" : "off", settings.DamageRate);
+        Log.Information("BotDriver: the AC AI on the vehicle model; mistakes {Errors}, push variation {Push}, contacts {Contacts}, damage {Damage} ({Rate:P0})",
+            settings.HumanErrors ? "on" : "off", settings.PushVariation ? "on" : "off", settings.BotContacts ? "on" : "off", settings.Damage ? "on" : "off", settings.DamageRate);
         var world = new RaceWorld(_track.Line, settings)
         {
             PitLane = _config.PitStops ? _track.PitLane : null,
             Heights = _track.Heights,
             OffTrack = _track.OffTrack,
             Road = _track.Road,
-            Ideal = _track.Ideal,
-            UnstuckAfter = _config.UnstuckSeconds,
             GhostAfter = _config.GhostAfterSeconds
         };
         if (_config.PitStops && _track.PitLane == null)
@@ -217,7 +185,6 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         var carRoots = TrackData.ContentRoots(_config).Select(r => Path.Join(r, "cars")).ToList();
         _carRoots = carRoots;
         var specCache = _specCache;
-        _clones = new CloneLibrary(_config.RecordingsFolder, TrackKey(), _track.Line);
         var names = _config.Names.Count > 0 ? _config.Names.ToList() : BotNames.Default.ToList();
         List<string> nations = _config.Names.Count > 0 ? new List<string>() : BotNames.DefaultNations.ToList();
         int nameIndex = 0;
@@ -246,8 +213,9 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         {
             var (cal, final) = done[sp];
             _field.SetCalibration(sp, cal, !final, variant);
-            if (_config.Debug) Log.Information("BotDriver: car {Model} ({Source}): top {Top:F0} km/h, grip {Grip:F2} g, 100 % = {Best}{Prov}, {Fuel:F1} l/lap, tyres {Compound}, mistakes {Loss:F0} s/lap at most{Wing}",
-                sp.Model, sp.Source, sp.TopSpeed * 3.6f, sp.LateralGrip, FormatLap(cal.BestLap), final ? "" : " (provisional)", sp.CalibratedFuelPerLap, sp.TyreCompound, cal.ErrorLossFull, sp.WingLevel is { } wl ? $", wings {wl * 100:F0} %" : "");
+            if (sp.Physics == null) Log.Error("BotDriver: no physics data for {Model} (data folder / data.acd): bots in this car can't drive", sp.Model);
+            if (_config.Debug) Log.Information("BotDriver: car {Model} ({Source}): top {Top:F0} km/h, grip {Grip:F2} g, 100 % = {Best}{Prov}, {Fuel:F1} l/lap, tyres {Compound}{Wing}",
+                sp.Model, sp.Source, sp.TopSpeed * 3.6f, sp.LateralGrip, FormatLap(cal.BestLap), final ? "" : " (provisional)", sp.CalibratedFuelPerLap, sp.TyreCompound, sp.WingLevel is { } wl ? $", wings {wl * 100:F0} %" : "");
         }
         if (toCalibrate.Count > 0)
             Log.Information("BotDriver: {Count} cars ready in {Seconds:F1} s on {Cores} CPU core(s), {Prov} to be calibrated finally in the background",
@@ -277,8 +245,6 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
                 if (string.IsNullOrEmpty(nation) && n < nations.Count) nation = nations[n];
             }
 
-            var personality = _field.PickPersonality(driverCfg?.Personality);
-            aggression = Math.Clamp(aggression + personality.Aggression * 100, 0, 100);
             var bot = new RaceBot
             {
                 Id = entryCar.SessionId,
@@ -287,22 +253,6 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
                 Driver = DriverProfile.FromStrength(strength, 0, aggression),
                 LegalTyres = entryCar.LegalTyres
             };
-            bot.Driver.Personality = personality;
-            if (!string.IsNullOrWhiteSpace(driverCfg?.Clone))
-            {
-                // a clone of a recorded player
-                var guid = _clones.FindGuid(driverCfg.Clone);
-                var profile = guid != null ? _clones.Get(guid, entryCar.Model, anyCar: true) : null;
-                if (profile != null)
-                {
-                    bot.Clone = profile;
-                    if (string.IsNullOrWhiteSpace(driverCfg.Name))
-                        bot.Name = _config.NamePrefix + T($"{profile.PlayerName} (clone)", $"{profile.PlayerName} (Klon)");
-                    if (profile.Car != entryCar.Model)
-                        Log.Warning("BotDriver: clone of {Player} was recorded in {Recorded}, drives a {Car} here", profile.PlayerName, profile.Car, entryCar.Model);
-                }
-                else Log.Warning("BotDriver: no clean recorded laps of {Player} on this track, slot {Slot} drives as a normal bot", driverCfg.Clone, slotIndex);
-            }
             _field.ApplyStrength(bot, strength, calibration);
             world.Bots.Add(bot);
             if (_track.Info.PitBoxes.FindIndex(p => p.Index == slotIndex) is var bi and >= 0)
@@ -313,27 +263,21 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
             _slotsBySessionId[entryCar.SessionId] = slot;
             TakeSlot(slot, broadcast: false);
 
-            if (DebugOn) Log.Information("BotDriver: slot {Slot} {Model} -> {Name} (strength {Strength:F1} %, aggression {Aggression:F0}, {Personality})",
-                slotIndex, entryCar.Model, bot.Name, strength, aggression, personality.Name);
+            if (DebugOn) Log.Information("BotDriver: slot {Slot} {Model} -> {Name} (strength {Strength:F1} %, aggression {Aggression:F0})",
+                slotIndex, entryCar.Model, bot.Name, strength, aggression);
         }
 
         if (_config.AiStrengthReference == StrengthReference.Field && _field.AnyCalibrations)
             _field.ApplyCalibrations(world, log: true);
 
         foreach (var bot in world.Bots.OrderByDescending(b => b.Driver.Level).Where(_ => DebugOn))
-            Log.Information("BotDriver:   {Name,-22} {Strength,5:F1} %  target lap {Lap}{Errors}", bot.Name, bot.Driver.Level,
-                FormatLap(_field.TargetLap(bot) ?? 0),
-                bot.Driver.Errors > 0 ? $"  (human errors {bot.Driver.Errors:P0})" : "");
+            Log.Information("BotDriver:   {Name,-22} {Strength,5:F1} %  target lap {Lap}  AI level {Level:P1}", bot.Name, bot.Driver.Level,
+                FormatLap(_field.TargetLap(bot) ?? 0), bot.Driver.Pace);
 
         world.LapCompleted += OnBotLapCompleted;
-        world.YellowFlag += _announcer.OnYellowFlag;
-        world.YellowFlag += OnYellowIncident;
-        world.Incident += OnWorldIncident;
-        LoadIncidents();
-        world.PitStopCompleted += _announcer.OnBotPitStop;
+        world.PitStopCompleted += OnBotPitStop;
         _world = world;
         world.Trace = msg => Log.Information("BotDriver trace: {Line}", msg);
-        world.Diagnostics = _config.Debug;
         world.TraceBotId = -1;
         if (_config.Debug) Log.Information("BotDriver: debug logging on (Debug in plugin_bot_driver_cfg.yml)");
         if (_config.MaxBots >= 0) _botLimit = _config.MaxBots;
@@ -395,22 +339,10 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
     private void OnClientConnected(ACTcpClient client, EventArgs args)
     {
         client.Collision += OnCollision;
-        // build the player's clone profile now (if he was recorded), so a takeover drives like him at once
-        if (_clones is { } clones && _config.TakeOverDisconnectedPlayers)
-        {
-            string guid = client.Guid.ToString(), model = client.EntryCar.Model;
-            _ = Task.Run(() => { try { clones.Get(guid, model, anyCar: true); } catch (Exception ex) { Log.Debug(ex, "BotDriver: clone preload failed"); } });
-        }
         lock (_lock)
         {
             if (_slotsBySessionId.TryGetValue(client.SessionId, out var slot))
             {
-                if (slot.TakeoverGuid != null)
-                {
-                    // somebody joins a car a bot took over from a player who left: the bot makes room
-                    _takeover.End(slot);
-                    return;
-                }
                 if (slot.Active)
                 {
                     Log.Information("BotDriver: {Player} took over bot slot {Slot} ({Model}), bot {Bot} left", client.Name, client.SessionId, slot.EntryCar.Model, slot.Bot.Name);
@@ -426,8 +358,6 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         client.Collision -= OnCollision;
         lock (_lock)
         {
-            // racing when he left: a bot drives his car on (needs his last position, before it is removed)
-            _takeover.TryTakeOver(client);
             _world?.RemoveExternal(client.SessionId);
             if (_slotsBySessionId.TryGetValue(client.SessionId, out var slot) && !slot.Active && !slot.Benched)
             {
@@ -458,8 +388,6 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
     private void SetupSession(SessionState session, SessionState? previous)
     {
         if (_world == null) return;
-        _takeover.EndAll();
-        _announcer.NewSession();
         EndTelemetryFile();
         _grid.SetupSession(session, previous);
     }
@@ -540,7 +468,6 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         world.Settings.RoadTemp = weather.TemperatureRoad;
         world.Settings.IsRace = _sessionType == SessionType.Race;
         world.Settings.Water = Math.Clamp(weather.RainWater, 0, 1);
-        world.Settings.RainIntensity = Math.Clamp(weather.RainIntensity, 0, 1);
 
         foreach (var slot in _slots)
             slot.Bot.RemainingLaps = _grid.RemainingLaps(slot, session);
@@ -552,8 +479,6 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
 
         long serverTime = _sessionManager.ServerTimeMilliseconds;
         var lights = Lights();
-        bool signalTest = world.SignalTestPhase(now) != 0;
-        if (signalTest) lights = CarStatusFlags.LightsOn | CarStatusFlags.HighBeamsOff;
         var wipers = Wipers();
         bool debug = DebugOn, sample = TelemetryDue(now);
         foreach (var slot in _slots)
@@ -562,8 +487,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
             var pose = world.GetPose(slot.Bot);
             if (debug) CheckHeading(slot, pose, now);
             if (sample) TelemetryRow(world, slot, pose, now);
-            slot.WriteStatus(pose, serverTime, lights, wipers, _config.FlashLights || signalTest, _config.FlashLightsDaytime,
-                _config.HighBeams || signalTest);
+            slot.WriteStatus(pose, serverTime, lights, wipers, _config.HighBeams);
             bool ghost = slot.Bot.GhostUntil > now;
             if (ghost != slot.Ghosted)
             {
@@ -586,7 +510,6 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
             }
         }
         if (debug) TelemetryAfterTick(now, sample);
-        _announcer.Tick(world, now);
     }
 
     private void SendDamage(BotSlot slot)
@@ -608,19 +531,13 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         return (dOff > 0) == line.RightIsPlus ? 3 : 2;
     }
 
-    public bool StartSignalTest()
-    {
-        lock (_lock)
-        {
-            if (_world == null) return false;
-            _world.StartSignalTest(Now);
-            return true;
-        }
-    }
-
     private string T(string en, string de) => _config.ChatLanguage == "de" ? de : en;
 
-    private void OnDuelLap(ACTcpClient client, LapCompletedEventArgs args) => DuelLap(client, args.Packet.LapTime, args.Packet.Cuts);
+    private void OnBotPitStop(RaceBot bot, float seconds, float litres, bool tyres)
+    {
+        if (DebugOn) Log.Information("BotDriver: {Name} pit stop ({Reason}): {Litres:F0} l{Tyres}{Repair}, {Seconds:F1} s", bot.Name, bot.PitReason, litres,
+            tyres ? $", tyres {RaceWorld.CompoundName(bot)}" : "", bot.PitRepair ? ", repair" : "", seconds);
+    }
 
     private void OnBotLapCompleted(RaceBot bot, float lapSeconds)
     {
@@ -663,14 +580,4 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
     // ------------------------------------------------------------------ admin
 
     public bool IsBotCar(byte sessionId) { lock (_lock) return _slotsBySessionId.TryGetValue(sessionId, out var s) && s.Active; }
-
-    private string TrackKey()
-    {
-        string track = _serverConfig.Server.Track;
-        int slash = track.LastIndexOf('/');
-        if (slash >= 0) track = track[(slash + 1)..];
-        return string.IsNullOrEmpty(_serverConfig.Server.TrackConfig) ? track : $"{track}-{_serverConfig.Server.TrackConfig}";
-    }
-
-    public CloneLibrary? Clones => _clones;
 }

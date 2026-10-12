@@ -20,8 +20,6 @@ public sealed class TrackData
     public RoadSurface? OffTrack { get; init; }
     /// <summary>The valid road itself (bumps and kerbs under the wheels of bots driving with the vehicle model), null without kn5 files.</summary>
     public RoadSurface? Road { get; init; }
-    /// <summary>data/ideal_line.ai as an offset from the AI line, null when the track has none (or a copy of the AI line).</summary>
-    public IdealLine? Ideal { get; init; }
 
     /// <param name="gridFile">Grid file of another preset than the running one (null = <paramref name="config"/>'s).</param>
     /// <param name="layers">Configuration layers to look for "&lt;track key&gt;-grid.json" in when no grid file is set.</param>
@@ -34,17 +32,6 @@ public sealed class TrackData
         var line = map.Line;
         string fastLane = map.FastLanePath, trackRoot = map.TrackRoot;
 
-        IdealLine? ideal = null;
-        try
-        {
-            var dataDir = Path.GetDirectoryName(Path.GetDirectoryName(fastLane)!)!;
-            ideal = IdealLine.Load(Path.Join(dataDir, "data", "ideal_line.ai"), line);
-            if (ideal != null) Log.Information("BotDriver: ideal line found, bots mix it into their own line");
-        }
-        catch (Exception ex)
-        {
-            Log.Debug(ex, "BotDriver: ideal_line.ai not readable");
-        }
         LineHeights? heights = null;
         RoadSurface? offTrack = null, roadSurface = null;
         try
@@ -71,7 +58,7 @@ public sealed class TrackData
         Log.Information("BotDriver: racing line {Length:F0} m, start/finish at {Start:F0} m, {Hints} AI hints, {Sections} sections",
             line.Length, map.StartLineS, info.SpeedHints.Count + info.MaxSpeedsKmh.Count, info.Sections.Count);
 
-        return new TrackData { Map = map, Heights = heights, OffTrack = offTrack, Road = roadSurface, Ideal = ideal };
+        return new TrackData { Map = map, Heights = heights, OffTrack = offTrack, Road = roadSurface };
     }
 
     /// <summary>Content folders to search: the server's own content folder first, then the game installation.</summary>

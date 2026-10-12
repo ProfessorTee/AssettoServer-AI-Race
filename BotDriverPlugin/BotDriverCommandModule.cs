@@ -31,9 +31,9 @@ public class BotDriverCommandModule : ACModuleBase
         {
             var b = slot.Bot;
             string best = b.BestLapSeconds < 1e6 ? TimeSpan.FromSeconds(b.BestLapSeconds).ToString(@"m\:ss\.fff") : "-";
-            sb.Append($"\n{b.Name} ({slot.EntryCar.Model}) {b.Driver.Level:F0} %, {b.Driver.Personality.Name}, aggr. {b.Driver.Aggression * 100:F0}, laps {b.LapsCompleted}, best {best}, " +
+            sb.Append($"\n{b.Name} ({slot.EntryCar.Model}) {b.Driver.Level:F0} % (AI level {b.Driver.Pace * 100:F1}), aggr. {b.Driver.Aggression / 0.95f * 100:F0}, laps {b.LapsCompleted}, best {best}, " +
                       $"fuel {b.Fuel:F0} l, tyres {Core.RaceWorld.CompoundName(b)} {Core.RaceWorld.WearGrip(b, b.TyreVirtualKm) * 100:F0} %, stops {b.PitStops}, " +
-                      $"mistakes {b.MistakeCount}, spins {b.SpinCount}, damage {Core.RaceWorld.BodyDamagePercent(b):F0} %");
+                      $"contacts {b.ContactCount}, damage {Core.RaceWorld.BodyDamagePercent(b):F0} %");
         }
         Reply(sb.ToString());
     }
@@ -46,15 +46,6 @@ public class BotDriverCommandModule : ACModuleBase
         Reply($"Bot strength set to {strength:F0} %" + (spread >= 0 ? $" +/- {spread:F0} %" : ""));
     }
 
-    /// <summary>Night test: all bots show left / right indicator, hazards, headlight flash and brake lights for about 6 s each.</summary>
-    [Command("bots_lighttest", "raceai_lighttest", "raceai_signaltest"), RequireAdmin]
-    public void LightTest()
-    {
-        Reply(_service.StartSignalTest()
-            ? "Bot signal test: left indicator, right indicator, hazards, flash, brake lights, high beams (about 6 s each). Tip: /settime 22:00 for night"
-            : "Bots are not active.");
-    }
-
     /// <summary>Switches a feature on or off until the server restarts.</summary>
     [Command("bots_set", "raceai_set"), RequireAdmin]
     public void SetFeature(string feature, string value)
@@ -62,7 +53,7 @@ public class BotDriverCommandModule : ACModuleBase
         bool on = value.ToLowerInvariant() is "on" or "1" or "true" or "an" or "ein";
         Reply(_service.Field.SetFeature(feature.ToLowerInvariant(), on)
             ? $"BotDriver: {feature} {(on ? "on" : "off")}"
-            : "Unknown feature. Use: errors, lines, spins, grass, contacts, damage, blueflags, yellowflags, flash, highbeams, raincaution, realstart, personallines");
+            : "Unknown feature. Use: errors, push, contacts, damage, highbeams");
     }
 
     [Command("bots_grid", "raceai_grid"), RequireAdmin]
@@ -82,45 +73,12 @@ public class BotDriverCommandModule : ACModuleBase
         Reply(limit == -2 ? "Use: /bots_count <number> | on | off" : _service.SetBotLimit(limit));
     }
 
-    /// <summary>Safety car: /bots_sc on [km/h], /bots_sc off.</summary>
-    [Command("bots_sc", "bots_safetycar", "raceai_sc", "raceai_safetycar"), RequireAdmin]
-    public void SafetyCar(string state, float kmh = 0)
-    {
-        bool on = state.ToLowerInvariant() is "on" or "1" or "an" or "ein" or "true";
-        Reply(_service.SetSafetyCar(on, kmh > 0 ? kmh : null));
-    }
-
     /// <summary>Debug logging: /bots_debug on [bot name or car number], /bots_debug off.</summary>
     [Command("bots_debug", "raceai_debug"), RequireAdmin]
     public void Debug(string state, [Remainder] string? bot = null)
     {
         bool on = state.ToLowerInvariant() is "on" or "1" or "an" or "ein" or "true";
         Reply(_service.SetDebug(on, bot));
-    }
-
-    /// <summary>Duel against a recorded player's line: /bots_duel name [bot name or car number] [pace %], /bots_duel off.</summary>
-    [Command("bots_duel", "raceai_duel", "duel"), RequireAdmin]
-    public void Duel([Remainder] string args)
-    {
-        var parts = args.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
-        if (parts.Count == 0) { Reply("/bots_duel <player> [bot|car#] [pace %] or /bots_duel off"); return; }
-        if (parts[0].ToLowerInvariant() is "off" or "aus" or "stop") { if (_service.StopDuel() is { } err) Reply(err); return; }
-        float pace = 100;
-        if (parts.Count > 1 && parts[^1].EndsWith('%') && float.TryParse(parts[^1].TrimEnd('%'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var p))
-        {
-            pace = p;
-            parts.RemoveAt(parts.Count - 1);
-        }
-        string player = parts[0];
-        string? bot = parts.Count > 1 ? string.Join(' ', parts.Skip(1)) : null;
-        if (_service.StartDuel(player, bot, pace) is { } error) Reply(error);
-    }
-
-    /// <summary>Rubber band to the players: /bots_rubber 50 (0 = off).</summary>
-    [Command("bots_rubber", "raceai_rubber", "raceai_rubberband"), RequireAdmin]
-    public void Rubber(float percent)
-    {
-        Reply(_service.Field.SetRubberBand(percent));
     }
 
     [Command("bots_aggression", "raceai_aggression"), RequireAdmin]

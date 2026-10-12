@@ -31,7 +31,6 @@ public static class Program
             {
                 "sim" => Simulator.Run(opts),
                 "grid" => Grid(opts),
-                "fuel" => Fuel(opts),
                 "car" => Car(opts),
                 "acd" => Acd(opts),
                 "physstep" => PhysStep(opts),
@@ -39,8 +38,6 @@ public static class Program
                 "strength" => Strength(opts),
                 "width" => Width(opts),
                 "height" => Height(opts),
-                "accel" => AccelCheck(opts),
-                "ideal" => IdealCheck(opts),
                 _ => Usage()
             };
         }
@@ -62,11 +59,14 @@ public static class Program
         Console.WriteLine("""
             BotDriverTool <command> [options]
 
-            sim   --ac <assettocorsa dir> | --track <track dir> --layout <layout>  [--cars <cars dir>] [--models m1,m2,..]
-                  [--bots 12] [--laps 2] [--level 95] [--variation 5] [--aggression 50] [--seed 1] [--hotlap]
-                  [--player-pace 0.9]  (adds a scripted 'human' car that the bots have to race against)
-            grid  --ac <assettocorsa dir> | --track <track dir> --layout <layout>  [--out grid.json]
-            car   --ac <assettocorsa dir> | --cars <cars dir>  --model <car>
+            sim      --ac <assettocorsa dir> | --track <track dir> --layout <layout>  [--cars <cars dir>] [--models m1,m2,..]
+                     [--bots 12] [--laps 2] [--strength 95] [--spread 3] [--aggression 50] [--seed 1] [--slowest-first]
+                     [--hotlap [--rec <recordings folder>] [--dump lap.csv]] [--trace <bot id>] [--contacts] [--no-errors] [--no-push]
+                     [--player-pace 0.9]  (adds an AI 'player' car, blind to the bots, that the bots have to race against)
+            grid     --ac <assettocorsa dir> | --track <track dir> --layout <layout>  [--out grid.json]
+            car      --ac <assettocorsa dir> | --cars <cars dir>  --model <car> [--speed 25]   (car data, vehicle model, skid pad)
+            physstep --ac <dir> --model <car> [--speed 10] [--gear n] [--throttle x] ...      (vehicle model, step by step)
+            strength --ac <dir> --track-name <track> --layout <layout> --models m1,m2           (strength calibration: % -> AI level)
             selftest                 (offline checks on a synthetic track, no game files needed)
             """);
     }
@@ -90,29 +90,6 @@ public static class Program
     {
         string p = Path.Join(trackRoot, layout, "data");
         return Directory.Exists(p) ? p : Path.Join(trackRoot, "data");
-    }
-
-    /// <summary>Effect of the fuel load: braking distance and lap time with a light and a full tank.</summary>
-    private static int Fuel(Options o)
-    {
-        var (trackRoot, layout, carsRoot) = ResolvePaths(o);
-        var line = new RacingLine(FastLaneFile.Read(FastLanePath(trackRoot, layout)));
-        var car = CarDataLoader.Load(carsRoot, o.Get("model") ?? "ks_mercedes_amg_gt3");
-        var settings = new RaceWorldSettings();
-        foreach (float litres in new[] { 20f, car.FuelCapacity / 2, car.FuelCapacity })
-        {
-            float mass = car.ReferenceMass - 25 + litres * 0.745f;
-            float ratio = mass / car.ReferenceMass;
-            float grip = 1 - 0.3f * (ratio - 1);
-            // braking 250 -> 80 km/h
-            float d = 0;
-            for (float v = 250 / 3.6f; v > 80 / 3.6f; v -= 0.1f) d += v * 0.1f / car.BrakeAt(v, grip, ratio);
-            float t = 0;
-            for (float v = 0; v < 200 / 3.6f; t += 0.01f) v += car.AccelAt(v, 1) / ratio * 0.01f;
-            float lap = StrengthCalibration.FlyingLap(line, car, 1f, settings, out _, out _, 0, 1, litres);
-            Console.WriteLine($"{litres,5:F0} l  {mass,6:F0} kg  brake 250->80 {d,5:F1} m  0-200 {t,5:F2} s  lap {TimeSpan.FromSeconds(lap):m\\:ss\\.fff}");
-        }
-        return 0;
     }
 
     private static int Grid(Options o)
@@ -188,6 +165,8 @@ public static class Program
         }
         var pl = BotDriverPlugin.Core.Physics.Envelope.Measure(d, 1, ai: true, plan: true);
         Console.WriteLine($"  AC AI plans with: {pl.LatSlow / 9.81f:F2} g at 80 km/h, {pl.LatFast / 9.81f:F2} g at 200 km/h");
+        BotDriverPlugin.Core.Physics.Envelope.Calibrate(d);
+        Console.WriteLine($"  tyre grip x{d.GripScale:F2} (calibrated to the plan)");
         foreach (float lg in new[] { 1f, d.AiUltraGrip })
         {
             var e = BotDriverPlugin.Core.Physics.Envelope.Measure(d, lg, ai: true);
@@ -219,7 +198,8 @@ public static class Program
         {
             var spec = CarDataLoader.Load(cars, model, log: Console.WriteLine);
             PrintSpec(spec);
-            if (o.Has("physics") && spec.Physics is { } pd) SkidPad(pd, o.Float("speed", 25));
+            if (spec.Physics is { } pd) SkidPad(pd, o.Float("speed", 25));
+            else Console.WriteLine("  no physics data: bots can't drive this car");
             foreach (var c in spec.Compounds)
                 Console.WriteLine($"  {(c == spec.DefaultCompound ? "*" : " ")} {c}: grip x{c.Grip:F3}, best at {c.Optimum:F0} °C, " +
                                   $"wear 0/20/50/100 vkm {c.GripAt(0):F3}/{c.GripAt(20):F3}/{c.GripAt(50):F3}/{c.GripAt(100):F3}{(c.IsSlick ? ", slick" : c.IsWet ? ", wet" : "")}");
@@ -235,100 +215,6 @@ public static class Program
                 Console.WriteLine($"  chosen: {CarDataLoader.LoadForTrack(cars, model, line).WingLevel?.ToString("P0") ?? "default"}");
             }
         }
-        return 0;
-    }
-
-    /// <summary>
-    /// Full-throttle acceleration of a player's recorded laps (DriverRecorder csv.gz) against the bot model of the same car, by speed:
-    /// shows whether the engine/turbo/drag model is too strong or too weak.
-    /// </summary>
-    private static int AccelCheck(Options o)
-    {
-        string cars = o.Get("cars") ?? Path.Join(o.Get("ac") ?? ".", "content", "cars");
-        string model = o.Get("model") ?? throw new ArgumentException("--model required");
-        string dir = o.Get("recordings") ?? throw new ArgumentException("--recordings <folder with csv.gz> required");
-        var spec = CarDataLoader.Load(cars, model, log: _ => { });
-        var bins = new SortedDictionary<int, List<float>>();
-        var brakeBins = new SortedDictionary<int, List<float>>();
-        foreach (var file in Directory.EnumerateFiles(dir, "*.csv.gz", SearchOption.AllDirectories))
-        {
-            using var gz = new System.IO.Compression.GZipStream(File.OpenRead(file), System.IO.Compression.CompressionMode.Decompress);
-            using var rd = new StreamReader(gz);
-            var rows = new List<float[]>();
-            string? line;
-            while ((line = rd.ReadLine()) != null)
-            {
-                if (line.StartsWith('#') || line.StartsWith('t')) continue;
-                var f = line.Split(',');
-                if (f.Length < 11) continue;
-                // t, x, y, z, speed m/s, gas, brake, steer, gear
-                rows.Add([float.Parse(f[0]), float.Parse(f[2]), float.Parse(f[3]), float.Parse(f[4]), float.Parse(f[5]) / 3.6f, float.Parse(f[6]), float.Parse(f[7]), float.Parse(f[9]), float.Parse(f[10])]);
-            }
-            // windows of ~0.4 s at full throttle, no brake, straight, same gear
-            for (int i = 0; i + 1 < rows.Count; i++)
-            {
-                int j = i;
-                while (j + 1 < rows.Count && rows[j + 1][0] - rows[i][0] < 0.4f) j++;
-                if (j == i || rows[j][0] - rows[i][0] < 0.25f) continue;
-                bool ok = true, brk = true;
-                for (int k = i; k <= j && (ok || brk); k++)
-                {
-                    ok &= rows[k][5] >= 250 && rows[k][6] == 0 && MathF.Abs(rows[k][7]) < 8 && rows[k][8] == rows[i][8] && rows[k][4] > 8;
-                    brk &= rows[k][6] >= 150 && rows[k][5] < 20 && MathF.Abs(rows[k][7]) < 15 && rows[k][4] > 8;
-                }
-                if (!ok && !brk) continue;
-                float dt = rows[j][0] - rows[i][0];
-                float ds = 0;
-                for (int k = i; k < j; k++) ds += MathF.Sqrt(MathF.Pow(rows[k + 1][1] - rows[k][1], 2) + MathF.Pow(rows[k + 1][3] - rows[k][3], 2));
-                if (ds < 1) continue;
-                float a = (rows[j][4] - rows[i][4]) / dt + 9.81f * (rows[j][2] - rows[i][2]) / ds; // + climbing
-                int bin = (int)(rows[i][4] * 3.6f / 20) * 20;
-                var target = brk ? brakeBins : bins;
-                if (!target.TryGetValue(bin, out var list)) target[bin] = list = new();
-                list.Add(brk ? -a : a);
-            }
-        }
-        Console.WriteLine($"{model}: full-throttle acceleration, player (median of {bins.Values.Sum(l => l.Count)} windows) vs bot model (pace 1)");
-        Console.WriteLine("  km/h   player   model   model/player");
-        foreach (var (bin, list) in bins)
-        {
-            if (list.Count < 5) continue;
-            list.Sort();
-            float real = list[list.Count / 2];
-            float mdl = spec.AccelAt((bin + 10) / 3.6f, 1f);
-            Console.WriteLine($"  {bin,3}-{bin + 20,-3} {real,6:F2}  {mdl,6:F2}   {(real > 0.2f ? (mdl / real).ToString("F2") : "-"),5}   ({list.Count})");
-        }
-        Console.WriteLine("  braking (pedal >= 60 %), deceleration m/s²: player vs model");
-        foreach (var (bin, list) in brakeBins)
-        {
-            if (list.Count < 5) continue;
-            list.Sort();
-            float real = list[list.Count * 3 / 4]; // the harder part of the braking zones
-            float mdl = spec.BrakeAt((bin + 10) / 3.6f, 1f) + spec.DragCoefficient * MathF.Pow((bin + 10) / 3.6f, 2);
-            Console.WriteLine($"  {bin,3}-{bin + 20,-3} {real,6:F2}  {mdl,6:F2}   {(mdl / real):F2}   ({list.Count})");
-        }
-        return 0;
-    }
-
-    /// <summary>How far data/ideal_line.ai is from ai/fast_lane.ai (the bots' line) across the track.</summary>
-    private static int IdealCheck(Options o)
-    {
-        var (trackRoot, layout, _) = ResolvePaths(o);
-        var line = new RacingLine(FastLaneFile.Read(FastLanePath(trackRoot, layout)));
-        string ip = Path.Join(trackRoot, layout ?? "", "data", "ideal_line.ai");
-        if (!File.Exists(ip)) ip = Path.Join(trackRoot, "data", "ideal_line.ai");
-        if (!File.Exists(ip)) { Console.WriteLine("no ideal_line.ai"); return 1; }
-        var ideal = FastLaneFile.Read(ip);
-        var offs = new List<float>();
-        int hint = -1;
-        foreach (var p in ideal)
-        {
-            var pr = line.Project(p.Position, hint);
-            hint = pr.Index;
-            offs.Add(pr.Offset);
-        }
-        var abs = offs.Select(MathF.Abs).OrderBy(x => x).ToList();
-        Console.WriteLine($"{ideal.Length} points: offset from fast_lane median {abs[abs.Count / 2]:F2} m, 90 % {abs[abs.Count * 9 / 10]:F2} m, max {abs[^1]:F2} m");
         return 0;
     }
 
@@ -350,7 +236,7 @@ public static class Program
         {
             BotDriverPlugin.Core.Physics.Vehicle.Step(d, st, inp, 1f / 300);
             if (i % every == 0)
-                Console.WriteLine(FormattableString.Invariant($"{i,4} v={st.Vx:F2} ax={st.Ax:F2} ay={st.Ay:F2} rpm={st.EngineRpm:F0} clutch={st.ClutchLocked} w={st.Omega[0]:F1}/{st.Omega[1]:F1}/{st.Omega[2]:F1}/{st.Omega[3]:F1} k={st.Kappa[0]:F3}/{st.Kappa[1]:F3}/{st.Kappa[2]:F3}/{st.Kappa[3]:F3} a={st.Alpha[2] * 57.3f:F2} nd={st.NdSlip[0]:F2}/{st.NdSlip[1]:F2}/{st.NdSlip[2]:F2}/{st.NdSlip[3]:F2} fz={st.Load[0]:F0}/{st.Load[1]:F0}/{st.Load[2]:F0}/{st.Load[3]:F0} h={st.H:F3} p={st.Pitch * 57.3f:F2}"));
+                Console.WriteLine(FormattableString.Invariant($"{i,4} v={st.Vx:F2} ax={st.Ax:F2} ay={st.Ay:F2} rpm={st.EngineRpm:F0} clutch={st.ClutchLocked} w={st.Omega[0]:F1}/{st.Omega[1]:F1}/{st.Omega[2]:F1}/{st.Omega[3]:F1} k={st.Kappa[0]:F3}/{st.Kappa[1]:F3}/{st.Kappa[2]:F3}/{st.Kappa[3]:F3} a={st.Alpha[2] * 57.3f:F2} nd={st.NdSlip[0]:F2}/{st.NdSlip[1]:F2}/{st.NdSlip[2]:F2}/{st.NdSlip[3]:F2} fz={st.Load[0]:F0}/{st.Load[1]:F0}/{st.Load[2]:F0}/{st.Load[3]:F0} h={st.H:F3} p={st.Pitch * 57.3f:F2} r={st.R * 57.3f:F1} vy={st.Vy:F2}"));
         }
         return 0;
     }
@@ -454,7 +340,7 @@ public static class Program
         var line = new RacingLine(FastLaneFile.Read(FastLanePath(trackRoot, layout)));
         var info = TrackInfo.LoadLayoutData(LayoutDataDir(trackRoot, layout));
         line.ApplyHints(info.SpeedHints, info.MaxSpeedsKmh);
-        var settings = new RaceWorldSettings { HumanErrors = !o.Has("no-errors"), PhysicsDriving = o.Has("physics") };
+        var settings = new RaceWorldSettings();
         int threads = o.Int("threads", 0);
         foreach (var model in (o.Get("models") ?? "ks_mercedes_amg_gt3").Split(','))
         {
@@ -468,7 +354,7 @@ public static class Program
             Console.WriteLine($"{model}: best lap {Simulator.Fmt(cal.BestLap)} ({sw.ElapsedMilliseconds} ms wall, {cpu.TotalMilliseconds:F0} ms CPU, " +
                               $"{(GC.GetTotalAllocatedBytes() - alloc) / 1048576} MB allocated, GC {GC.CollectionCount(0) - gc0}/{GC.CollectionCount(2) - gc2}), table {string.Join(" ", cal.LapTimes.Select(Simulator.Fmt))}");
             foreach (var pct in new[] { 100f, 97, 95, 94, 92, 90, 85, 80, 75, 70 })
-                Console.WriteLine($"   {pct,4:F0} % -> pace {cal.PaceFor(pct):F3}  target {Simulator.Fmt(cal.LapTimeFor(pct))}");
+                Console.WriteLine($"   {pct,4:F0} % -> AI level {cal.PaceFor(pct):F3}  target {Simulator.Fmt(cal.LapTimeFor(pct))}");
         }
         return 0;
     }

@@ -7,7 +7,7 @@ namespace BotDriverPlugin;
 
 /// <summary>
 /// The state every part of the bot plugin works on: the world, the track, the bots' slots, the session. Owned by
-/// <see cref="BotDriverService"/>, shared with <see cref="GridDirector"/>, <see cref="FieldStrength"/> and <see cref="RaceAnnouncer"/>.
+/// <see cref="BotDriverService"/>, shared with <see cref="GridDirector"/> and <see cref="FieldStrength"/>.
 /// Everything in here is read and changed under <see cref="Lock"/>.
 /// </summary>
 public sealed class BotRace

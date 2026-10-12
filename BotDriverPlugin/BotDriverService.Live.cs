@@ -1,15 +1,11 @@
 using AssettoServer.Server;
 using AssettoServer.Server.Extensions;
-using AssettoServer.Shared.Model;
-using AssettoServer.Shared.Network.Packets.Outgoing;
 
 namespace BotDriverPlugin;
 
 /// <summary>What other plugins (web portal, server tools) may know about the bots (<see cref="IDrivenCars"/>).</summary>
 public sealed partial class BotDriverService
 {
-    // ------------------------------------------------------------------ IDrivenCars (other plugins: live page, server name)
-
     public bool Ready => _world != null;
 
     public DrivenCarInfo? Get(EntryCar car)
@@ -20,9 +16,8 @@ public sealed partial class BotDriverService
             var b = slot.Bot;
             return new DrivenCarInfo
             {
-                Name = slot.TakeoverGuid != null ? slot.TakeoverPlayer : b.Name,
-                Kind = slot.TakeoverGuid != null ? "clone" : "ai",
-                Guid = slot.TakeoverGuid ?? 0,
+                Name = b.Name,
+                Kind = "ai",
                 Status = slot.Status,
                 InPitLane = b.InPitLane,
                 PitStops = b.PitStops,
@@ -36,4 +31,3 @@ public sealed partial class BotDriverService
         lock (_lock) return _world?.ExternalInPitLane(car.SessionId);
     }
 }
-

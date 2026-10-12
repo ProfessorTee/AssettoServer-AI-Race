@@ -132,6 +132,7 @@ public sealed class CarSpec
         lock (this)
         {
             if (_physicsCopy != null) return _physicsCopy;
+            BotDriverPlugin.Core.Physics.Envelope.Calibrate(Physics);
             var e = BotDriverPlugin.Core.Physics.Envelope.Measure(Physics, 1f, ai: true, plan: true);
             var c = Clone();
             c.LateralGrip = e.Grip;
@@ -139,7 +140,7 @@ public sealed class CarSpec
             c.BrakeGrip = e.BrakeGrip;
             c.AeroBrake = e.AeroBrake;
             c.PhysicsTuned = true;
-            c.Source = $"{Source}, physics: {e.LatSlow / G:F2} g at 80 km/h, {e.LatFast / G:F2} g at 200 km/h, braking {e.BrakeGrip:F2} g";
+            c.Source = $"{Source}, physics: {e.LatSlow / G:F2} g at 80 km/h, {e.LatFast / G:F2} g at 200 km/h, braking {e.BrakeGrip:F2} g, tyre grip x{Physics.GripScale:F2}";
             return _physicsCopy = c;
         }
     }

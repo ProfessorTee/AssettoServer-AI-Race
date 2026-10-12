@@ -1,7 +1,3 @@
-using TrackGeometry;
-using System.Numerics;
-using AssettoServer.Server;
-using AssettoServer.Shared.Model;
 using BotDriverPlugin.Core;
 
 namespace BotDriverPlugin;
@@ -26,9 +22,8 @@ public sealed partial class BotDriverService
                 bots[slot.EntryCar.SessionId.ToString()] = new Dictionary<string, object?>
                 {
                     ["strength"] = MathF.Round(b.Driver.Level, 1),
-                    ["aggression"] = MathF.Round(b.Driver.Aggression * 100),
-                    ["personality"] = b.Driver.Personality.Name,
-                    ["errors"] = MathF.Round(b.Driver.Errors, 2),
+                    ["aggression"] = MathF.Round(b.Driver.Aggression / 0.95f * 100),
+                    ["level"] = MathF.Round(b.Driver.Pace * 1000) / 10,
                     ["phase"] = b.Phase.ToString(),
                     ["pit"] = b.Pit.ToString(),
                     ["fuel"] = MathF.Round(b.Fuel, 1),
@@ -36,20 +31,11 @@ public sealed partial class BotDriverService
                     ["tyres"] = MathF.Round(RaceWorld.WearGrip(b, b.TyreVirtualKm) * 100, 1),
                     ["compound"] = RaceWorld.CompoundName(b),
                     ["tyreTemp"] = new[] { MathF.Round(b.TyreTempFront), MathF.Round(b.TyreTempRear) },
-                    ["clone"] = b.Clone?.PlayerName,
-                    ["duel"] = slot == _duelSlot,
-                    ["boost"] = MathF.Round(b.PaceBoost * 1000) / 10, // rubber band, % pace
-                    ["takeover"] = slot.TakeoverGuid != null,
                     ["damage"] = MathF.Round(RaceWorld.BodyDamagePercent(b)),
                     ["suspension"] = MathF.Round(b.Suspension * 100),
-                    ["mistake"] = b.Mistake == MistakeKind.None ? null : b.Mistake.ToString(),
-                    ["mistakes"] = b.MistakeCount,
-                    ["spins"] = b.SpinCount,
+                    ["contacts"] = b.ContactCount,
                     ["stops"] = b.PitStops,
                     ["ghost"] = b.GhostUntil > Now,
-                    ["weaving"] = b.Weaving,
-                    ["pressure"] = MathF.Round(b.Pressure, 2),
-                    ["impatience"] = MathF.Round(b.Impatience, 2),
                 };
             }
             return new
@@ -60,10 +46,8 @@ public sealed partial class BotDriverService
                     strength = _config.AiStrength,
                     spread = _config.AiStrengthSpread,
                     aggression = _config.AiAggression,
-                    rubber = _config.RubberBanding,
                     gridOrder = _config.BotGridOrder.ToString(),
-                    features = _field.FeatureStates(),
-                    personalities = _field.PersonalityNames
+                    features = _field.FeatureStates()
                 },
                 bots,
                 health = new { tickMs = Math.Round(_lastTickAvg, 2), tickMaxMs = Math.Round(_lastTickMax, 2), calibration = _field.CalibrationStatus }
@@ -89,21 +73,5 @@ public sealed partial class BotDriverService
             _tickCount = 0;
             _tickWindowStart = System.Diagnostics.Stopwatch.GetTimestamp();
         }
-    }
-
-    /// <summary>Recorded players on this track (DriverRecorder), with their profile once it has been built.</summary>
-    public object CloneList()
-    {
-        var lib = _clones;
-        if (lib == null) return Array.Empty<object>();
-        return lib.List().Select(e =>
-        {
-            var p = e.CleanLaps > 0 ? lib.Get(e.Guid, e.Car) : null;
-            return new
-            {
-                guid = e.Guid, name = e.Name, car = e.Car, clean = e.CleanLaps, all = e.AllLaps,
-                best = p?.BestLap, average = p?.AverageLap, used = p?.LapsUsed ?? 0
-            };
-        }).ToList();
     }
 }

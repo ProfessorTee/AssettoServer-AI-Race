@@ -15,8 +15,8 @@ using YamlDotNet.Serialization;
 namespace BotDriverPlugin;
 
 /// <summary>
-/// The strength of the field: strength in % per bot, personalities, aggression, rubber band, the bots' feature switches, and the
-/// calibration (strength in % -> driver pace) behind it.
+/// The strength of the field: strength in % per bot, aggression, the bots' feature switches, and the calibration (strength in % -> AC AI
+/// level) behind it.
 ///
 /// Calibration without making the server wait:
 /// at start each car gets the final calibration from the cache if there is one, otherwise a provisional one
@@ -29,7 +29,6 @@ public sealed class FieldStrength
     private readonly BotRace _race;
     private readonly ConfigWriter _configWriter;
     private readonly Dictionary<CarSpec, StrengthCalibration> _calibrations = new();
-    private readonly List<(Personality Personality, float Share)> _personalities = [];
     private float? _referenceBestLap;
     /// <summary>The lap time of 100 % (median of the bot cars), null when every car has its own.</summary>
     public float? ReferenceBestLap => _referenceBestLap;
@@ -65,7 +64,7 @@ public sealed class FieldStrength
     private static string CalibrationBaseKey(string trackKey, RacingLine line, CarSpec spec, RaceWorldSettings s, string variant)
         => Hash(string.Join("|", trackKey, line.Length.ToString("F1", CultureInfo.InvariantCulture),
             spec.Model, variant, spec.TopSpeed, spec.DragCoefficient, spec.LateralGrip, spec.BrakeGrip, spec.ReferenceMass, spec.FuelCapacity,
-            s.HumanErrors, s.LineErrors, s.Spins, s.GrassMoments, s.UseTrackHints, s.EdgeMargin, s.TyreWearScale, RaceWorld.DefaultStep, s.PhysicsDriving, s.PhysicsCorneringGrip, s.PhysicsPlanGrip));
+            "kunos", s.UseTrackHints, s.GrassAllowance, s.TyreWearScale, RaceWorld.DefaultStep, s.PhysicsCorneringGrip));
 
     // still cache/raceai/ (the folder of the Race AI plugin this was before): existing calibrations stay valid
     private static string CalibrationDir(string trackKey) => Path.Join("cache", "raceai", trackKey);
@@ -106,8 +105,8 @@ public sealed class FieldStrength
         {
             Log.Debug(ex, "BotDriver: calibration cache not readable");
         }
-        // quick: coarse steps and fewer laps with mistakes (a few seconds), refined in the background
-        return (StrengthCalibration.Measure(_track.Line, spec, settings, step: 0.05f, errorLaps: 2), false);
+        // quick: coarse steps (a few seconds), refined in the background
+        return (StrengthCalibration.Measure(_track.Line, spec, settings, step: 0.05f), false);
     }
 
     /// <summary>The final calibration (the live world's step), saved in the cache.</summary>
@@ -283,16 +282,9 @@ public sealed class FieldStrength
     {
         StartLineS = startLineS,
         UseTrackHints = s.UseTrackHints,
-        EdgeMargin = s.EdgeMargin,
-        SideMargin = s.SideMargin,
-        PlayerSideMargin = s.PlayerSideMargin,
-        PlayerOverlap = s.PlayerOverlap,
-        HumanErrors = s.HumanErrors,
-        Spins = s.Spins,
-        GrassMoments = s.GrassMoments,
-        LineErrors = s.LineErrors,
         GrassAllowance = s.GrassAllowance,
-        TyreWearScale = s.TyreWearScale
+        TyreWearScale = s.TyreWearScale,
+        PhysicsCorneringGrip = s.PhysicsCorneringGrip
     };
 
     private static string TrackKeyFor(string track, string layout)
@@ -302,42 +294,13 @@ public sealed class FieldStrength
         return string.IsNullOrEmpty(layout) ? track : $"{track}-{layout}";
     }
 
-    // ------------------------------------------------------------------ strength, personalities, switches
-
-
-    public Personality PickPersonality(string? name)
-    {
-        if (!_config.UsePersonalities) return Personality.Balanced;
-        if (_personalities.Count == 0)
-        {
-            var list = _config.Personalities.Count > 0
-                ? _config.Personalities.Select(p => (p.ToPersonality(), p.Share)).ToList()
-                : Personality.Defaults();
-            _personalities.AddRange(list);
-        }
-        if (!string.IsNullOrWhiteSpace(name))
-        {
-            var match = _personalities.FirstOrDefault(p => p.Personality.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-            if (match.Personality != null) return match.Personality;
-            Log.Warning("BotDriver: unknown personality {Name}", name);
-        }
-        float total = _personalities.Sum(p => MathF.Max(0, p.Share));
-        if (total <= 0) return Personality.Balanced;
-        float r = (float)_race.Rng.NextDouble() * total;
-        foreach (var (p, share) in _personalities)
-        {
-            r -= MathF.Max(0, share);
-            if (r <= 0) return p;
-        }
-        return _personalities[^1].Personality;
-    }
+    // ------------------------------------------------------------------ strength, switches
 
     public void SetStrength(float strength, float? spread = null)
     {
         lock (_lock)
         {
-            // the bots of the entry list; a car taken over from a player keeps his pace
-            var slots = _slots.Where(s => s.TakeoverGuid == null).ToList();
+            var slots = _slots.ToList();
             var values = StrengthCalibration.Distribute(slots.Count, strength, spread ?? _config.AiStrengthSpread,
                 _config.AiStrengthDistribution == StrengthDistribution.Random, _race.Rng);
             for (int i = 0; i < slots.Count; i++)
@@ -349,30 +312,11 @@ public sealed class FieldStrength
         }
     }
 
-    /// <summary>Strength in % -> consistency, human error level and the pace that gives the target lap time including the mistakes.</summary>
+    /// <summary>Strength in % -> the AC AI level that gives the target lap time.</summary>
     public void ApplyStrength(RaceBot bot, float strength, StrengthCalibration cal)
     {
-        if (bot.Clone is { } clone)
-        {
-            ApplyClone(bot, clone);
-            return;
-        }
-        var d = DriverProfile.FromStrength(strength, 0, 0);
         bot.Driver.Level = strength;
-        bot.Driver.Consistency = d.Consistency;
-        bot.Driver.Errors = _config.HumanErrors ? DriverProfile.ErrorsFor(strength, _config.HumanErrorsBelow, _config.HumanErrorsFull) : 0;
-        bot.Driver.Pace = cal.PaceFor(strength, _referenceBestLap, bot.Driver.Errors);
-    }
-
-    /// <summary>A clone drives the player's speeds (Pace 1 = no extra slowing) and makes mistakes as often as his lap times vary.</summary>
-    public void ApplyClone(RaceBot bot, CloneProfile clone)
-    {
-        bot.Driver.Pace = 1;
-        bot.Driver.Consistency = 0.97f;
-        float spread = clone.AverageLap > 0 ? clone.LapSpread / clone.AverageLap : 0;
-        bot.Driver.Errors = _config.HumanErrors ? Math.Clamp(spread * 25, 0.05f, 0.6f) : 0;
-        float reference = _referenceBestLap ?? (_calibrations.TryGetValue(bot.Car, out var cal) ? cal.BestLap : clone.AverageLap);
-        bot.Driver.Level = MathF.Round(reference / MathF.Max(1, clone.AverageLap / bot.ClonePace) * 1000) / 10;
+        bot.Driver.Pace = cal.PaceFor(strength, _referenceBestLap);
     }
 
     public bool SetFeature(string feature, bool on)
@@ -383,55 +327,19 @@ public sealed class FieldStrength
             if (s == null) return false;
             switch (feature)
             {
-                case "errors" or "humanerrors":
-                    _config.HumanErrors = on;
-                    _configWriter.Set(nameof(BotDriverConfiguration.HumanErrors), on);
-                    s.HumanErrors = on;
-                    foreach (var slot in _slots)
-                        if (_calibrations.TryGetValue(slot.Bot.Car, out var cal)) ApplyStrength(slot.Bot, slot.Bot.Driver.Level, cal);
-                    break;
-                case "spins": s.Spins = on; _config.Spins = on; _configWriter.Set("Spins", on); break;
-                case "grass": s.GrassMoments = on; _config.GrassMoments = on; _configWriter.Set("GrassMoments", on); break;
-                case "lines": s.LineErrors = on; _config.LineErrors = on; _configWriter.Set("LineErrors", on); break;
-                case "contacts": s.BotContacts = on; _config.BotContacts = on; _configWriter.Set("BotContacts", on); break;
+                case "errors" or "humanerrors": s.HumanErrors = on; _config.HumanErrors = on; _configWriter.Set(nameof(BotDriverConfiguration.HumanErrors), on); break;
+                case "push": s.PushVariation = on; _config.PushVariation = on; _configWriter.Set(nameof(BotDriverConfiguration.PushVariation), on); break;
+                case "contacts": s.BotContacts = on; _config.BotContacts = on; _configWriter.Set(nameof(BotDriverConfiguration.BotContacts), on); break;
                 case "damage": s.Damage = on && s.DamageRate > 0; break;
-                case "blueflags": _config.BlueFlags = on; s.BlueFlags = on && _race.SessionType == AssettoServer.Shared.Model.SessionType.Race; _configWriter.Set("BlueFlags", on); break;
-                case "yellowflags": s.YellowFlags = on; _config.YellowFlags = on; _configWriter.Set("YellowFlags", on); break;
-                case "flash": _config.FlashLights = on; _configWriter.Set("FlashLights", on); break;
-                case "raincaution": _config.RainCaution = on; s.RainCaution = on; _configWriter.Set("RainCaution", on); break;
-                case "highbeams": _config.HighBeams = on; _configWriter.Set("HighBeams", on); break;
-                case "realstart": _config.RealisticStart = on; s.RealisticStart = on; _configWriter.Set("RealisticStart", on); break;
-                case "personallines":
-                    _config.PersonalLines = on;
-                    s.PersonalLines = on;
-                    _configWriter.Set("PersonalLines", on);
-                    foreach (var slot in _slots) _world!.ResetStyle(slot.Bot);
-                    break;
+                case "highbeams": _config.HighBeams = on; _configWriter.Set(nameof(BotDriverConfiguration.HighBeams), on); break;
                 default: return false;
             }
             return true;
         }
     }
 
-    /// <summary>Rubber band strength 0-100 % (0 = off), saved in the configuration.</summary>
-    public string SetRubberBand(float percent)
-    {
-        lock (_lock)
-        {
-            percent = Math.Clamp(percent, 0, 100);
-            _config.RubberBanding = percent;
-            _configWriter.Set("RubberBanding", percent);
-            if (_world != null) _world.Settings.RubberBand = percent / 100f;
-            return percent <= 0 ? T("Rubber band off.", "Gummiband aus.")
-                : T($"Rubber band {percent:F0} %: bots ahead of you up to {_config.RubberBandingAhead * percent / 100:F1} % slower, behind you up to {_config.RubberBandingBehind * percent / 100:F1} % faster.",
-                    $"Gummiband {percent:F0} %: Bots vor dir bis {_config.RubberBandingAhead * percent / 100:F1} % langsamer, hinter dir bis {_config.RubberBandingBehind * percent / 100:F1} % schneller.");
-        }
-    }
-
-
     // ------------------------------------------------------------------ for the other parts of the plugin
 
-    public IReadOnlyList<string> PersonalityNames => _personalities.Select(p => p.Personality.Name).DefaultIfEmpty("Balanced").ToList();
     public bool HasCalibration(CarSpec car) => _calibrations.ContainsKey(car);
     public StrengthCalibration Calibration(CarSpec car) => _calibrations[car];
     public void SetCalibration(CarSpec car, StrengthCalibration cal, bool provisional, string variant)
@@ -455,41 +363,18 @@ public sealed class FieldStrength
         var s = _world?.Settings;
         return new Dictionary<string, bool>
         {
-            ["errors"] = s?.HumanErrors ?? false,
-            ["spins"] = s?.Spins ?? false,
-            ["grass"] = s?.GrassMoments ?? false,
-            ["takeover"] = _config.TakeOverDisconnectedPlayers,
-            ["lines"] = s?.LineErrors ?? false,
-            ["contacts"] = s?.BotContacts ?? false,
+            ["errors"] = s?.HumanErrors ?? _config.HumanErrors,
+            ["push"] = s?.PushVariation ?? _config.PushVariation,
+            ["contacts"] = s?.BotContacts ?? _config.BotContacts,
             ["damage"] = s?.Damage ?? false,
-            ["blueflags"] = _config.BlueFlags,
-            ["yellowflags"] = s?.YellowFlags ?? false,
-            ["flash"] = _config.FlashLights,
             ["highbeams"] = _config.HighBeams,
-            ["raincaution"] = s?.RainCaution ?? false,
-            ["yellowchat"] = _config.YellowFlagChat,
-            ["overtakechat"] = _config.AnnounceOvertakes,
-            ["personallines"] = s?.PersonalLines ?? _config.PersonalLines,
-            ["realstart"] = s?.RealisticStart ?? _config.RealisticStart,
         };
     }
 
-    public bool SetDashboardFeature(string feature, bool on)
-    {
-        lock (_lock)
-        {
-            switch (feature)
-            {
-                case "yellowchat": _config.YellowFlagChat = on; _configWriter.Set("YellowFlagChat", on); return true;
-                case "overtakechat": _config.AnnounceOvertakes = on; _configWriter.Set("AnnounceOvertakes", on); return true;
-                case "takeover": _config.TakeOverDisconnectedPlayers = on; _configWriter.Set("TakeOverDisconnectedPlayers", on); return true;
-            }
-        }
-        return SetFeature(feature, on);
-    }
+    public bool SetDashboardFeature(string feature, bool on) => SetFeature(feature, on);
 
     /// <summary>Changes one bot. Null values stay as they are.</summary>
-    public bool UpdateBot(int id, float? strength, float? aggression, string? personality, bool pit)
+    public bool UpdateBot(int id, float? strength, float? aggression, bool pit)
     {
         lock (_lock)
         {
@@ -498,16 +383,10 @@ public sealed class FieldStrength
             var bot = slot.Bot;
             if (strength is { } st && _calibrations.TryGetValue(bot.Car, out var cal))
                 ApplyStrength(bot, Math.Clamp(st, 50, 110), cal);
-            if (aggression is { } ag) bot.Driver.Aggression = Math.Clamp(ag / 100f, 0, 1);
-            if (!string.IsNullOrWhiteSpace(personality))
-            {
-                if (_personalities.Count == 0) PickPersonality(null);
-                var p = _personalities.FirstOrDefault(x => x.Personality.Name.Equals(personality, StringComparison.OrdinalIgnoreCase)).Personality;
-                if (p != null) { bot.Driver.Personality = p; world.ResetStyle(bot); }
-            }
+            if (aggression is { } ag) bot.Driver.Aggression = Math.Clamp(ag / 100f, 0, 1) * 0.95f;
             if (pit) world.RequestPitStop(bot, "admin");
-            Log.Information("BotDriver: dashboard changed {Name}: strength {Strength:F1} %, aggression {Aggression:F0}, {Personality}{Pit}",
-                bot.Name, bot.Driver.Level, bot.Driver.Aggression * 100, bot.Driver.Personality.Name, pit ? ", to the pits" : "");
+            Log.Information("BotDriver: dashboard changed {Name}: strength {Strength:F1} %, aggression {Aggression:F0}{Pit}",
+                bot.Name, bot.Driver.Level, bot.Driver.Aggression / 0.95f * 100, pit ? ", to the pits" : "");
             return true;
         }
     }
@@ -523,16 +402,16 @@ public sealed class FieldStrength
         _configWriter.Set("AiStrengthSpread", _config.AiStrengthSpread);
     }
 
-    /// <summary>The field's aggression: every bot shifted by the change, so the spread and the personalities stay.</summary>
+    /// <summary>The field's aggression: every bot shifted by the change, so the spread stays.</summary>
     public void SetGlobalAggression(float aggression)
     {
         lock (_lock)
         {
             aggression = Math.Clamp(aggression, 0, 100);
-            float delta = (aggression - _config.AiAggression) / 100f;
+            float delta = (aggression - _config.AiAggression) / 100f * 0.95f;
             _config.AiAggression = aggression;
             foreach (var slot in _slots)
-                slot.Bot.Driver.Aggression = Math.Clamp(slot.Bot.Driver.Aggression + delta, 0, 1);
+                slot.Bot.Driver.Aggression = Math.Clamp(slot.Bot.Driver.Aggression + delta, 0, 0.95f);
         }
         _configWriter.Set("AiAggression", _config.AiAggression);
     }

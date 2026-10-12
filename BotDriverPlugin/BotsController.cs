@@ -28,17 +28,17 @@ public class BotsController : ControllerBase
     [HttpGet("/api/bots/state")]
     public IActionResult State() => Allowed() ? Ok(_service.BotState()) : Denied();
 
+    // the admin page (WebPortal) also asks for these; this version of the bots has neither an incident list nor clones
     [HttpGet("/api/bots/incidents")]
-    public IActionResult Incidents() => Allowed() ? Ok(_service.Incidents()) : Denied();
+    public IActionResult Incidents() => Allowed() ? Ok(Array.Empty<object>()) : Denied();
 
     [HttpGet("/api/bots/clones")]
-    public IActionResult Clones() => Allowed() ? Ok(_service.CloneList()) : Denied();
+    public IActionResult Clones() => Allowed() ? Ok(Array.Empty<object>()) : Denied();
 
     public sealed class BotRequest
     {
         public float? Strength { get; set; }
         public float? Aggression { get; set; }
-        public string? Personality { get; set; }
         public bool Pit { get; set; }
     }
 
@@ -46,7 +46,7 @@ public class BotsController : ControllerBase
     public IActionResult Bot(int id, [FromBody] BotRequest req)
     {
         if (!Allowed()) return Denied();
-        return _service.Field.UpdateBot(id, req.Strength, req.Aggression, req.Personality, req.Pit) ? Ok(new { ok = true }) : NotFound(new { error = "no such bot" });
+        return _service.Field.UpdateBot(id, req.Strength, req.Aggression, req.Pit) ? Ok(new { ok = true }) : NotFound(new { error = "no such bot" });
     }
 
     public sealed class AiRequest
@@ -56,9 +56,7 @@ public class BotsController : ControllerBase
         public float? Aggression { get; set; }
         public string? Feature { get; set; }
         public bool On { get; set; }
-        public bool LightTest { get; set; }
         public string? GridOrder { get; set; }
-        public float? Rubber { get; set; }
     }
 
     [HttpPost("/api/bots/ai")]
@@ -68,8 +66,6 @@ public class BotsController : ControllerBase
         if (req.Strength is { } st) _service.Field.SetGlobalStrength(st, req.Spread ?? _service.Field.CurrentSpread);
         if (req.Aggression is { } ag) _service.Field.SetGlobalAggression(ag);
         if (!string.IsNullOrEmpty(req.Feature) && !_service.Field.SetDashboardFeature(req.Feature, req.On)) return BadRequest(new { error = "unknown feature" });
-        if (req.LightTest) _service.StartSignalTest();
-        if (req.Rubber is { } rb) _service.Field.SetRubberBand(rb);
         if (!string.IsNullOrEmpty(req.GridOrder) && !_service.Grid.SetGridOrder(req.GridOrder)) return BadRequest(new { error = "unknown grid order" });
         return Ok(new { ok = true });
     }

@@ -31,8 +31,8 @@ public sealed partial class BotDriverService
     private (int On, int Off) ApplyBotLimit()
     {
         int allowed = _botLimit ?? int.MaxValue, on = 0, off = 0;
-        // cars taken over from players always drive; of the normal bots the first slots stay
-        foreach (var slot in _slots.Where(s => s.TakeoverGuid == null).OrderBy(s => s.EntryCar.SessionId))
+        // the first slots stay
+        foreach (var slot in _slots.OrderBy(s => s.EntryCar.SessionId))
         {
             if (slot.EntryCar.Client != null) continue; // a player has this car
             if (on < allowed)
@@ -60,24 +60,7 @@ public sealed partial class BotDriverService
         return (on, off);
     }
 
-    /// <summary>Safety car on/off: slow, in order, weaving to keep the tyres warm.</summary>
-    public string SetSafetyCar(bool on, float? kmh)
-    {
-        lock (_lock)
-        {
-            if (_world == null) return T("Bots are not active.", "Bots sind nicht aktiv.");
-            if (kmh is > 30 and < 300) _world.Settings.SafetyCarSpeed = kmh.Value / 3.6f;
-            _world.Settings.SafetyCar = on;
-            float v = _world.Settings.SafetyCarSpeed * 3.6f;
-            Log.Information("BotDriver: safety car {State} ({Speed:F0} km/h)", on ? "on" : "off", v);
-            _entryCarManager.BroadcastChat(on
-                ? T($"SAFETY CAR: the bots slow down to {v:F0} km/h and don't overtake.", $"SAFETY CAR: die Bots fahren langsam ({v:F0} km/h) und überholen nicht.")
-                : T("Safety car in: green flag, racing again!", "Safety Car kommt rein: grüne Flagge, es wird wieder gefahren!"));
-            return on ? T($"Safety car on ({v:F0} km/h).", $"Safety Car an ({v:F0} km/h).") : T("Safety car off.", "Safety Car aus.");
-        }
-    }
-
-    /// <summary>Debug logging on/off; optionally a detailed trace (twice a second) of one bot, by name or car number.</summary>
+    /// <summary>Debug logging on/off; optionally a detailed trace (four times a second) of one bot, by name or car number.</summary>
     public string SetDebug(bool on, string? bot)
     {
         lock (_lock)
@@ -85,9 +68,6 @@ public sealed partial class BotDriverService
             _race.Debug = on;
             EndTelemetryFile();
             if (_world == null) return on ? "BotDriver debug on" : "BotDriver debug off";
-            // the racecraft counters (attacks, dives, mistakes ...) only while debugging: they cost time in every step
-            _world.Diagnostics = on;
-            if (_world.Diagnostics) _world.DiagCounts.Clear();
             _world.TraceBotId = -1;
             string traced = "";
             if (on && !string.IsNullOrWhiteSpace(bot))
@@ -112,29 +92,25 @@ public sealed partial class BotDriverService
     {
         if (!DebugOn || now < _nextDebug) return;
         _nextDebug = now + 10;
-        Log.Information("BotDriver debug: session {Session}, race started {Started}, safety car {Sc}, bot limit {Limit}, {Players} players",
-            _sessionType, _raceStarted, world.Settings.SafetyCar, _botLimit?.ToString() ?? "all", _entryCarManager.ConnectedCars.Count);
-        if (world.DiagCounts.Count > 0)
-            Log.Information("BotDriver debug: counters {Counters}",
-                string.Join(", ", world.DiagCounts.OrderByDescending(x => x.Value).Take(15).Select(x => $"{x.Key} {x.Value}")));
+        Log.Information("BotDriver debug: session {Session}, race started {Started}, bot limit {Limit}, {Players} players",
+            _sessionType, _raceStarted, _botLimit?.ToString() ?? "all", _entryCarManager.ConnectedCars.Count);
         foreach (var slot in _slots)
         {
             var b = slot.Bot;
             Log.Information("BotDriver debug: #{Id} {Name}{State} phase {Phase} pit {Pit} lap {Lap} s {S:F0} v {V:F0}/{T:F0} km/h off {Off:F1}->{Tgt:F1} " +
-                            "tyres {Tf:F0}/{Tr:F0} °C fuel {Fuel:F1} mistake {Mistake} ot {Ot} car {Swap}",
+                            "gear {Gear} tyres {Tf:F0}/{Tr:F0} °C fuel {Fuel:F1} level {Level:P1} contacts {Contacts}",
                 slot.EntryCar.SessionId, b.Name, slot.Benched ? " (off)" : slot.Active ? "" : " (player)", b.Phase, b.Pit, b.LapsCompleted,
-                world.Line.WrapS((float)b.Distance), b.Speed * 3.6f, b.TargetSpeed * 3.6f, b.Offset, b.TargetOffset, b.TyreTempFront, b.TyreTempRear,
-                b.Fuel, b.Mistake, b.OvertakeTargetId, slot.TakeoverGuid != null ? "taken over" : "-");
+                world.Line.WrapS((float)b.Distance), b.Speed * 3.6f, b.TargetSpeed * 3.6f, b.Offset, b.TargetOffset, b.Gear, b.TyreTempFront, b.TyreTempRear,
+                b.Fuel, b.Driver.Pace, b.ContactCount);
         }
     }
 
     private readonly Dictionary<int, double> _headingLogged = new();
 
-    /// <summary>Debug: a bot shown more than 30° off the track's direction outside a spin or slide (at most every 5 s per bot).</summary>
+    /// <summary>Debug: a bot shown more than 30° off the track's direction (at most every 5 s per bot).</summary>
     private void CheckHeading(BotSlot slot, in BotPose pose, double now)
     {
         var bot = slot.Bot;
-        if (bot.Mistake != MistakeKind.None) return;
         float deg = _world!.HeadingError(bot, pose);
         if (deg < 30 || (_headingLogged.TryGetValue(bot.Id, out var at) && now - at < 5)) return;
         _headingLogged[bot.Id] = now;

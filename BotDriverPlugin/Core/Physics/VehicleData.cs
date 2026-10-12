@@ -87,6 +87,11 @@ public sealed class VehicleData
     /// <summary>electronics.ini: slip ratio limits, how often they act (RATE_HZ), TC's minimum speed.</summary>
     public float AbsSlip = 0.12f, AbsRateHz = 100, TcSlip = 0.1f, TcRateHz = 100, TcMinSpeed;
     /// <summary>ai.ini of the car: ULTRA_GRIP (AI's extra lateral grip, AC default 1.2), STEER_GAIN, LOOKAHEAD BASE, BRAKE_HINT, UNDERSTEER hint.</summary>
+    /// <summary>
+    /// Friction multiplier on all tyres (<see cref="Envelope.Calibrate"/>): our tyre model holds less than AC's, so without it the car can't
+    /// corner at the grip the AC AI plans with and slides; AC has the plan as its plain grip and the ultra grip as the reserve on top.
+    /// </summary>
+    public float GripScale = 1;
     public float AiUltraGrip = 1.2f, AiSteerGain = 0.05f, AiLookahead = 12, AiBrakeHint = 1, AiUndersteer = 1;
     /// <summary>ai.ini GEARS: upshift rpm (AC default 6000) and downshift point as a share of it (DOWN/100 from ai.ini version 4, else 0.8).</summary>
     public float AiUpRpm = 6000, AiDownFactor = 0.8f;

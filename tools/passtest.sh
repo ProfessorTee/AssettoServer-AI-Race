@@ -16,7 +16,7 @@ for tr in $TRACKS; do IFS=: read -r t l laps <<< "$tr"
     for s in $(seq 1 "$N"); do
       while [ "$(jobs -rp | wc -l)" -ge $(nproc) ]; do sleep 0.1; done
       nice -n 19 dotnet "$TOOL" sim --ac "$AC" --track "$AC/content/tracks/$t" --layout "$l" --models "$MODELS" --bots "${BOTS:-4}" \
-        --laps "$laps" --style --strength 91 --spread "$g" --slowest-first --seed "$s" > "$TMP/$t-$g-$s.txt" 2>&1 &
+        --laps "$laps" --strength 91 --spread "$g" --slowest-first --seed "$s" > "$TMP/$t-$g-$s.txt" 2>&1 &
     done
   done
 done
@@ -32,7 +32,7 @@ for f in glob.glob(sys.argv[1] + "/*.txt"):
     lv = {int(p): int(l) for p, l in rows}
     r = res[(t, g)]; r[0] += 1
     if lv[1] == max(lv.values()): r[1] += 1
-    r[2] += sum(int(x) for x in re.findall(r'contacts +(\d+) +grass', txt))
+    r[2] += sum(int(x) for x in re.findall(r'contacts (\d+) ghosts', txt))
     m = re.search(r'first pass: ([\d.]+|never)', txt)
     r[3].append(float(m.group(1)) if m and m.group(1) != "never" else float("inf"))
 print(f"passtest {sys.argv[2]}")
