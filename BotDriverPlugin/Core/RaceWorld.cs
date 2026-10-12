@@ -131,9 +131,9 @@ public sealed class RaceBot
     /// <summary>Last time the car overlapped another one (touching).</summary>
     internal double LastOverlapAt = double.NegativeInfinity;
     internal int LastContactWith = -1;
-    /// <summary>The pose on the road under the wheels, smoothed (lift m, pitch and roll rad) and when it was last worked out.</summary>
-    internal float PoseLift, PosePitch, PoseRoll;
-    internal double PoseAt = double.NaN;
+    /// <summary>The body on its springs over the road under the wheels (lift m, pitch and roll rad, and their rates per second).</summary>
+    internal float PoseLift, PosePitch, PoseRoll, PoseLiftRate, PosePitchRate, PoseRollRate;
+    internal bool PoseValid;
     public int ContactCount { get; internal set; }
     public int Overtakes { get; internal set; }
     /// <summary>Emergency ghost (no collisions) until this time.</summary>
@@ -553,17 +553,13 @@ public sealed partial class RaceWorld
         float impact = Math.Clamp(impactSpeed, 0, 30);
         bot.LastContactAt = _now;
         bot.ContactCount++;
-        // with a vehicle model: a real hit from the player's car (mass unknown: taken as heavy as the bot)
+        // with a vehicle model: a real hit from the player's car (mass unknown: taken as heavy as the bot). The client's impact speed is the
+        // closing speed at the contact: the server's positions come later, the player's car has already bounced off on his screen (to him
+        // the bot is a wall that only moves with its packets), so all of the push has to come from here
         var fromOther = Vector2.Normalize(new Vector2(ds, dOff) + new Vector2(1e-4f, 0));
-        if (bot.Car.Physics is { } d && bot.Phys is { } st)
+        if (bot.Car.Physics is { } d && bot.Phys != null)
         {
-            float closing = impact;
-            if (other is { Valid: true })
-            {
-                var rel = new Vector2(st.SDot - other.Speed, st.NDot - other.LateralSpeed);
-                closing = MathF.Max(-Vector2.Dot(rel, fromOther), 0.3f * impact);
-            }
-            Impulse(bot, fromOther, ContactPoint(bot, -fromOther), Math.Clamp(closing, 0, 30), d.Mass * bot.MassRatio);
+            Impulse(bot, fromOther, ContactPoint(bot, -fromOther), impact, d.Mass * bot.MassRatio);
             return;
         }
         bool side = MathF.Abs(dOff) > 0.6f * bot.Car.Width && MathF.Abs(ds) < bot.Car.Length;
@@ -646,7 +642,10 @@ public sealed partial class RaceWorld
         ResolveOverlaps();
         foreach (var bot in Bots)
             if (bot.Phase is BotPhase.Racing or BotPhase.CoolDown)
+            {
                 UpdateTiming(bot);
+                UpdateBody(bot, dt);
+            }
     }
 
     private void BuildNeighbors()
@@ -879,13 +878,7 @@ public sealed partial class RaceWorld
             return PitPose(bot);
 
         float s = Line.WrapS((float)bot.Distance);
-        Line.Interp(s, out var a, out var b, out var t);
-        var pos = Line.PositionAt(s, bot.Offset);
-        var normal = Vector3.Normalize(Vector3.Lerp(Line.Normal[a], Line.Normal[b], t));
-        pos += normal * (Settings.HeightOffset + (Heights?.At(s, bot.Offset) ?? 0));
-
-        var fwd = Line.ForwardAt(s);
-        var lat = Line.LateralAt(s);
+        var (pos, normal, fwd, lat) = Frame(bot, s);
         Vector3 vel, dir;
         if (bot.Phys is { } ph)
         {
@@ -905,8 +898,15 @@ public sealed partial class RaceWorld
             MathF.Atan2(dir.Z, dir.X) - MathF.PI / 2,
             (MathF.Atan2(new Vector2(dir.Z, dir.X).Length(), dir.Y) - MathF.PI / 2) * -1f,
             Line.CamberAt(s));
-        if (bot.Phys != null && bot.Car.Physics is { } pd && Road != null)
-            OnWheels(bot, ref pos, ref rotation, dir, lat, pd);
+        if (bot.Phys != null && bot.PoseValid)
+        {
+            // the body on its springs over kerbs and bumps (UpdateBody); its vertical speed goes along, so the clients' extrapolation
+            // between two packets follows it instead of snapping at the next one
+            pos.Y += bot.PoseLift;
+            vel.Y += bot.PoseLiftRate;
+            rotation.Y = bot.PosePitch;
+            rotation.Z = bot.PoseRoll;
+        }
 
         float wheel = Math.Clamp((bot.Phys?.Steer ?? 0) * 180 / MathF.PI, -32, 32);
         var (gear, rpm) = GearAndRpm(bot);
@@ -920,16 +920,34 @@ public sealed partial class RaceWorld
             bot.FrontLock ? 0f : 1f, bot.RearSlip);
     }
 
+    /// <summary>The car's centre on the line's road at its offset (plus the road's height beside the line), the road normal, forward and lateral.</summary>
+    private (Vector3 Pos, Vector3 Normal, Vector3 Fwd, Vector3 Lat) Frame(RaceBot bot, float s)
+    {
+        Line.Interp(s, out var a, out var b, out var t);
+        var pos = Line.PositionAt(s, bot.Offset);
+        var normal = Vector3.Normalize(Vector3.Lerp(Line.Normal[a], Line.Normal[b], t));
+        pos += normal * (Settings.HeightOffset + (Heights?.At(s, bot.Offset) ?? 0));
+        return (pos, normal, Line.ForwardAt(s), Line.LateralAt(s));
+    }
+
+    /// <summary>Body frequency (Hz) and damping ratio of the shown body over the road (a firm race car on its springs and tyres).</summary>
+    public const float BodyHz = 3f, BodyDamping = 0.8f;
+
     /// <summary>
     /// The car standing on the real road under its four wheels (kerbs, crown, bumps; the road mesh, not the AI line's flat road): height from
-    /// their mean, pitch from front against rear, roll from side to side. A wheel off the road stands on the grass/gravel mesh, beyond all meshes on the line's plane.
+    /// their mean, pitch from front against rear, roll from side to side. A wheel off the road stands on the grass/gravel mesh, beyond all
+    /// meshes on the line's plane. The body follows on a spring and damper every world step (<see cref="BodyHz"/>), like on its suspension:
+    /// a kerb's edge lifts it over ~0.1 s, it never jumps from one packet to the next.
     /// </summary>
-    private void OnWheels(RaceBot bot, ref Vector3 pos, ref Vector3 rotation, Vector3 dir, Vector3 lat, Physics.VehicleData d)
+    private void UpdateBody(RaceBot bot, float dt)
     {
+        if (bot.Phys is not { } st || bot.Car.Physics is not { } d || Road == null || bot.InPitLane) { bot.PoseValid = false; return; }
+        float s = Line.WrapS((float)bot.Distance);
+        var (c, _, fwd, lat) = Frame(bot, s);
+        var dir = Rotate(fwd, lat, st.Psi);
         var fh = Vector3.Normalize(new Vector3(dir.X, 0, dir.Z));
         var side = Vector3.Normalize(new Vector3(-fh.Z, 0, fh.X));
         if (Vector3.Dot(side, lat) < 0) side = -side;
-        var c = pos;
         float baseY = c.Y - Settings.HeightOffset;
         float H(float x, float y)
         {
@@ -945,20 +963,22 @@ public sealed partial class RaceWorld
         // (the same sign as the line's camber: asin of the lateral's tilt, checked on TM/NS/RBR)
         float track = (d.TrackFront + d.TrackRear) / 2;
         float roll = MathF.Asin(Math.Clamp((fp + rp - fm - rm) / 2 / track, -0.5f, 0.5f));
-        // the body follows on its springs and the tyres (~50 ms), it doesn't jump onto a kerb in one packet
-        double dt = _now - bot.PoseAt;
-        if (double.IsNaN(dt) || dt < 0 || dt > 1) { bot.PoseLift = lift; bot.PosePitch = pitch; bot.PoseRoll = roll; }
-        else
+        if (!bot.PoseValid)
         {
-            float k = 1 - MathF.Exp(-(float)dt / 0.05f);
-            bot.PoseLift += (lift - bot.PoseLift) * k;
-            bot.PosePitch += (pitch - bot.PosePitch) * k;
-            bot.PoseRoll += (roll - bot.PoseRoll) * k;
+            bot.PoseLift = lift; bot.PosePitch = pitch; bot.PoseRoll = roll;
+            bot.PoseLiftRate = bot.PosePitchRate = bot.PoseRollRate = 0;
+            bot.PoseValid = true;
+            return;
         }
-        bot.PoseAt = _now;
-        pos.Y += bot.PoseLift;
-        rotation.Y = bot.PosePitch;
-        rotation.Z = bot.PoseRoll;
+        float w = 2 * MathF.PI * BodyHz;
+        static void Spring(ref float x, ref float v, float target, float w, float dt)
+        {
+            v += dt * (w * w * (target - x) - 2 * BodyDamping * w * v);
+            x += dt * v;
+        }
+        Spring(ref bot.PoseLift, ref bot.PoseLiftRate, lift, w, dt);
+        Spring(ref bot.PosePitch, ref bot.PosePitchRate, pitch, w, dt);
+        Spring(ref bot.PoseRoll, ref bot.PoseRollRate, roll, w, dt);
     }
 
     /// <summary>
@@ -999,10 +1019,12 @@ public sealed partial class RaceWorld
     internal (int Gear, int Rpm) GearAndRpm(RaceBot bot)
     {
         var car = bot.Car;
+        // the clients turn the wheels with the revs of the gear shown: while the clutch slips pulling away (below 43 km/h) or the car
+        // stands, neutral is shown, else the launch revs spin the wheels on their screens and smoke
         if (bot.Phys is { } st && !bot.InPitLane && bot.Gear > 0)
-            return (bot.ShiftTo > 0 && _now < bot.ShiftEnd ? bot.ShiftTo : bot.Gear, (int)Math.Clamp(st.EngineRpm, car.IdleRpm, car.MaxRpm));
+            return (st.ClutchLocked || bot.Speed > 12 ? (bot.ShiftTo > 0 && _now < bot.ShiftEnd ? bot.ShiftTo : bot.Gear) : 0, (int)Math.Clamp(st.EngineRpm, car.IdleRpm, car.MaxRpm));
         float kmh = bot.Speed * 3.6f;
-        if (kmh < 1) return (1, car.IdleRpm);
+        if (kmh < 1) return (0, car.IdleRpm);
         var gears = car.GearTopSpeedsKmh;
         int gear = gears.Length;
         for (int g = 0; g < gears.Length; g++)

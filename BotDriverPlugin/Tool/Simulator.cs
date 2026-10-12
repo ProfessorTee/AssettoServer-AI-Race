@@ -182,6 +182,13 @@ public static class Simulator
             world.Advance(now);
             stats.Sample(now);
             if (poses != null && now > 5) poses.Sample(world, dt);
+            // --start: what the clients get off the line (gear, revs, throttle, wheel surface speed against the car's)
+            if (o.Has("start") && now < 4 && (int)(now * 10) != (int)((now - dt) * 10))
+                foreach (var b in world.Bots.Take(4))
+                {
+                    var ps = world.GetPose(b);
+                    Console.WriteLine(FormattableString.Invariant($"start t={now:F1} {b.Name,-18} v={ps.Speed * 3.6f,5:F1} gear={ps.Gear} rpm={ps.Rpm} thr={ps.Throttle} rearWheel={ps.Speed * ps.RearTyreFactor * 3.6f,5:F1} km/h"));
+                }
             // a few bots: when does the fastest first lead all the others (tools/passtest.sh)
             if (world.Bots.Count <= 6 && double.IsNaN(firstPass) && now > 1)
             {

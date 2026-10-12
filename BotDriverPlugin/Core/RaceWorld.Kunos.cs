@@ -340,6 +340,8 @@ public sealed partial class RaceWorld
         float target = MathF.Min(PlanSpeed(me, me.Offset, push), carLimit);
         // wide of the line or beside another car: the AI moves with at most 3-4 m/s, back to its line slowly
         float rate = (ai.PassingId >= 0 || beside > 0 || MathF.Abs(want) > MathF.Abs(ai.DesiredOffset) + 0.05f) ? (beside > 0 ? 4f : 3f) : 0.6f;
+        // just hit: back to the line slowly, not straight back into the other car
+        if (_now - me.LastContactAt < 2) rate = 0.6f;
         ai.DesiredOffset += Math.Clamp(want - ai.DesiredOffset, -rate * dt, rate * dt);
         me.TargetOffset = ai.DesiredOffset;
         me.Alongside = beside > 0;

@@ -23,6 +23,8 @@ public sealed partial class RaceWorld
         st.Vx += jx / m;
         st.Vy += jy / m;
         st.R += (rx * jy - ry * jx) / iz;
+        // pushed off its line: the driver takes it from where he is now instead of steering straight back into the other car
+        AiOf(bot).DesiredOffset = st.N;
         return true;
     }
 
