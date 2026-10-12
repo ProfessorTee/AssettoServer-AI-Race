@@ -131,6 +131,9 @@ public sealed class RaceBot
     /// <summary>Last time the car overlapped another one (touching).</summary>
     internal double LastOverlapAt = double.NegativeInfinity;
     internal int LastContactWith = -1;
+    /// <summary>The pose on the road under the wheels, smoothed (lift m, pitch and roll rad) and when it was last worked out.</summary>
+    internal float PoseLift, PosePitch, PoseRoll;
+    internal double PoseAt = double.NaN;
     public int ContactCount { get; internal set; }
     public int Overtakes { get; internal set; }
     /// <summary>Emergency ghost (no collisions) until this time.</summary>
@@ -548,12 +551,25 @@ public sealed partial class RaceWorld
         float dOff = bot.Offset - p.Offset;
         float ds = Line.Delta(p.S, Line.WrapS((float)bot.Distance)); // > 0: the bot is ahead
         float impact = Math.Clamp(impactSpeed, 0, 30);
+        bot.LastContactAt = _now;
+        bot.ContactCount++;
+        // with a vehicle model: a real hit from the player's car (mass unknown: taken as heavy as the bot)
+        var fromOther = Vector2.Normalize(new Vector2(ds, dOff) + new Vector2(1e-4f, 0));
+        if (bot.Car.Physics is { } d && bot.Phys is { } st)
+        {
+            float closing = impact;
+            if (other is { Valid: true })
+            {
+                var rel = new Vector2(st.SDot - other.Speed, st.NDot - other.LateralSpeed);
+                closing = MathF.Max(-Vector2.Dot(rel, fromOther), 0.3f * impact);
+            }
+            Impulse(bot, fromOther, ContactPoint(bot, -fromOther), Math.Clamp(closing, 0, 30), d.Mass * bot.MassRatio);
+            return;
+        }
         bool side = MathF.Abs(dOff) > 0.6f * bot.Car.Width && MathF.Abs(ds) < bot.Car.Length;
         if (side) bot.LateralSpeed = MathF.Sign(dOff) * (0.6f + 0.08f * impact);
         else if (ds > 0) bot.Speed += MathF.Min(2, 0.3f * impact);
         else bot.Speed = MathF.Max(0, bot.Speed - 0.6f * impact);
-        bot.LastContactAt = _now;
-        bot.ContactCount++;
     }
 
     // ------------------------------------------------------------------ simulation
@@ -890,7 +906,7 @@ public sealed partial class RaceWorld
             (MathF.Atan2(new Vector2(dir.Z, dir.X).Length(), dir.Y) - MathF.PI / 2) * -1f,
             Line.CamberAt(s));
         if (bot.Phys != null && bot.Car.Physics is { } pd && Road != null)
-            OnWheels(ref pos, ref rotation, dir, lat, pd);
+            OnWheels(bot, ref pos, ref rotation, dir, lat, pd);
 
         float wheel = Math.Clamp((bot.Phys?.Steer ?? 0) * 180 / MathF.PI, -32, 32);
         var (gear, rpm) = GearAndRpm(bot);
@@ -908,7 +924,7 @@ public sealed partial class RaceWorld
     /// The car standing on the real road under its four wheels (kerbs, crown, bumps; the road mesh, not the AI line's flat road): height from
     /// their mean, pitch from front against rear, roll from side to side. A wheel off the road stands on the grass/gravel mesh, beyond all meshes on the line's plane.
     /// </summary>
-    private void OnWheels(ref Vector3 pos, ref Vector3 rotation, Vector3 dir, Vector3 lat, Physics.VehicleData d)
+    private void OnWheels(RaceBot bot, ref Vector3 pos, ref Vector3 rotation, Vector3 dir, Vector3 lat, Physics.VehicleData d)
     {
         var fh = Vector3.Normalize(new Vector3(dir.X, 0, dir.Z));
         var side = Vector3.Normalize(new Vector3(-fh.Z, 0, fh.X));
@@ -924,11 +940,25 @@ public sealed partial class RaceWorld
         float fp = H(d.A, d.TrackFront / 2), fm = H(d.A, -d.TrackFront / 2), rp = H(-d.B, d.TrackRear / 2), rm = H(-d.B, -d.TrackRear / 2);
         // the line's points sit above the road (the recorded car's height there), so the car moves by how much higher or lower its wheels
         // stand than the road under its middle, not to the road surface itself
-        pos.Y += (fp + fm + rp + rm) / 4 - H(0, 0);
-        rotation.Y = MathF.Atan2((fp + fm - rp - rm) / 2, d.A + d.B);
+        float lift = Math.Clamp((fp + fm + rp + rm) / 4 - H(0, 0), -0.3f, 0.3f);
+        float pitch = MathF.Atan2((fp + fm - rp - rm) / 2, d.A + d.B);
         // (the same sign as the line's camber: asin of the lateral's tilt, checked on TM/NS/RBR)
         float track = (d.TrackFront + d.TrackRear) / 2;
-        rotation.Z = MathF.Asin(Math.Clamp((fp + rp - fm - rm) / 2 / track, -0.5f, 0.5f));
+        float roll = MathF.Asin(Math.Clamp((fp + rp - fm - rm) / 2 / track, -0.5f, 0.5f));
+        // the body follows on its springs and the tyres (~50 ms), it doesn't jump onto a kerb in one packet
+        double dt = _now - bot.PoseAt;
+        if (double.IsNaN(dt) || dt < 0 || dt > 1) { bot.PoseLift = lift; bot.PosePitch = pitch; bot.PoseRoll = roll; }
+        else
+        {
+            float k = 1 - MathF.Exp(-(float)dt / 0.05f);
+            bot.PoseLift += (lift - bot.PoseLift) * k;
+            bot.PosePitch += (pitch - bot.PosePitch) * k;
+            bot.PoseRoll += (roll - bot.PoseRoll) * k;
+        }
+        bot.PoseAt = _now;
+        pos.Y += bot.PoseLift;
+        rotation.Y = bot.PosePitch;
+        rotation.Z = bot.PoseRoll;
     }
 
     /// <summary>

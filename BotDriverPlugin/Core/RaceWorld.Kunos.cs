@@ -389,7 +389,7 @@ public sealed partial class RaceWorld
             // trail braking where AC's holds; the SP AI never slides like that)
             inp.ExtraMz = 0;
             float beta = MathF.Abs(MathF.Atan2(st.Vy, MathF.Max(v, 1)));
-            if (v * 3.6f > 20 && !mistake && beta > 2 / 57.3f && _now - me.LastContactAt > 1)
+            if (v * 3.6f > 20 && !mistake && beta > 2 / 57.3f && _now - me.LastContactAt > 2)
             {
                 float rRef = v * Line.CurvatureAt(s) / MathF.Max(0.2f, 1 - Line.CurvatureAt(s) * st.N);
                 float blend = Math.Clamp((beta - 2 / 57.3f) / (3 / 57.3f), 0, 1);
@@ -423,7 +423,8 @@ public sealed partial class RaceWorld
         float along = st.SDot * MathF.Max(0.2f, 1 - Line.CurvatureAt(sNow) * st.N);
         me.Yaw = st.Psi - MathF.Atan2(st.NDot, MathF.Max(along, 0.5f));
         me.FrontLock = st.FrontLocked;
-        me.RearSlip = st.DrivenSpinning ? 1.3f : 1f;
+        // rear wheels' surface speed against the car's (the clients draw spin and smoke from it)
+        me.RearSlip = Math.Clamp((st.Omega[2] + st.Omega[3]) / 2 * d.Rear.Radius / MathF.Max(st.Vx, 0.1f), 0, 50);
         // beyond the run-off the car is held (a wall, the end of the gravel)
         float allow = Settings.GrassAllowance;
         float held = Math.Clamp(me.Offset, -Line.RoomMinusAt(sNow) + half - allow, Line.RoomPlusAt(sNow) - half + allow);
@@ -552,7 +553,8 @@ public sealed partial class RaceWorld
         // pulling away from the grid: until 50 km/h much more slip allowed below 20 km/h, and only down to half the throttle
         bool start = me.LapsCompleted == 0 && !double.IsNaN(me.LaunchAt) && _now - me.LaunchAt < 20 && v * 3.6f < 50 && ai.StartPhase;
         if (v * 3.6f >= 50) ai.StartPhase = false;
-        float tcLimit = start ? (v * 3.6f < 20 ? (20 - v * 3.6f) * 10 + 4 : 4) : 1;
+        // (AC lets the AI spin the wheels a lot off the line; here only the drivers who botch the start do, see LaunchSpinUntil)
+        float tcLimit = start ? 1.3f : 1;
         // a driver who spins the wheels off the line floors it and doesn't feel for the grip (the car's own TC still works)
         if (_now < me.LaunchSpinUntil) throttle = 1;
         else if (drivenNd > tcLimit && v * 3.6f > 5) throttle *= start ? 0.5f : 0.2f;
