@@ -922,7 +922,9 @@ public sealed partial class RaceWorld
             return Road!.HeightAt(p.X, p.Z, lineY) ?? OffTrack?.HeightAt(p.X, p.Z, lineY) ?? lineY;
         }
         float fp = H(d.A, d.TrackFront / 2), fm = H(d.A, -d.TrackFront / 2), rp = H(-d.B, d.TrackRear / 2), rm = H(-d.B, -d.TrackRear / 2);
-        pos.Y = (fp + fm + rp + rm) / 4 + Settings.HeightOffset;
+        // the line's points sit above the road (the recorded car's height there), so the car moves by how much higher or lower its wheels
+        // stand than the road under its middle, not to the road surface itself
+        pos.Y += (fp + fm + rp + rm) / 4 - H(0, 0);
         rotation.Y = MathF.Atan2((fp + fm - rp - rm) / 2, d.A + d.B);
         // (the same sign as the line's camber: asin of the lateral's tilt, checked on TM/NS/RBR)
         float track = (d.TrackFront + d.TrackRear) / 2;
@@ -930,7 +932,7 @@ public sealed partial class RaceWorld
     }
 
     /// <summary>
-    /// Revving on the grid: a blip now and then, the last 5 s in first gear holding the launch revs (a wobbling foot; a driver about to spin
+    /// Revving on the grid: a blip now and then, the last 5 s holding the launch revs (a wobbling foot; a driver about to spin
     /// the wheels holds them a lot higher).
     /// </summary>
     private (int Gear, int Rpm, byte Throttle) GridRevs(RaceBot bot)
@@ -941,8 +943,9 @@ public sealed partial class RaceWorld
         float wobble = MathF.Sin((float)(_now * 6.3 + bot.Id * 1.7)) * 0.5f + MathF.Sin((float)(_now * 2.3 + bot.Id)) * 0.5f;
         if (toGreen < 5)
         {
+            // (shown in neutral: the clients turn the wheels with the revs of an engaged gear, they can't see a clutch held down)
             float launch = MathF.Min(max * 0.6f, 4500) * (bot.SpinFor > 0 ? 1.35f : 1);
-            return (1, (int)Math.Clamp(launch * (1 + 0.06f * wobble), idle, max), (byte)(110 + 40 * wobble));
+            return (0, (int)Math.Clamp(launch * (1 + 0.06f * wobble), idle, max), (byte)(110 + 40 * wobble));
         }
         float phase = (float)((_now * 0.35 + bot.Id * 0.37) % 1);
         if (phase < 0.08f)
