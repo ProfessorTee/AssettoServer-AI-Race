@@ -878,7 +878,7 @@ public sealed partial class RaceWorld
             return PitPose(bot);
 
         float s = Line.WrapS((float)bot.Distance);
-        var (pos, normal, fwd, lat) = Frame(bot, s);
+        var (pos, normal, fwd, lat) = Frame(bot, s, heights: !(bot.Phys != null && bot.PoseValid));
         Vector3 vel, dir;
         if (bot.Phys is { } ph)
         {
@@ -920,35 +920,41 @@ public sealed partial class RaceWorld
             bot.FrontLock ? 0f : 1f, bot.RearSlip);
     }
 
-    /// <summary>The car's centre on the line's road at its offset (plus the road's height beside the line), the road normal, forward and lateral.</summary>
-    private (Vector3 Pos, Vector3 Normal, Vector3 Fwd, Vector3 Lat) Frame(RaceBot bot, float s)
+    /// <summary>The car's centre on the line's road plane at its offset (with <paramref name="heights"/>: plus the road's height beside the line
+    /// from the 1 m grid), the road normal, forward and lateral.</summary>
+    private (Vector3 Pos, Vector3 Normal, Vector3 Fwd, Vector3 Lat) Frame(RaceBot bot, float s, bool heights = true)
     {
         Line.Interp(s, out var a, out var b, out var t);
         var pos = Line.PositionAt(s, bot.Offset);
         var normal = Vector3.Normalize(Vector3.Lerp(Line.Normal[a], Line.Normal[b], t));
-        pos += normal * (Settings.HeightOffset + (Heights?.At(s, bot.Offset) ?? 0));
+        pos += normal * (Settings.HeightOffset + (heights ? Heights?.At(s, bot.Offset) ?? 0 : 0));
         return (pos, normal, Line.ForwardAt(s), Line.LateralAt(s));
     }
 
-    /// <summary>Body frequency (Hz) and damping ratio of the shown body over the road (a firm race car on its springs and tyres).</summary>
-    public const float BodyHz = 3f, BodyDamping = 0.8f;
+    /// <summary>Body frequency (Hz) and damping ratio of the shown body over the road: quick enough that the wheels don't sink into a kerb
+    /// while it rises (3 Hz lagged ~0.1 s), slow enough to smooth single triangles and packet steps.</summary>
+    public const float BodyHz = 6f, BodyDamping = 0.8f;
 
     /// <summary>
     /// The car standing on the real road under its four wheels (kerbs, crown, bumps; the road mesh, not the AI line's flat road): height from
     /// their mean, pitch from front against rear, roll from side to side. A wheel off the road stands on the grass/gravel mesh, beyond all
     /// meshes on the line's plane. The body follows on a spring and damper every world step (<see cref="BodyHz"/>), like on its suspension:
-    /// a kerb's edge lifts it over ~0.1 s, it never jumps from one packet to the next.
+    /// a kerb's edge lifts it over ~40 ms, it never jumps from one packet to the next.
     /// </summary>
     private void UpdateBody(RaceBot bot, float dt)
     {
         if (bot.Phys is not { } st || bot.Car.Physics is not { } d || Road == null || bot.InPitLane) { bot.PoseValid = false; return; }
         float s = Line.WrapS((float)bot.Distance);
-        var (c, _, fwd, lat) = Frame(bot, s);
+        var (c, _, fwd, lat) = Frame(bot, s, heights: false);
+        // the line's points sit above the road (the recorded car's height there): the road plane under the car is the line's plane moved
+        // down to the road under the line point
+        var p0 = Line.PositionAt(s, 0);
+        if (Road.HeightAt(p0.X, p0.Z, p0.Y) is not { } h0) { bot.PoseValid = false; return; }
         var dir = Rotate(fwd, lat, st.Psi);
         var fh = Vector3.Normalize(new Vector3(dir.X, 0, dir.Z));
         var side = Vector3.Normalize(new Vector3(-fh.Z, 0, fh.X));
         if (Vector3.Dot(side, lat) < 0) side = -side;
-        float baseY = c.Y - Settings.HeightOffset;
+        float baseY = c.Y - Settings.HeightOffset + h0 - p0.Y;
         float H(float x, float y)
         {
             var p = c + fh * x + side * y;
@@ -956,9 +962,8 @@ public sealed partial class RaceWorld
             return Road!.HeightAt(p.X, p.Z, lineY) ?? OffTrack?.HeightAt(p.X, p.Z, lineY) ?? lineY;
         }
         float fp = H(d.A, d.TrackFront / 2), fm = H(d.A, -d.TrackFront / 2), rp = H(-d.B, d.TrackRear / 2), rm = H(-d.B, -d.TrackRear / 2);
-        // the line's points sit above the road (the recorded car's height there), so the car moves by how much higher or lower its wheels
-        // stand than the road under its middle, not to the road surface itself
-        float lift = Math.Clamp((fp + fm + rp + rm) / 4 - H(0, 0), -0.3f, 0.3f);
+        // the car moves by how much higher or lower its wheels stand than that plane (crown, kerbs, bumps)
+        float lift = Math.Clamp((fp + fm + rp + rm) / 4 - baseY, -0.5f, 0.5f);
         float pitch = MathF.Atan2((fp + fm - rp - rm) / 2, d.A + d.B);
         // (the same sign as the line's camber: asin of the lateral's tilt, checked on TM/NS/RBR)
         float track = (d.TrackFront + d.TrackRear) / 2;

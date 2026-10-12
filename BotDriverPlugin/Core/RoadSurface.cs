@@ -89,10 +89,10 @@ public sealed class RoadSurface
         }
     }
 
-    /// <summary>Height of the road at (x, z), the surface closest to <paramref name="nearY"/> (bridges, tunnels) within <paramref name="range"/> m, else null.</summary>
+    /// <summary>Height of the road at (x, z): the top surface from <paramref name="range"/> m below <paramref name="nearY"/> to 0.5 m above it (bridges, tunnels), else null.</summary>
     public float? HeightAt(float x, float z, float nearY, float range = 1.5f) => Find(x, z, nearY, range, out _);
 
-    /// <summary>The surface at (x, z) closest to <paramref name="nearY"/>, null when there is none (beyond the meshes).</summary>
+    /// <summary>The top surface at (x, z) around <paramref name="nearY"/> (up to 0.5 m above it), null when there is none (beyond the meshes).</summary>
     public Surface? SurfaceAt(float x, float z, float nearY, float range = 2f)
         => Find(x, z, nearY, range, out int id) != null ? _surfaces[_surf[id]] : null;
 
@@ -111,8 +111,10 @@ public sealed class RoadSurface
             float v = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / d;
             if (u < -1e-4f || v < -1e-4f || u + v > 1.0001f) continue;
             float y = u * ay + v * by + (1 - u - v) * cy;
-            if (MathF.Abs(y - nearY) > range) continue;
-            if (best == null || MathF.Abs(y - nearY) < MathF.Abs(best.Value - nearY)) { best = y; bestId = id; }
+            // the top one: a car stands on a kerb, not on the road mesh that runs on beneath it, and many tracks have two road layers
+            // a few cm apart (the closest to nearY flipped between them: cars sank into kerbs now and then)
+            if (y < nearY - range || y > nearY + MathF.Min(range, 0.5f)) continue;
+            if (best == null || y > best.Value) { best = y; bestId = id; }
         }
         return best;
     }

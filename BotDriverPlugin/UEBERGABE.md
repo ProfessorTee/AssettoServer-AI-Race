@@ -22,7 +22,7 @@ steht auf `main` und ist hier bewusst weggelassen.
   (Autodaten aus `data.acd` wie Content Manager), `RoadSurface` (Fahrbahn- und Gras-Meshes), `StrengthCalibration`, `LapEstimator`.
 - **Tool (`Tool/`):** `selftest`, `sim` (Rennen/Hotlap offline, `--poses`, `--trace`, `--contacts`), `car`, `physstep`, `strength`, `grid`, `height`.
 
-## Physik-Fahrer (Stand 2026-10-13, Update_45)
+## Physik-Fahrer (Stand 2026-10-13, Update_46)
 
 ### Wo, wie
 - Worktree `~/Projekte/AssettoServer-AI-Race-physics`, Branch `bots-physics` (gepusht). `main` (`~/Projekte/AssettoServer-AI-Race`) bleibt
@@ -30,7 +30,7 @@ steht auf `main` und ist hier bewusst weggelassen.
 - Nutzer-Regeln: kurz auf Deutsch antworten, Code/Commits Englisch, keine Zwischenmeldungen; Builds/Sims **immer `nice -n 19`**
   (Nutzer spielt AC am selben PC), alle Kerne ok. Nach jedem getesteten Schritt committen + pushen (Co-Authored-By-Zeilen).
   Update-Pakete: neuer Ordner `~/Downloads/Server_Files/Update_<n>_Physik_Test/plugins/BotDriverPlugin/BotDriverPlugin.dll` + `LIESMICH.txt`
-  (zuletzt **Update_45**). Bauen: `tools/build.sh` (-> `out-linux-x64/`). Prüfen: `Tool selftest`, `sim ... --poses`, `tools/bench.sh`, `tools/passtest.sh`.
+  (zuletzt **Update_46**). Bauen: `tools/build.sh` (-> `out-linux-x64/`). Prüfen: `Tool selftest`, `sim ... --poses`, `tools/bench.sh`, `tools/passtest.sh`.
 - Echter Server laut Nutzer: Spitze 2 % CPU, 400 MB RAM bei voller Bot-Zahl → Rechenzeit ist kein Thema, Details dürfen mehr kosten.
 - AC-Binary-Reverse: `acs.exe` + `acs.pdb` unter `/mnt/GameDrive/SteamLibrary/steamapps/common/assettocorsa`; REA-MCP (Ghidra) zum
   Dekompilieren, Adressen über `llvm-pdbutil dump --publics` (VA = 0x140001000 + Offset), `llvm-objdump -d` für Assembler-Suche.
@@ -42,18 +42,20 @@ steht auf `main` und ist hier bewusst weggelassen.
 - `Core/RaceWorld.Kunos.cs`: Kunos-Fahrer (PlanSpeed=getLABraking, Awareness=stepCarsAwareness2, Push/Genom, Humanizer, Decide=stepSteer/
   stepGasBrake, Hilfen inkl. Stabilitätshilfe `ExtraMz`), `SampleRoad` (Curbs ≤25 cm, Gras-Höhe ≤30 cm).
 - `Core/RaceWorld.cs`: Welt, Start (`GridStart`, `Launch`, `GridRevs`), Posen (`GetPose`, `UpdateBody` = 4-Rad-Höhe aus Mesh über Feder/Dämpfer
-  3 Hz je Weltschritt, Hubrate im Velocity; `GearAndRpm` sendet N solange die Kupplung beim Anfahren schleift),
+  6 Hz je Weltschritt, exakt gegen die Fahrbahnebene der Linie, Hubrate im Velocity; `GearAndRpm` sendet N solange die Kupplung beim Anfahren schleift),
   Kontakte (`OnContact` → `Impulse`). `RaceWorld.Damage.cs`: `Impulse`, `ContactPoint`, `BotContact`, Schaden. `RaceWorld.Pit.cs`: Box,
   Durchfahrtsstrafe. `RaceWorld.Tyres.cs`: Mischung, `ChoosePressures`, Heizdecken.
 - Stärke: `AiStrength` % = KI-Level (`StrengthCalibration.PaceFor`), Kalibrierung nur für Zielrunden.
 
-### Offen (Update 45 noch nicht vom Nutzer im Spiel getestet)
+### Offen (Update 46 noch nicht vom Nutzer im Spiel getestet; Update 45: Rauch weg bestätigt)
 Update 45: Start N statt 1. Gang bei schleifender Kupplung (Clients drehen Räder mit Gang × Drehzahl), Curbs über Feder (Höhensprung/Paket
 19 → 5 cm, `sim --poses`), Spieler-Treffer mit voller Client-Aufprallgeschwindigkeit + `DesiredOffset` = geschobene Lage, 2 s langsam zurück.
 `sim --start` zeigt Gang/Drehzahl/Radgeschwindigkeit der ersten 4 s.
 1. **Rauch am Start** — falls weiter: Zeitpunkt klären (Aufstellung oder Anfahren), Telemetrie (`/bots_debug on`).
    Nebenbefund: beim Einkuppeln nach dem Hochschalten 1 Paket Radspitze (+40 %), Kupplungsmoment auf leichte Räder.
-2. **Curbs** — falls weiter unruhig: `BodyHz`/`BodyDamping` (RaceWorld.cs) oder Körperbewegung aus dem Modell (`st.H/Pitch/Roll`).
+2. **Curbs** — Update 46: `RoadSurface.HeightAt` nimmt die oberste Fläche (TM: 27 % der Fahrbahn doppelt, ~5 cm; vorher die zur Linie
+   nächste → Einsacken), Feder 6 Hz. Vermutung offen: Clients simulieren Fremdautos selbst (Gang×Drehzahl dreht Räder) und fahren
+   Curbs evtl. selbst; dann gegen eine glatte Pose testen. Falls weiter unruhig: `BodyHz`/`BodyDamping` (RaceWorld.cs) oder Körperbewegung aus dem Modell (`st.H/Pitch/Roll`).
 3. **Reaktion auf Treffer** — am Client prüfen. Spielermasse unbekannt (= Bot-Masse). `ResolveOverlaps` schiebt weiter direkt.
 4. Seit Update 44 im Sim mehr Querstellung (>8°: 2,0 % statt 0,8 %), nicht untersucht.
 5. Kunos-Fahrer überholt zögerlich (passtest ~20/40); Hinterachse beim harten Anbremsen + Runterschalten nervös.
