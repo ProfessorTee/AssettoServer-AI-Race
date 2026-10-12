@@ -44,6 +44,8 @@ public sealed class TyreData
     /// <summary>PERFORMANCE_CURVE normalised to 1 at its best (the grip calibration is done at the top of the window).</summary>
     public Lut? Performance;
     public bool HasThermal => SurfaceTransfer > 0 && PressureIdeal > 0;
+    /// <summary>Tyre blankets' temperature ([ADDITIONAL1] BLANKETS_TEMP, AC's default 80 °C).</summary>
+    public float BlanketTemp = 80;
 
     public float StaticDy(float fz) => LinearD ? Dy0 + Dy1 * fz * 0.0005f : DyRef * MathF.Pow(MathF.Max(fz, 1f) / Fz0, LsExpY - 1);
     public float StaticDx(float fz) => LinearD ? Dx0 + Dx1 * fz * 0.0005f : DxRef * MathF.Pow(MathF.Max(fz, 1f) / Fz0, LsExpX - 1);
@@ -171,6 +173,7 @@ public sealed class TyreData
         {
             t.PressureTempGain = tyres.GetFloat("ADDITIONAL1", "PRESSURE_TEMPERATURE_GAIN", 0);
             t.CamberSpreadK = tyres.GetFloat("ADDITIONAL1", "CAMBER_TEMP_SPREAD_K", 0);
+            t.BlanketTemp = tyres.GetFloat("ADDITIONAL1", "BLANKETS_TEMP", 80);
         }
         if (lut?.Invoke(tyres.Get(th, "PERFORMANCE_CURVE")) is { X.Length: > 1 } perf && perf.Y.Max() is var max && max > 0)
             t.Performance = new Lut(perf.X, perf.Y.Select(y => y / max).ToArray());

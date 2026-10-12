@@ -466,6 +466,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         world.Settings.Wetness = Math.Clamp(weather.RainWetness, 0, 1);
         world.Settings.AmbientTemp = weather.TemperatureAmbient;
         world.Settings.RoadTemp = weather.TemperatureRoad;
+        world.Settings.TyreBlankets = _serverConfig.Server.AllowTyreBlankets;
         world.Settings.IsRace = _sessionType == SessionType.Race;
         world.Settings.Water = Math.Clamp(weather.RainWater, 0, 1);
 

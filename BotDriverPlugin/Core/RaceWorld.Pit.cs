@@ -45,7 +45,7 @@ public sealed partial class RaceWorld
         bot.Fuel = Math.Clamp(fuel, 0, bot.Car.FuelCapacity);
         bot.TyreVirtualKm = 0;
         bot.TyreKm = warmTyres ? 10 : 0;
-        SetTyreTemperature(bot, warmTyres ? TyreOptimumOf(bot) - 5 : ColdTyreTemperature());
+        SetTyreTemperature(bot, warmTyres ? StartTyreTemperature(bot) : ColdTyreTemperature(bot));
         bot.Pit = PitPhase.None;
         bot.PitReason = "";
         bot.PitStops = 0;
@@ -81,7 +81,7 @@ public sealed partial class RaceWorld
         bot.Speed = 0;
         bot.LapStartTime = _now;
         // standing in the box: the tyres are as warm as the air around them
-        SetTyreTemperature(bot, ColdTyreTemperature());
+        SetTyreTemperature(bot, ColdTyreTemperature(bot));
         return true;
     }
 
@@ -334,7 +334,7 @@ public sealed partial class RaceWorld
                     bot.TyreVirtualKm = 0;
                     bot.TyreKm = 0;
                     ChoosePressures(bot, learn: true);
-                    SetTyreTemperature(bot, ColdTyreTemperature());
+                    SetTyreTemperature(bot, ColdTyreTemperature(bot));
                 }
                 if (bot.PitRepair) RepairDamage(bot);
                 bot.PitStops++;

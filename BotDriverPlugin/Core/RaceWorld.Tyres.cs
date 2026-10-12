@@ -73,6 +73,8 @@ public sealed partial class RaceWorld
     /// wants a little off it for his style (up to 1.5 psi over: a looser rear for a driver who wants the car to turn, a softer front for one
     /// who wants it calm). The first time from the car's default (tyres.ini PRESSURE_STATIC, set for the ideal), later corrected by the
     /// average hot pressure the last stint ran at. Weaker drivers get it less right (±3 psi × (1 − level)). Like AC: only on new tyres.
+    /// The better the driver (level 0.6 → nothing, 1 → all), the more he allows for the weather: the core runs about half the change in
+    /// air and road temperature hotter (against AC's 26 °C air / 32 °C road for the car's default, or the last stint's conditions).
     /// </summary>
     public void ChoosePressures(RaceBot bot, bool learn)
     {
@@ -87,18 +89,32 @@ public sealed partial class RaceWorld
             float off = i < 2 ? MathF.Max(0, -bot.PressureStyle) : MathF.Max(0, bot.PressureStyle);
             float target = t.PressureIdeal + off * 1.5f;
             float set;
-            if (!learn) set = t.PressureStatic + target - t.PressureIdeal;
-            else if (h.PressureTime > 60) set = h.StaticPressure + target - (float)(h.PressureSum / h.PressureTime);
-            else continue;
+            float know = Math.Clamp((bot.Driver.Pace - 0.6f) / 0.4f, 0, 1);
+            if (learn && h.PressureTime > 60)
+                set = h.StaticPressure + target - (float)(h.PressureSum / h.PressureTime) - know * WarmerCore(bot.PressureSetAmbient, bot.PressureSetRoad) * t.PressureTempGain;
+            else // (nothing measured yet: from the car's default)
+                set = t.PressureStatic + target - t.PressureIdeal - know * WarmerCore(26, 32) * t.PressureTempGain;
             // (Box-Muller: a normal error)
             float g = MathF.Sqrt(-2 * MathF.Log(1 - _rng.NextSingle())) * MathF.Cos(2 * MathF.PI * _rng.NextSingle());
             h.StaticPressure = Math.Clamp(set + g * miss, MathF.Max(5, t.PressureStatic - 8), t.PressureStatic + 8);
             h.PressureSum = h.PressureTime = 0;
         }
+        bot.PressureSetAmbient = Settings.AmbientTemp;
+        bot.PressureSetRoad = Settings.RoadTemp;
     }
 
+    /// <summary>How much hotter (°C) the tyre core runs now than with the given air and road temperature (a driver's estimate).</summary>
+    private float WarmerCore(float ambient, float road) => 0.5f * (Settings.AmbientTemp - ambient) + 0.5f * (Settings.RoadTemp - road);
+
     /// <summary>Temperature of a new set straight from the rack (no tyre warmers).</summary>
-    private float ColdTyreTemperature() => MathF.Max(Settings.AmbientTemp, Settings.RoadTemp * 0.6f + Settings.AmbientTemp * 0.4f) + 6;
+    private float ColdTyreTemperature(RaceBot bot) => Settings.TyreBlankets && bot.Car.Physics is { } d ? d.Front.BlanketTemp
+        : MathF.Max(Settings.AmbientTemp, Settings.RoadTemp * 0.6f + Settings.AmbientTemp * 0.4f) + 6;
+
+    /// <summary>
+    /// Tyres at the start of a session: with a vehicle model like the players' (blankets if the server allows them, else as warm as the
+    /// air around them), otherwise warm in the window.
+    /// </summary>
+    public float StartTyreTemperature(RaceBot bot) => bot.Car.Physics != null ? ColdTyreTemperature(bot) : TyreOptimumOf(bot) - 5;
 
     private void UpdateTyreTemperatures(RaceBot bot, float dt, float latUsage, float brakeUsage, float driveUsage)
     {

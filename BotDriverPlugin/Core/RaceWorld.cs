@@ -109,6 +109,8 @@ public sealed class RaceBot
     /// ideal); from the aggression, NaN = not chosen yet.
     /// </summary>
     public float PressureStyle = float.NaN;
+    /// <summary>Air and road temperature when the pressures were set (°C).</summary>
+    public float PressureSetAmbient, PressureSetRoad;
     /// <summary>Visual yaw of the body against the direction of travel (rad).</summary>
     public float Yaw { get; internal set; }
     internal bool FrontLock;
@@ -271,6 +273,8 @@ public sealed class RaceWorldSettings
     public float Water { get; set; }
     /// <summary>Air and track temperature (°C), for the tyre temperatures.</summary>
     public float AmbientTemp { get; set; } = 20;
+    /// <summary>Tyre blankets allowed (server_cfg.ini TYRE_BLANKETS_ALLOWED, as for the players): tyres leave the pits at blanket temperature.</summary>
+    public bool TyreBlankets { get; set; }
     public float RoadTemp { get; set; } = 28;
     /// <summary>Server extra_cfg RainTrackGripReductionPercent (0..0.5): the server already lowers the grip for everybody.</summary>
     public float ServerRainReduction { get; set; }

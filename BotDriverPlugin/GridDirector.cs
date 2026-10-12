@@ -94,7 +94,7 @@ public sealed class GridDirector
             if (lapRace && _world.Settings.PitWindowEnd > _world.Settings.PitWindowStart) stint = MathF.Min(stint, _world.Settings.PitWindowEnd);
             _world.ChooseTyres(slot.Bot, _sessionType == SessionType.Race ? stint : MathF.Min(stint, 10),
                 coldStart: _sessionType != SessionType.Race && _config.SessionStart == BotSessionStart.Pits);
-            _world.SetTyreTemperature(slot.Bot, RaceWorld.TyreOptimumOf(slot.Bot) - 5); // warm like before, in the new compound's window
+            _world.SetTyreTemperature(slot.Bot, _world.StartTyreTemperature(slot.Bot)); // (in the new compound's window, or blankets/cold with a vehicle model)
             ParkInPitBox(slot);
             switch (_sessionType)
             {
