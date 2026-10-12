@@ -276,6 +276,7 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
 
         world.LapCompleted += OnBotLapCompleted;
         world.PitStopCompleted += OnBotPitStop;
+        world.Penalty += (bot, what) => Log.Information("BotDriver: {Name}: {What}", bot.Name, what);
         _world = world;
         world.Trace = msg => Log.Information("BotDriver trace: {Line}", msg);
         world.TraceBotId = -1;
@@ -421,7 +422,10 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         double now = Now;
         var session = _sessionManager.CurrentSession;
 
-        // race start
+        // race start (the bots on the grid know when the lights go out: revs, jump starts)
+        world.Settings.StartRule = _serverConfig.Server.JumpStartPenaltyMode;
+        world.Settings.GreenAt = _sessionType == SessionType.Race && !_raceStarted
+            ? now + (session.StartTimeMilliseconds - _sessionManager.ServerTimeMilliseconds) / 1000.0 : double.PositiveInfinity;
         if (_sessionType == SessionType.Race && !_raceStarted && _sessionManager.ServerTimeMilliseconds >= session.StartTimeMilliseconds)
         {
             _raceStarted = true;

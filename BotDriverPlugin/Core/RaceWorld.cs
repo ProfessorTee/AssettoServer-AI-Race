@@ -98,6 +98,14 @@ public sealed class RaceBot
     internal double StoppedSince = double.NaN;
     /// <summary>Clutch up at the start (reaction time).</summary>
     internal double LaunchAt = double.NaN;
+    /// <summary>
+    /// The start, rolled once on the grid: lets the clutch go this many seconds before the lights (jump start, 0 = none), and floors it with
+    /// no feel for the grip until <see cref="LaunchSpinUntil"/> (wheelspin; NaN = not rolled yet).
+    /// </summary>
+    internal float JumpLead = float.NaN, SpinFor;
+    internal double LaunchSpinUntil = double.NegativeInfinity;
+    /// <summary>The pit stop requested is a drive-through penalty.</summary>
+    internal bool DriveThrough;
 
     // ---- the vehicle model and the AC AI (RaceWorld.Kunos.cs)
     internal Physics.VehicleState? Phys;
@@ -242,6 +250,9 @@ public sealed class RaceWorldSettings
     public bool PushVariation { get; set; } = true;
     /// <summary>Race start time.</summary>
     public double RaceStartTime { get; set; } = double.NegativeInfinity;
+    /// <summary>When the lights go out (world time, +∞ = unknown) and the server's START_RULE (0 car locked, 1 back to the pits, 2 drive-through).</summary>
+    public double GreenAt { get; set; } = double.PositiveInfinity;
+    public int StartRule { get; set; }
     public int Seed { get; set; } = Environment.TickCount;
 
     // ---- endurance
@@ -300,6 +311,8 @@ public sealed partial class RaceWorld
     public event Action<RaceBot, float>? LapCompleted;
     /// <summary>(bot, stop time in seconds, litres added, tyres changed)</summary>
     public event Action<RaceBot, float, float, bool>? PitStopCompleted;
+    /// <summary>A penalty for a bot (what for).</summary>
+    public event Action<RaceBot, string>? Penalty;
     public PitLane? PitLane { get; set; }
     /// <summary>Real road height beside the line (null: the line's flat road).</summary>
     public LineHeights? Heights { get; set; }
@@ -378,6 +391,10 @@ public sealed partial class RaceWorld
         bot.PitS = 0;
         bot.LastDecisionLap = long.MinValue;
         bot.LaunchAt = double.NaN;
+        bot.JumpLead = float.NaN;
+        bot.SpinFor = 0;
+        bot.LaunchSpinUntil = double.NegativeInfinity;
+        bot.DriveThrough = false;
         bot.Gear = 0;
         bot.ShiftTo = 0;
     }
@@ -436,12 +453,40 @@ public sealed partial class RaceWorld
         foreach (var bot in Bots)
         {
             if (bot.Phase != BotPhase.Grid) continue;
-            bot.Phase = BotPhase.Racing;
-            bot.LapStartTime = now;
-            bot.RaceStartTime = now;
-            bot.TimingValid = true;
-            // AC (stepGasBrakeStart): a reaction time of 50-400 ms
-            bot.LaunchAt = now + 0.05 + 0.35 * _rng.NextDouble();
+            Launch(bot, now, now + 0.05 + 0.35 * _rng.NextDouble()); // AC (stepGasBrakeStart): a reaction time of 50-400 ms
+        }
+    }
+
+    private void Launch(RaceBot bot, double green, double clutchAt)
+    {
+        bot.Phase = BotPhase.Racing;
+        bot.LapStartTime = green;
+        bot.RaceStartTime = green;
+        bot.TimingValid = true;
+        bot.LaunchAt = clutchAt;
+        bot.LaunchSpinUntil = clutchAt + bot.SpinFor;
+    }
+
+    /// <summary>
+    /// On the grid, a few seconds before the lights: how this driver will get away. Weaker drivers more often spin the wheels (chance
+    /// 1.5 × (1 − level), up to 60 %, for 0.4-2 s) and now and then jump the start (0.25 × (1 − level), 0.1-0.5 s early; not where the
+    /// server locks the cars). A jump start gets the server's penalty right away: back to the pits (START_RULE 1) or a drive-through (2).
+    /// </summary>
+    private void GridStart(RaceBot bot)
+    {
+        double toGreen = Settings.GreenAt - _now;
+        if (float.IsNaN(bot.JumpLead) && toGreen < 5)
+        {
+            float miss = Settings.HumanErrors ? 1 - Math.Clamp(bot.Driver.Pace, 0, 1) : 0;
+            bot.SpinFor = _rng.NextSingle() < MathF.Min(0.6f, 1.5f * miss) ? 0.4f + 1.6f * _rng.NextSingle() * (0.5f + miss) : 0;
+            bot.JumpLead = Settings.StartRule != 0 && _rng.NextSingle() < 0.25f * miss ? 0.1f + 0.4f * _rng.NextSingle() : 0;
+        }
+        if (bot.JumpLead > 0 && toGreen <= bot.JumpLead)
+        {
+            Launch(bot, Settings.GreenAt, _now);
+            Penalty?.Invoke(bot, Settings.StartRule == 1 ? "jump start: back to the pits" : "jump start: drive-through");
+            if (Settings.StartRule == 1) ReleaseFromPitBox(bot);
+            else RequestDriveThrough(bot);
         }
     }
 
@@ -577,6 +622,7 @@ public sealed partial class RaceWorld
                 case BotPhase.Grid:
                     bot.Speed = 0;
                     bot.LateralSpeed = 0;
+                    GridStart(bot);
                     break;
             }
         }
@@ -849,7 +895,7 @@ public sealed partial class RaceWorld
         float wheel = Math.Clamp((bot.Phys?.Steer ?? 0) * 180 / MathF.PI, -32, 32);
         var (gear, rpm) = GearAndRpm(bot);
         byte throttle = (byte)Math.Clamp(bot.Throttle * 255f, 0, 255);
-        if (bot.Phase == BotPhase.Grid) throttle = 40; // blipping on the grid
+        if (bot.Phase == BotPhase.Grid) (gear, rpm, throttle) = GridRevs(bot);
         bool hazards = bot.Phase == BotPhase.Racing && bot.Speed < 5 && !double.IsNaN(bot.StoppedSince) && _now - bot.StoppedSince > 3;
         bool brake = bot.Brake > 0.04f || bot.Phase == BotPhase.Grid || (bot.Speed < 0.5f && bot.Phase == BotPhase.Racing);
         return new BotPose(pos, rotation, vel, bot.Speed, wheel, gear, rpm, brake,
@@ -881,6 +927,30 @@ public sealed partial class RaceWorld
         // (the same sign as the line's camber: asin of the lateral's tilt, checked on TM/NS/RBR)
         float track = (d.TrackFront + d.TrackRear) / 2;
         rotation.Z = MathF.Asin(Math.Clamp((fp + rp - fm - rm) / 2 / track, -0.5f, 0.5f));
+    }
+
+    /// <summary>
+    /// Revving on the grid: a blip now and then, the last 5 s in first gear holding the launch revs (a wobbling foot; a driver about to spin
+    /// the wheels holds them a lot higher).
+    /// </summary>
+    private (int Gear, int Rpm, byte Throttle) GridRevs(RaceBot bot)
+    {
+        var car = bot.Car;
+        float idle = car.IdleRpm, max = car.MaxRpm;
+        double toGreen = Settings.GreenAt - _now;
+        float wobble = MathF.Sin((float)(_now * 6.3 + bot.Id * 1.7)) * 0.5f + MathF.Sin((float)(_now * 2.3 + bot.Id)) * 0.5f;
+        if (toGreen < 5)
+        {
+            float launch = MathF.Min(max * 0.6f, 4500) * (bot.SpinFor > 0 ? 1.35f : 1);
+            return (1, (int)Math.Clamp(launch * (1 + 0.06f * wobble), idle, max), (byte)(110 + 40 * wobble));
+        }
+        float phase = (float)((_now * 0.35 + bot.Id * 0.37) % 1);
+        if (phase < 0.08f)
+        {
+            float b = MathF.Sin(phase / 0.08f * MathF.PI);
+            return (0, (int)(idle + (max * 0.55f - idle) * b), (byte)(40 + 200 * b));
+        }
+        return (0, (int)idle, 0);
     }
 
     private static Vector3 Rotate(Vector3 dir, Vector3 lat, float yaw)

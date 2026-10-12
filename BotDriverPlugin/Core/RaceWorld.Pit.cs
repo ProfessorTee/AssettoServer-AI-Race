@@ -88,6 +88,15 @@ public sealed partial class RaceWorld
     /// <summary>Distance along the pit lane of the bot's box (-1 = none).</summary>
     public float PitBoxDistance(RaceBot bot) => bot.PitBoxS;
 
+    /// <summary>A drive-through: in at the next pit entry and along the pit lane without stopping.</summary>
+    public void RequestDriveThrough(RaceBot bot)
+    {
+        if (PitLane == null) return;
+        bot.Pit = PitPhase.Requested;
+        bot.PitReason = "drive-through";
+        bot.DriveThrough = true;
+    }
+
     /// <summary>Sends a bot into the pits at the next pit entry (e.g. admin command).</summary>
     public void RequestPitStop(RaceBot bot, string reason)
     {
@@ -300,7 +309,8 @@ public sealed partial class RaceWorld
         bot.Pit = PitPhase.InLane;
         bot.PitS = 0;
         bot.PittedThisLap = true;
-        bot.PitServiced = false;
+        bot.PitServiced = bot.DriveThrough; // (a drive-through doesn't stop)
+        bot.DriveThrough = false;
         bot.PitEnteredAt = _now;
         bot.Phys = null; // the pit lane is driven along its own line
         // start with the current lateral position and blend over to the pit lane

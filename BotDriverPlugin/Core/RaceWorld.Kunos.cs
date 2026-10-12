@@ -553,7 +553,9 @@ public sealed partial class RaceWorld
         bool start = me.LapsCompleted == 0 && !double.IsNaN(me.LaunchAt) && _now - me.LaunchAt < 20 && v * 3.6f < 50 && ai.StartPhase;
         if (v * 3.6f >= 50) ai.StartPhase = false;
         float tcLimit = start ? (v * 3.6f < 20 ? (20 - v * 3.6f) * 10 + 4 : 4) : 1;
-        if (drivenNd > tcLimit && v * 3.6f > 5) throttle *= start ? 0.5f : 0.2f;
+        // a driver who spins the wheels off the line floors it and doesn't feel for the grip (the car's own TC still works)
+        if (_now < me.LaunchSpinUntil) throttle = 1;
+        else if (drivenNd > tcLimit && v * 3.6f > 5) throttle *= start ? 0.5f : 0.2f;
 
         me.Throttle = throttle;
         me.Brake = brake;
