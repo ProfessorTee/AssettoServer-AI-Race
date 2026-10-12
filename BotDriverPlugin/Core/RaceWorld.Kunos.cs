@@ -307,6 +307,7 @@ public sealed partial class RaceWorld
                 Psi = MathF.Atan2(me.LateralSpeed, MathF.Max(me.Speed, 1)),
                 R = me.Speed * Line.CurvatureAt(s0),
             };
+            st.Heat = HeatOf(me);
             SampleRoad(me, st);
             ai.Steer = 0;
             ai.PidIntegral = ai.PidPrev = 0;
@@ -354,7 +355,10 @@ public sealed partial class RaceWorld
         float m = d.Mass * me.MassRatio;
         int steps = Math.Max(1, (int)MathF.Ceiling(dt / PhysicsStep));
         float h = dt / steps;
-        var inp = new VehicleInputs { MassRatio = me.MassRatio, Grip = phys, NoFalloff = true };
+        var inp = new VehicleInputs
+        {
+            MassRatio = me.MassRatio, Grip = phys, NoFalloff = true, AmbientTemp = Settings.AmbientTemp, RoadTemp = Settings.RoadTemp
+        };
         for (int k = 0; k < steps; k++)
         {
             float s = Line.WrapS((float)st.S);
@@ -619,6 +623,7 @@ public sealed partial class RaceWorld
             ai.PassingId = -1;
             ai.StartPhase = true;
         }
+        ChoosePressures(bot, learn: true);
         bot.TyreStopGrip = 0.95f + 0.02f * _rng.NextSingle();
     }
 }

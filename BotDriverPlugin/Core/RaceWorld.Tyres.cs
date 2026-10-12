@@ -53,6 +53,48 @@ public sealed partial class RaceWorld
     {
         bot.TyreTempFront = temperature;
         bot.TyreTempRear = temperature;
+        if (HeatOf(bot) is { } heat && bot.Car.Physics is { } d)
+            for (int i = 0; i < 4; i++) heat[i].Set(temperature, i < 2 ? d.Front : d.Rear);
+    }
+
+    /// <summary>The bot's tyres in the vehicle model (made with its first pressures on first use), null without a vehicle model.</summary>
+    internal Physics.TyreHeat[]? HeatOf(RaceBot bot)
+    {
+        if (bot.Heat != null || bot.Car.Physics is not { } d) return bot.Heat;
+        bot.Heat = [new(d.Front.PressureStatic), new(d.Front.PressureStatic), new(d.Rear.PressureStatic), new(d.Rear.PressureStatic)];
+        float t = MathF.Max(Settings.AmbientTemp, Settings.RoadTemp);
+        for (int i = 0; i < 4; i++) bot.Heat[i].Set(t, i < 2 ? d.Front : d.Rear);
+        ChoosePressures(bot, learn: false);
+        return bot.Heat;
+    }
+
+    /// <summary>
+    /// The cold pressures for the next stint, as the driver and his engineer set them: hot at PRESSURE_IDEAL, except the axle the driver
+    /// wants a little off it for his style (up to 1.5 psi over: a looser rear for a driver who wants the car to turn, a softer front for one
+    /// who wants it calm). The first time from the car's default (tyres.ini PRESSURE_STATIC, set for the ideal), later corrected by the
+    /// average hot pressure the last stint ran at. Weaker drivers get it less right (±3 psi × (1 − level)). Like AC: only on new tyres.
+    /// </summary>
+    public void ChoosePressures(RaceBot bot, bool learn)
+    {
+        if (bot.Heat is not { } heat || bot.Car.Physics is not { } d) return;
+        if (float.IsNaN(bot.PressureStyle))
+            bot.PressureStyle = Math.Clamp((bot.Driver.Aggression / 0.95f - 0.5f) * 1.2f + (_rng.NextSingle() - 0.5f) * 0.8f, -1, 1);
+        float miss = (1 - Math.Clamp(bot.Driver.Pace, 0, 1)) * 3;
+        for (int i = 0; i < 4; i++)
+        {
+            var t = i < 2 ? d.Front : d.Rear;
+            var h = heat[i];
+            float off = i < 2 ? MathF.Max(0, -bot.PressureStyle) : MathF.Max(0, bot.PressureStyle);
+            float target = t.PressureIdeal + off * 1.5f;
+            float set;
+            if (!learn) set = t.PressureStatic + target - t.PressureIdeal;
+            else if (h.PressureTime > 60) set = h.StaticPressure + target - (float)(h.PressureSum / h.PressureTime);
+            else continue;
+            // (Box-Muller: a normal error)
+            float g = MathF.Sqrt(-2 * MathF.Log(1 - _rng.NextSingle())) * MathF.Cos(2 * MathF.PI * _rng.NextSingle());
+            h.StaticPressure = Math.Clamp(set + g * miss, MathF.Max(5, t.PressureStatic - 8), t.PressureStatic + 8);
+            h.PressureSum = h.PressureTime = 0;
+        }
     }
 
     /// <summary>Temperature of a new set straight from the rack (no tyre warmers).</summary>

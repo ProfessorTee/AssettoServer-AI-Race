@@ -102,6 +102,13 @@ public sealed class RaceBot
     // ---- the vehicle model and the AC AI (RaceWorld.Kunos.cs)
     internal Physics.VehicleState? Phys;
     internal KunosAi? Ai;
+    /// <summary>The four tyres' temperatures and pressures (FL, FR, RL, RR as the vehicle model's wheels 0-3), null without a vehicle model.</summary>
+    public Physics.TyreHeat[]? Heat;
+    /// <summary>
+    /// How this driver sets the pressures: + wants the car to turn (rear off its ideal pressure), − wants it stable (front off its
+    /// ideal); from the aggression, NaN = not chosen yet.
+    /// </summary>
+    public float PressureStyle = float.NaN;
     /// <summary>Visual yaw of the body against the direction of travel (rad).</summary>
     public float Yaw { get; internal set; }
     internal bool FrontLock;

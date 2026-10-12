@@ -158,8 +158,8 @@ public sealed class VehicleData
             Abs = spec.HasAbs,
             Tc = spec.HasTc,
             BrakeFront = spec.BrakeFront,
-            Front = TyreData.From(tyres, tyreF, spec.LateralGrip),
-            Rear = TyreData.From(tyres, tyreR, spec.LateralGrip),
+            Front = TyreData.From(tyres, tyreF, spec.LateralGrip, n => LutOf(files, n)),
+            Rear = TyreData.From(tyres, tyreR, spec.LateralGrip, n => LutOf(files, n)),
         };
         // car.ini INERTIA is the box the inertia is computed from (width, height, length)
         var box = (car.Get("BASIC", "INERTIA") ?? "").Split(';')[0].Split(',').Select(x => float.TryParse(x.Trim(), NumberStyles.Float,

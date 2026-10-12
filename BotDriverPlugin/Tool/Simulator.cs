@@ -408,7 +408,8 @@ public static class Simulator
                 Console.WriteLine($"{pos++,-4}{("#" + b.Id + " " + b.Name),-22}{b.Driver.Level,5:F0}{b.LapsCompleted,5}{(b.BestLapSeconds < 1e6 ? Fmt(b.BestLapSeconds) : "-"),11}" +
                                   $"{(b.LastLapSeconds > 0 ? Fmt(b.LastLapSeconds) : "-"),11}{(b.TotalTime > 0 ? Fmt((float)b.TotalTime) : "-"),11}{b.Overtakes,5}{b.PitStops,4} " +
                                   $"level={b.Driver.Pace:F3} aggr={b.Driver.Aggression:F2} cont={b.ContactCount} ghost={b.GhostCount} dmg={RaceWorld.BodyDamagePercent(b):F0}%/{b.Suspension * 100:F0}% " +
-                                  $"fuel={b.Fuel,5:F1} grip={b.CarGrip:F3} tyres={RaceWorld.CompoundName(b)} {b.TyreTempFront:F0}/{b.TyreTempRear:F0}C {b.Phase}");
+                                  $"fuel={b.Fuel,5:F1} grip={b.CarGrip:F3} tyres={RaceWorld.CompoundName(b)} {b.TyreTempFront:F0}/{b.TyreTempRear:F0}C {b.Phase}" +
+                                  (b.Heat is { } h ? " psi " + string.Join("/", h.Select(t => $"{t.StaticPressure:F1}>{t.Pressure:F1}")) + " core " + string.Join("/", h.Select(t => $"{t.Core:F0}")) + " grip " + string.Join("/", h.Select(t => $"{t.Grip:F3}")) : ""));
             long tot = Math.Max(1, _pedals.Sum());
             Console.WriteLine($"pedals: full throttle {_pedals[0] * 100 / tot} %, part throttle {_pedals[1] * 100 / tot} %, coasting {_pedals[2] * 100 / tot} %, " +
                               $"light brake {_pedals[3] * 100 / tot} %, medium {_pedals[4] * 100 / tot} %, hard {_pedals[5] * 100 / tot} %");

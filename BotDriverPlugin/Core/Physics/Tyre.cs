@@ -15,8 +15,7 @@ namespace BotDriverPlugin.Core.Physics;
 /// shape 1 − (1 − s/s_peak)³ up to the peak, then (1 − FALLOFF_LEVEL) / (1 + (s − s_peak)·FALLOFF_SPEED) + FALLOFF_LEVEL; the x direction
 /// peaks CX_MULT times earlier.</item>
 /// </list>
-/// Hot tyres at their ideal pressure and temperature (PRESSURE_IDEAL, the top of the performance curve) are assumed: the pressure terms
-/// then vanish.
+/// Temperature and pressure (<see cref="TyreHeat"/>) multiply the grip <c>u</c>.
 /// </summary>
 public sealed class TyreData
 {
@@ -35,6 +34,16 @@ public sealed class TyreData
     public float Rr0 = 10, Rr1 = 0.001f, RrSlip;
     /// <summary>RADIUS_ANGULAR_K: radius growth in mm per rad/s.</summary>
     public float RadiusAngularK;
+    /// <summary>
+    /// Pressure (psi: PRESSURE_STATIC cold, PRESSURE_IDEAL for grip, D and RR gains, [ADDITIONAL1] PRESSURE_TEMPERATURE_GAIN, default 0.16)
+    /// and [THERMAL_x] (cool factor already as AC uses it: (COOL_FACTOR − 1) × 0.000324), tyres.ini [HEADER] VERSION.
+    /// </summary>
+    public float PressureStatic = 30, PressureIdeal = 30, PressureDGain, PressureRrGain, PressureTempGain = 0.16f;
+    public float SurfaceTransfer, PatchTransfer, CoreTransfer, InternalCoreTransfer, CoolFactor, FrictionK, RollingK, SurfaceRollingK, CamberSpreadK;
+    public int Version = 10;
+    /// <summary>PERFORMANCE_CURVE normalised to 1 at its best (the grip calibration is done at the top of the window).</summary>
+    public Lut? Performance;
+    public bool HasThermal => SurfaceTransfer > 0 && PressureIdeal > 0;
 
     public float StaticDy(float fz) => LinearD ? Dy0 + Dy1 * fz * 0.0005f : DyRef * MathF.Pow(MathF.Max(fz, 1f) / Fz0, LsExpY - 1);
     public float StaticDx(float fz) => LinearD ? Dx0 + Dx1 * fz * 0.0005f : DxRef * MathF.Pow(MathF.Max(fz, 1f) / Fz0, LsExpX - 1);
@@ -95,7 +104,7 @@ public sealed class TyreData
 
     private static float Sq(float x) => x * x;
 
-    public static TyreData From(IniFile tyres, string section, float fallbackGrip)
+    public static TyreData From(IniFile tyres, string section, float fallbackGrip, Func<string?, Lut?>? lut = null)
     {
         float G(string k, float d) => tyres.GetFloat(section, k, d);
         var t = new TyreData
@@ -142,6 +151,29 @@ public sealed class TyreData
         float fla = Pos(G("FRICTION_LIMIT_ANGLE", 0), 7.5f) * MathF.PI / 180;
         t.PeakTan = MathF.Tan(fla);
         t.PeakTan2 = MathF.Tan(fla * (1 + G("FLEX_GAIN", 0)));
+
+        t.Version = tyres.GetInt("HEADER", "VERSION", 10);
+        t.PressureStatic = G("PRESSURE_STATIC", 30);
+        t.PressureIdeal = G("PRESSURE_IDEAL", t.PressureStatic);
+        t.PressureDGain = G("PRESSURE_D_GAIN", 0);
+        t.PressureRrGain = G("PRESSURE_RR_GAIN", 0);
+        string th = "THERMAL_" + section;
+        float T(string k) => tyres.GetFloat(th, k, 0);
+        t.SurfaceTransfer = T("SURFACE_TRANSFER");
+        t.PatchTransfer = T("PATCH_TRANSFER");
+        t.CoreTransfer = T("CORE_TRANSFER");
+        t.InternalCoreTransfer = T("INTERNAL_CORE_TRANSFER");
+        t.CoolFactor = (T("COOL_FACTOR") - 1) * 0.000324f;
+        t.FrictionK = T("FRICTION_K");
+        t.RollingK = T("ROLLING_K");
+        t.SurfaceRollingK = T("SURFACE_ROLLING_K");
+        if (tyres.HasSection("ADDITIONAL1"))
+        {
+            t.PressureTempGain = tyres.GetFloat("ADDITIONAL1", "PRESSURE_TEMPERATURE_GAIN", 0);
+            t.CamberSpreadK = tyres.GetFloat("ADDITIONAL1", "CAMBER_TEMP_SPREAD_K", 0);
+        }
+        if (lut?.Invoke(tyres.Get(th, "PERFORMANCE_CURVE")) is { X.Length: > 1 } perf && perf.Y.Max() is var max && max > 0)
+            t.Performance = new Lut(perf.X, perf.Y.Select(y => y / max).ToArray());
         return t;
     }
 

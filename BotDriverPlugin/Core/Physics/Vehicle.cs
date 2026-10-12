@@ -55,6 +55,8 @@ public sealed class VehicleState
     /// <summary>Offset and speed handed to the race world last time: a change means something outside the model moved the car (a contact).</summary>
     internal float WrittenOffset = float.NaN, WrittenSpeed = float.NaN, WrittenLateral = float.NaN;
     internal bool WheelsSet;
+    /// <summary>The tyres' temperatures and pressures (null = warm at the ideal pressure, e.g. while measuring the car).</summary>
+    public TyreHeat[]? Heat;
 
     internal float RoadRate(int i, float dt)
     {
@@ -90,6 +92,8 @@ public struct VehicleInputs
     /// <summary>Time since the last gear change started (s, NaN = none for a while) and whether it was a downshift (autoclutch, autoblip).</summary>
     public float ShiftTime;
     public bool Downshift;
+    /// <summary>Air and road temperature (°C) for the tyres.</summary>
+    public float AmbientTemp, RoadTemp;
 }
 
 /// <summary>
@@ -399,7 +403,8 @@ public static class Vehicle
             float vlLocal = vl;
             float KappaRaw(float w) => slow ? Math.Clamp(0.5f * (w * radius - vlLocal), -1, 1) : (w * radius - vlLocal) / denom;
             float dKdW = f * radius * (slow ? 0.5f : 1 / denom);
-            float u = (inp.Grip > 0 ? inp.Grip : 1) * st.RoadGrip[i] * d.GripScale;
+            var heat = st.Heat?[i];
+            float u = (inp.Grip > 0 ? inp.Grip : 1) * st.RoadGrip[i] * d.GripScale * (heat?.Grip ?? 1);
 
             float k0 = st.Kappa[i] + f * (KappaRaw(w0) - st.Kappa[i]);
             var (fx0, fy, nd) = t.Solve(fz, alpha, k0, lean[i], speed, u, inp.NoFalloff);
@@ -414,7 +419,7 @@ public static class Vehicle
             if (inp.AiAbs && st.NdSlip[i] > 1 && fz > 0.05f * totalLoad) tb = 0;
             float iw = t.AngularInertia + extraInertia[i];
             inertia[i] = iw;
-            float rr = fz * 0.001f * (t.Rr0 + t.Rr1 * w0 * radius * w0 * radius) * (1 + 0.001f * t.RrSlip * Math.Clamp(st.NdSlip[i], 0, 1));
+            float rr = fz * 0.001f * (t.Rr0 + t.Rr1 * w0 * radius * w0 * radius) * (1 + 0.001f * t.RrSlip * Math.Clamp(st.NdSlip[i], 0, 1)) * (heat?.RollFactor ?? 1);
             float sign = w0 > 0.05f ? 1 : w0 < -0.05f ? -1 : 0;
             float torque = drive[i] - radius * fx0 - rr * radius * sign;
             float w1 = w0 + dt * (torque - tb * sign) / (iw + dt * radius * dFxdW);
@@ -426,6 +431,7 @@ public static class Vehicle
             float fx = fx0 + dFxdK * (k1 - k0);
             st.Kappa[i] = k1;
             st.Alpha[i] = alpha;
+            heat?.Step(t, dt, w1, fz, MathF.Sqrt(vt * vt + Sq(w1 * radius - vl)), -lean[i], vx, inp.AmbientTemp, inp.RoadTemp);
             st.NdSlip[i] = nd;
             fy *= lateralGrip;
 
@@ -547,6 +553,8 @@ public static class Vehicle
         st.N += st.NDot * dt;
         st.Psi += (r - inp.Curvature * st.SDot) * dt;
     }
+
+    private static float Sq(float x) => x * x;
 
     /// <summary>A differential's locking between two wheels: the torque that evens out their speeds this step, up to the locking torque.</summary>
     private static void LockPair(VehicleState st, Span<float> inertia, int a, int b, float lockTorque, float dt)

@@ -123,7 +123,13 @@ public sealed partial class RaceWorld
             float lat = Math.Clamp(bot.Speed * bot.Speed * MathF.Abs(k) / (car.LateralGrip * CarSpec.G), 0, 1.2f);
             float lon = MathF.Abs(bot.Accel) / (car.BrakeGrip * CarSpec.G);
             float brakeUse = bot.Accel < 0 ? Math.Clamp(lon, 0, 1.2f) : 0, driveUse = bot.Accel > 0 ? Math.Clamp(lon, 0, 1.2f) : 0;
-            UpdateTyreTemperatures(bot, dt, lat, brakeUse, driveUse);
+            if (bot.Heat is { } heat)
+            {
+                // the vehicle model heats the tyres: the axles' temperatures the grip goes by
+                bot.TyreTempFront = (heat[0].Practical + heat[1].Practical) / 2;
+                bot.TyreTempRear = (heat[2].Practical + heat[3].Practical) / 2;
+            }
+            else UpdateTyreTemperatures(bot, dt, lat, brakeUse, driveUse);
             if (Settings.TyreWearRate > 0 && ds > 0)
             {
                 float usage = Math.Clamp(MathF.Max(lat, lon), 0, 1.2f);
@@ -138,7 +144,7 @@ public sealed partial class RaceWorld
     {
         var car = bot.Car;
         float tyre = Settings.TyreWearRate > 0 ? WearGrip(bot, bot.TyreVirtualKm) : 1f;
-        float cold = TyreTemperatureGrip(bot);
+        float cold = bot.Heat != null ? 1 : TyreTemperatureGrip(bot); // (with a vehicle model the tyres' own grip)
         float mass = car.ReferenceMass - 25 * FuelDensity + bot.Fuel * FuelDensity;
         bot.MassRatio = Settings.FuelRate > 0 ? Math.Clamp(mass / car.ReferenceMass, 0.8f, 1.3f) : 1f;
         // (the fuel's weight is the vehicle model's business: MassRatio)
@@ -327,6 +333,7 @@ public sealed partial class RaceWorld
                     ChooseTyres(bot, bot.RemainingLaps == int.MaxValue ? MathF.Min(10, fuelLaps) : MathF.Min(bot.RemainingLaps, fuelLaps), coldStart: true);
                     bot.TyreVirtualKm = 0;
                     bot.TyreKm = 0;
+                    ChoosePressures(bot, learn: true);
                     SetTyreTemperature(bot, ColdTyreTemperature());
                 }
                 if (bot.PitRepair) RepairDamage(bot);

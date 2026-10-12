@@ -20,7 +20,7 @@ public sealed partial class BotDriverService
 
     private const string TelemetryHeader = "time;session;car;name;phase;lap;s;offset;targetOffset;x;y;z;headingDeg;headingErrorDeg;kmh;targetKmh;"
         + "lateral;accel;throttle;brake;gear;rpm;compound;tyreTempF;tyreTempR;tyreKm;wearGrip;carGrip;fuel;damageGrip;suspension;"
-        + "level;steerDeg;yawDeg;contacts;ai\n";
+        + "level;steerDeg;yawDeg;contacts;ai;tyres\n";
 
     /// <summary>The file of this session: a new one after a session change or when debugging gets switched on again.</summary>
     private void EndTelemetryFile()
@@ -46,8 +46,13 @@ public sealed partial class BotDriverService
             .Append(c, $"{b.Offset:F2};{b.TargetOffset:F2};{pose.Position.X:F2};{pose.Position.Y:F2};{pose.Position.Z:F2};{heading:F1};{world.HeadingError(b, pose):F1};")
             .Append(c, $"{b.Speed * 3.6f:F1};{b.TargetSpeed * 3.6f:F1};{b.LateralSpeed:F2};{b.Accel:F2};{b.Throttle:F2};{b.Brake:F2};{pose.Gear};{pose.Rpm};")
             .Append(c, $"{RaceWorld.CompoundName(b)};{b.TyreTempFront:F1};{b.TyreTempRear:F1};{b.TyreVirtualKm:F1};{RaceWorld.WearGrip(b, b.TyreVirtualKm):F3};{b.CarGrip:F3};")
-            .Append(c, $"{b.Fuel:F1};{RaceWorld.DamageGrip(b):F3};{b.Suspension:F2};{b.Driver.Pace:F3};{pose.WheelAngleDeg:F1};{b.Yaw * 180 / MathF.PI:F1};{b.ContactCount};{Csv(world.AiState(b))}\n");
+            .Append(c, $"{b.Fuel:F1};{RaceWorld.DamageGrip(b):F3};{b.Suspension:F2};{b.Driver.Pace:F3};{pose.WheelAngleDeg:F1};{b.Yaw * 180 / MathF.PI:F1};{b.ContactCount};{Csv(world.AiState(b))};{TyreText(b)}\n");
     }
+
+    /// <summary>Per tyre (FL FR RL RR): cold/hot pressure psi, core °C, tread inner-middle-outer °C, grip factor.</summary>
+    private static string TyreText(Core.RaceBot b)
+        => b.Heat is not { } h ? "" : string.Join(" ", h.Select(t => FormattableString.Invariant(
+            $"{t.StaticPressure:F1}/{t.Pressure:F1}psi {t.Core:F0}C {t.Tread.I:F0}-{t.Tread.M:F0}-{t.Tread.O:F0} x{t.Grip:F3}")));
 
     /// <summary>After the bots of a tick: the next sample time, and to disk every 5 s.</summary>
     private void TelemetryAfterTick(double now, bool sampled)
