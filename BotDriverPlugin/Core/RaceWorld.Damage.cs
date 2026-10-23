@@ -4,82 +4,34 @@ namespace BotDriverPlugin.Core;
 /// <summary>Contacts between bots, damage (slower car, repaired in the pits) and the grip of a wet track.</summary>
 public sealed partial class RaceWorld
 {
-    /// <summary>Two bots touched (from ResolveOverlaps): a bounce apart or a push, and damage. "me" ran into "other" (or moved over into it).</summary>
     /// <summary>
-    /// A hit on a car with a vehicle model, like a collision in AC's physics: an impulse of (1 + 0.3) × closing speed × reduced mass along
-    /// <paramref name="n"/> (line frame: along, across; from the other car into this one) at the contact point <paramref name="r"/> (line frame,
-    /// from this car's centre). It pushes, slows or speeds the car up and turns it; the AI then has to catch it. False without a vehicle model.
+    /// Two cars hit (from <see cref="ResolveContacts"/>, closing at <paramref name="closing"/> m/s): counted once per second and pair, damage
+    /// where each was hit (between bots; a player's hits on a bot come with his client's collision message).
     /// </summary>
-    internal bool Impulse(RaceBot bot, Vector2 n, Vector2 r, float closing, float otherMass)
+    private void ContactEvent(in Body a, in Body b, float closing, Vector2 ra, Vector2 rb)
     {
-        if (bot.Phys is not { } st || bot.Car.Physics is not { } d) return false;
-        if (closing <= 0) return true;
-        float m = d.Mass * bot.MassRatio, iz = d.YawInertia * bot.MassRatio;
-        float j = 1.3f * closing * m * otherMass / (m + otherMass);
-        float c = MathF.Cos(st.Psi), s = MathF.Sin(st.Psi);
-        // into the car's frame (x forward, y towards +offset)
-        float jx = (n.X * c + n.Y * s) * j, jy = (-n.X * s + n.Y * c) * j;
-        float rx = r.X * c + r.Y * s, ry = -r.X * s + r.Y * c;
-        st.Vx += jx / m;
-        st.Vy += jy / m;
-        st.R += (rx * jy - ry * jx) / iz;
-        // pushed off its line: the driver takes it from where he is now instead of steering straight back into the other car
-        AiOf(bot).DesiredOffset = st.N;
-        return true;
-    }
-
-    /// <summary>The contact point on a car towards <paramref name="toOther"/> (line frame), on the edge of its footprint.</summary>
-    private static Vector2 ContactPoint(RaceBot bot, Vector2 toOther)
-    {
-        float l = bot.Car.Length / 2, w = bot.Car.Width / 2;
-        float k = MathF.Min(l / MathF.Max(1e-3f, MathF.Abs(toOther.X)), w / MathF.Max(1e-3f, MathF.Abs(toOther.Y)));
-        return toOther * MathF.Min(k, 1e3f);
-    }
-
-    private void BotContact(RaceBot me, RaceBot other, bool sideBySide, float dOff)
-    {
-        if (!Settings.BotContacts) return;
-        if (me.LastContactWith == other.Id && _now - me.LastContactAt < 1.5) return;
-        // only real hits count: the cars have to move into each other (grazing while both drift the same way is nothing)
-        float closing = sideBySide ? (me.LateralSpeed - other.LateralSpeed) * MathF.Sign(dOff) : me.Speed - other.Speed;
-        if (closing < (sideBySide ? 0.35f : 1.5f)) return;
-        me.LastContactAt = other.LastContactAt = _now;
-        me.LastContactWith = other.Id;
-        other.LastContactWith = me.Id;
+        var me = a.Bot!;
+        if (me.LastContactWith == b.Id && _now - me.LastContactAt < 1) { me.LastContactAt = _now; return; }
+        me.LastContactAt = _now;
+        me.LastContactWith = b.Id;
         me.ContactCount++;
+        var other = b.Bot;
+        if (other == null) return;
+        other.LastContactAt = _now;
+        other.LastContactWith = me.Id;
         other.ContactCount++;
-        ContactLog?.Invoke(FormattableString.Invariant($"{_now,7:F1}s {(sideBySide ? "side" : "rear")} {me.Name}/{other.Name} at {Line.WrapS((float)me.Distance):F0} m, v {me.Speed * 3.6f:F0}/{other.Speed * 3.6f:F0}, off {me.Offset:F2}/{other.Offset:F2}, closing {closing:F2}"));
+        if (!Settings.BotContacts) return;
+        ContactLog?.Invoke(FormattableString.Invariant($"{_now,7:F1}s {me.Name}/{other.Name} at {a.S:F0} m, v {me.Speed * 3.6f:F0}/{other.Speed * 3.6f:F0}, off {me.Offset:F2}/{other.Offset:F2}, closing {closing:F2}"));
+        AddDamage(me, Zone(a, ra), closing * 3.6f);
+        AddDamage(other, Zone(b, rb), closing * 3.6f);
+    }
 
-        // with vehicle models: a real hit (impulse at the contact point) instead of the kinematic bounce
-        float ds = Line.Delta(Line.WrapS((float)me.Distance), Line.WrapS((float)other.Distance));
-        var toOther = Vector2.Normalize(new Vector2(ds, dOff) + new Vector2(1e-4f, 0));
-        float mo = (other.Car.Physics?.Mass ?? 1300) * other.MassRatio, mm = (me.Car.Physics?.Mass ?? 1300) * me.MassRatio;
-        bool physical = Impulse(me, -toOther, ContactPoint(me, toOther), closing, mo);
-        physical &= Impulse(other, toOther, ContactPoint(other, -toOther), closing, mm);
-
-        if (sideBySide)
-        {
-            float impact = closing * 3.6f + 3;
-            float bounce = 0.6f + 0.02f * impact;
-            if (!physical)
-            {
-                me.LateralSpeed = -MathF.Sign(dOff) * bounce;
-                other.LateralSpeed = MathF.Sign(dOff) * bounce;
-                me.Speed *= 0.992f;
-                other.Speed *= 0.992f;
-            }
-            bool otherIsRight = (dOff > 0) == Line.RightIsPlus;
-            AddDamage(me, otherIsRight ? 3 : 2, impact);
-            AddDamage(other, otherIsRight ? 2 : 3, impact);
-        }
-        else
-        {
-            // me behind, other in front
-            float impact = closing * 3.6f + 2;
-            if (!physical) other.Speed = MathF.Min(other.Speed + MathF.Min(1.5f, impact / 20f), MathF.Max(other.Speed, me.Speed));
-            AddDamage(me, 0, impact);
-            AddDamage(other, 1, impact);
-        }
+    /// <summary>AC damage zone (0 front, 1 rear, 2 left, 3 right) of a hit at <paramref name="r"/> (line frame, from the car's centre).</summary>
+    private int Zone(in Body car, Vector2 r)
+    {
+        float x = Vector2.Dot(r, car.U), y = Vector2.Dot(r, car.V);
+        if (MathF.Abs(x) / car.HalfL > MathF.Abs(y) / car.HalfW) return x > 0 ? 0 : 1;
+        return (y > 0) == Line.RightIsPlus ? 3 : 2;
     }
 
     /// <summary>

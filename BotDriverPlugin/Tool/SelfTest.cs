@@ -46,6 +46,8 @@ public static class SelfTest
 
         RaceTest(line, calib, o);
         PassTest(line, calib);
+        PlayerTest(line, calib);
+        ContactTest(line, calib);
         PitTest(line, calib);
         TyreTest();
         DamageTest(line);
@@ -89,7 +91,7 @@ public static class SelfTest
     private static RaceBot NewBot(int id, CarSpec car, StrengthCalibration cal, float strength, float aggression = 50)
         => new() { Id = id, Name = $"Bot {id}", Car = car, Driver = DriverProfile.FromStrength(strength, StrengthCalibration.PaceFor(strength), aggression) };
 
-    /// <summary>A race of 8 bots, slowest first: everybody finishes, no deep overlaps, nothing NaN, the mistakes happen.</summary>
+    /// <summary>A race of 8 bots, slowest first: everybody finishes, no deep overlaps (ghosts aside), nothing NaN, the mistakes happen.</summary>
     private static void RaceTest(RacingLine line, StrengthCalibration cal, Options o)
     {
         var world = new RaceWorld(line, new RaceWorldSettings { Seed = 7 });
@@ -117,9 +119,7 @@ public static class SelfTest
                 foreach (var b in world.Bots)
                 {
                     if (a.Id >= b.Id) continue;
-                    float lp = (a.Car.Length + b.Car.Length) / 2 - MathF.Abs(line.Delta(line.WrapS((float)a.Distance), line.WrapS((float)b.Distance)));
-                    float wp = (a.Car.Width + b.Car.Width) / 2 - MathF.Abs(a.Offset - b.Offset);
-                    if (lp > 0.05f && wp > 0.05f) maxPen = MathF.Max(maxPen, MathF.Min(lp, wp));
+                    if (!(a.GhostUntil > t) && !(b.GhostUntil > t)) maxPen = MathF.Max(maxPen, Overlap(line, a, b));
                 }
             }
         }
@@ -136,6 +136,18 @@ public static class SelfTest
         gb.LateralSpeed = 3;
         world.PlaceAtGridSlot(gb, 0);
         Check($"straight on the grid ({world.HeadingError(gb, world.GetPose(gb)):F1}°)", world.HeadingError(gb, world.GetPose(gb)) < 3);
+    }
+
+    /// <summary>How deep two bots' footprints (rectangles turned by their heading against the line) overlap (m, 0 = apart).</summary>
+    private static float Overlap(RacingLine line, RaceBot a, RaceBot b)
+    {
+        var d = new Vector2(line.Delta(line.WrapS((float)b.Distance), line.WrapS((float)a.Distance)), a.Offset - b.Offset);
+        float pa = a.Phys?.Psi ?? 0, pb = b.Phys?.Psi ?? 0;
+        Vector2[] axes = [new(MathF.Cos(pa), MathF.Sin(pa)), new(-MathF.Sin(pa), MathF.Cos(pa)), new(MathF.Cos(pb), MathF.Sin(pb)), new(-MathF.Sin(pb), MathF.Cos(pb))];
+        float R(Vector2 ax, int k, RaceBot c) => c.Car.Length / 2 * MathF.Abs(Vector2.Dot(axes[k], ax)) + c.Car.Width / 2 * MathF.Abs(Vector2.Dot(axes[k + 1], ax));
+        float depth = float.MaxValue;
+        foreach (var ax in axes) depth = MathF.Min(depth, R(ax, 0, a) + R(ax, 2, b) - MathF.Abs(Vector2.Dot(d, ax)));
+        return MathF.Max(0, depth);
     }
 
     /// <summary>A clearly faster bot starting right behind a slower one gets by within two laps (Kunos: the side with room, committed).</summary>
@@ -159,6 +171,89 @@ public static class SelfTest
             if (fast.Distance > slow.Distance + 6) passedAt = t;
         }
         Check($"a faster bot passes a slower one ({(double.IsNaN(passedAt) ? "never" : $"after {passedAt:F0} s")}, contacts {fast.ContactCount})", !double.IsNaN(passedAt));
+    }
+
+    /// <summary>
+    /// A player's car (external) standing / crawling on the racing line on the straight: the bot behind goes round it instead of
+    /// stopping behind it.
+    /// </summary>
+    private static void PlayerTest(RacingLine line, StrengthCalibration cal)
+    {
+        foreach (float playerSpeed in new[] { 0f, 8f, 20f })
+        {
+            var world = new RaceWorld(line, new RaceWorldSettings { Seed = 3, HumanErrors = false });
+            var bot = NewBot(0, TestCar(), cal, 95);
+            world.Bots.Add(bot);
+            world.PlaceAt(bot, 20, 0, BotPhase.Racing);
+            bot.Speed = 30;
+            var player = world.GetOrAddExternal(100);
+            double t = 0, passedAt = double.NaN;
+            float ps = 200, minSpeed = float.MaxValue;
+            world.Advance(0);
+            while (t < 60 && double.IsNaN(passedAt))
+            {
+                t += 0.05;
+                ps += playerSpeed * 0.05f;
+                world.UpdateExternal(player, line.PositionAt(ps, 0), line.ForwardAt(ps) * playerSpeed, at: t);
+                world.Advance(t);
+                if (bot.Distance > 150 && bot.Distance < ps) minSpeed = MathF.Min(minSpeed, bot.Speed);
+                if (bot.Distance > ps + 6) passedAt = t;
+            }
+            Check($"bot goes round a player at {playerSpeed * 3.6f:F0} km/h ({(double.IsNaN(passedAt) ? "never" : $"after {passedAt:F0} s")}, " +
+                  $"slowest {minSpeed * 3.6f:F0} km/h, contacts {bot.ContactCount})", !double.IsNaN(passedAt));
+        }
+    }
+
+    /// <summary>
+    /// A player's car hits a bot on the straight, from behind and from the side: the bot's vehicle model takes the hit like a car (it is
+    /// shoved forward / sideways and turned), it isn't set to the player's speed or slid aside, and it doesn't jump.
+    /// </summary>
+    private static void ContactTest(RacingLine line, StrengthCalibration cal)
+    {
+        foreach (bool side in new[] { false, true })
+        {
+            var world = new RaceWorld(line, new RaceWorldSettings { Seed = 3, HumanErrors = false, PushVariation = false });
+            var bot = NewBot(0, TestCar(), cal, 60);
+            world.Bots.Add(bot);
+            world.PlaceAt(bot, 100, 0, BotPhase.Racing);
+            bot.Speed = 20;
+            var player = world.GetOrAddExternal(100);
+            double t = 0, hitAt = double.NaN;
+            // from behind: 10 m/s faster on the line; from the side: alongside, drifting into the bot at 3 m/s
+            float ps = side ? 100 : 80, pn = side ? 3 : 0, pv = side ? 20 : 30, plat = side ? -3 : 0;
+            float vBefore = 0, maxJump = 0, latAfter = 0, yawAfter = 0, vAfter = 0;
+            double prevD = bot.Distance;
+            float prevOff = bot.Offset;
+            world.Advance(0);
+            while (t < 8)
+            {
+                t += 0.05;
+                // after the hit the player's car has bounced off (his client): it stops pushing
+                if (!double.IsNaN(hitAt) && t - hitAt < 0.06) { pv = side ? 20 : 23.5f; plat = side ? 1 : 0; }
+                ps += pv * 0.05f;
+                pn += plat * 0.05f;
+                var lat = line.LateralAt(ps);
+                world.UpdateExternal(player, line.PositionAt(ps, pn), line.ForwardAt(ps) * pv + lat * plat, at: t);
+                if (double.IsNaN(hitAt)) vBefore = bot.Speed;
+                world.Advance(t);
+                maxJump = MathF.Max(maxJump, MathF.Abs((float)(bot.Distance - prevD) - bot.Speed * 0.05f) + MathF.Abs(bot.Offset - prevOff - bot.LateralSpeed * 0.05f));
+                prevD = bot.Distance;
+                prevOff = bot.Offset;
+                if (double.IsNaN(hitAt) && bot.ContactCount > 0) hitAt = t;
+                if (!double.IsNaN(hitAt) && t - hitAt < 0.3)
+                {
+                    vAfter = MathF.Max(vAfter, bot.Speed);
+                    latAfter = MathF.Min(latAfter, bot.LateralSpeed);
+                    yawAfter = MathF.Max(yawAfter, MathF.Abs(bot.Phys!.R));
+                }
+            }
+            if (side)
+                Check($"side hit: bot pushed aside {-latAfter:F2} m/s and turned {yawAfter * 57.3f:F1}°/s, no jump ({maxJump:F2} m)",
+                    !double.IsNaN(hitAt) && latAfter < -0.8f && yawAfter > 0.05f && maxJump < 0.25f);
+            else
+                Check($"rear hit: bot {vBefore * 3.6f:F0} -> {vAfter * 3.6f:F0} km/h (player 108 -> 85), no jump ({maxJump:F2} m)",
+                    !double.IsNaN(hitAt) && vAfter - vBefore > 3 && vAfter < 29 && maxJump < 0.25f);
+        }
     }
 
     private static PitLane TestLane(RacingLine line)

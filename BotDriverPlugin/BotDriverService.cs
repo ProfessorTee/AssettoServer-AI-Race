@@ -455,7 +455,9 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
             // the last position update is already a little old (network delay): the world extrapolates it from its timestamp
             // to every simulation step (speed and braking), so the bots see where the car is now
             double at = Math.Max(car.Status.Timestamp / 1000.0, now - 0.3);
-            world.UpdateExternal(ext, car.Status.Position, car.Status.Velocity, active, at);
+            // heading from the network rotation (yaw = atan2(forward.z, forward.x) − 90°): the contacts need the car's footprint as it is turned
+            float heading = car.Status.Rotation.X + MathF.PI / 2;
+            world.UpdateExternal(ext, car.Status.Position, car.Status.Velocity, active, at, new Vector3(MathF.Cos(heading), 0, MathF.Sin(heading)));
             ext.Laps = session.Results != null && session.Results.TryGetValue(car.SessionId, out var res) ? (int)res.NumLaps : 0;
         }
 

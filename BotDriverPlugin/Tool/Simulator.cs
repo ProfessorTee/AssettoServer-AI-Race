@@ -464,6 +464,49 @@ public static class Simulator
                     _prev[b.Id] = (p.Position, p.Velocity, yaw, rate);
                 }
                 else _prev[b.Id] = (p.Position, p.Velocity, yaw, float.NaN);
+                ClientWheels(world, b, p);
+            }
+        }
+
+        private readonly List<float> _wheel = new(), _wheelKerb = new(), _centre = new(), _model = new();
+        private float _rest;
+        private readonly List<string> _sinkAt = new();
+
+        /// <summary>
+        /// The client's wheels on a remote car (acs.exe NetCarStateProvider::step): each wheel's hub at (±track/2, BASEY, ±a/b) in the body,
+        /// a ray from 1 m above it down to the ground, the contact held within ±0.1 m of its rest (BASEY − radius). Beyond that the wheel
+        /// sinks into the ground (+) or hangs in the air (−). Here: how far the ground is from the rest contact.
+        /// </summary>
+        private void ClientWheels(RaceWorld world, RaceBot b, in BotPose p)
+        {
+            if (world.Road == null || b.Car.Physics is not { } d) return;
+            float th = p.Rotation.X + MathF.PI / 2;
+            var fh = new Vector3(MathF.Cos(th), 0, MathF.Sin(th));
+            var side = new Vector3(-fh.Z, 0, fh.X);
+            if (Vector3.Dot(side, world.Line.LateralAt(world.Line.WrapS((float)b.Distance))) < 0) side = -side;
+            float sp = MathF.Sin(p.Rotation.Y), sr = MathF.Sin(p.Rotation.Z);
+            if (world.Road.HeightAt(p.Position.X, p.Position.Z, p.Position.Y + 0.5f, 5.5f) is { } gc)
+            {
+                _centre.Add(p.Position.Y - gc);
+                _rest = d.Front.Radius - d.FrontSusp.BaseY;
+                if (b.Phys is { } ph) _model.Add(ph.H);
+            }
+            for (int i = 0; i < 4; i++)
+            {
+                bool front = i < 2;
+                float x = front ? d.A : -d.B, y = (i % 2 == 0 ? 0.5f : -0.5f) * (front ? d.TrackFront : d.TrackRear);
+                var sa = front ? d.FrontSusp : d.RearSusp;
+                float r = front ? d.Front.Radius : d.Rear.Radius;
+                var w = p.Position + fh * x + side * y;
+                float rest = p.Position.Y + x * sp + y * sr + sa.BaseY - r;
+                float? g = world.Road.HeightAt(w.X, w.Z, rest + 0.5f, 5.5f) ?? world.OffTrack?.HeightAt(w.X, w.Z, rest + 0.5f, 5.5f);
+                if (g is not { } gy) continue;
+                float delta = gy - rest;
+                _wheel.Add(delta);
+                bool kerb = world.Road.SurfaceAt(w.X, w.Z, rest + 0.5f, 5.5f)?.Key.Contains("KERB", StringComparison.OrdinalIgnoreCase) == true;
+                if (kerb) _wheelKerb.Add(delta);
+                if (delta > 0.1f && _sinkAt.Count < 400)
+                    _sinkAt.Add(FormattableString.Invariant($"{b.Name} s={world.Line.WrapS((float)b.Distance):F0} off={b.Offset:F1} wheel {i} {(kerb ? "kerb" : "road")} sinks {(delta - 0.1f) * 100:F0} cm, roll {p.Rotation.Z * 57.3f:F1} pitch {p.Rotation.Y * 57.3f:F1}"));
             }
         }
 
@@ -479,6 +522,11 @@ public static class Simulator
             Console.WriteLine($"poses: extrapolation error m {Q(_jump)}, over 0.5 m {_big}x");
             Console.WriteLine($"poses: height step m {Q(_dz)}, roll vs line camber deg {Q(_roll)}, |pitch| deg {Q(_pitch)}");
             foreach (var r in _rollAt.Where((_, i) => i % 25 == 0)) Console.WriteLine("   roll " + r);
+            string W(List<float> x) => FormattableString.Invariant($"{Q(x)}, p1 {(x.Count > 0 ? x.OrderBy(v => v).ElementAt(x.Count / 100) : 0):F2}, sinking (> +0.1) {100f * x.Count(v => v > 0.1f) / Math.Max(1, x.Count):F2} %, in the air (< -0.1) {100f * x.Count(v => v < -0.1f) / Math.Max(1, x.Count):F2} %");
+            Console.WriteLine($"pose height above the ground under its centre m {Q(_centre)}; client's rest (radius - BASEY front) {_rest:F3}; vehicle model CG height {Q(_model)}");
+            Console.WriteLine($"client wheels: ground above the rest contact m {W(_wheel)}");
+            Console.WriteLine($"client wheels on kerbs ({_wheelKerb.Count}): {W(_wheelKerb)}");
+            foreach (var r in _sinkAt.Where((_, i) => i % 40 == 0)) Console.WriteLine("   " + r);
             Console.WriteLine($"poses: yaw rate change deg/s per packet {Q(_jerk)}");
             Console.WriteLine($"poses: body vs travel direction deg {Q(_slip)}, over 8° {_worst.Count}x ({100f * _worst.Count / Math.Max(1, _slip.Count):F1} %)");
             Console.WriteLine($"poses: off its wanted line m {Q(_lineErr)}, over 2 m {100f * _lineErr.Count(x => x > 2) / Math.Max(1, _lineErr.Count):F1} %");

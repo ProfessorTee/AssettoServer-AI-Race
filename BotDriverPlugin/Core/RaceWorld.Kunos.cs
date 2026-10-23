@@ -180,12 +180,18 @@ public sealed partial class RaceWorld
     /// <list type="bullet">
     /// <item>alongside (sideways under 8 m, along under 15 m, more than 25° to the side): keeps (1 + 0.03·closing) × 3 half widths
     /// between the centres, in the middle with cars on both sides;</item>
-    /// <item>a car ahead within (v·0.07 + 8)·(1 + 0.05·n) m: takes the side with more room beside it (its offset ± 3.75 half widths) when the
+    /// <item>a car ahead (the nearest in its lane, else the nearest) within (v·0.07 + 8)·(1 + 0.05·n) m: takes the side with more room beside it (its offset ± 3.75 half widths) when the
     /// room is there, the move takes less time than the gap closes, and it catches up before the next narrow part on that side (or that is
     /// over 200 m away, or the aggression allows it); otherwise follows it at its speed 7.5 m behind.</item>
     /// </list>
     /// </summary>
-    private (float Offset, float SpeedLimit, int SideBySide, bool BothSides) Awareness(RaceBot me, KunosAi ai, float myS, float lineOffset)
+    /// <remarks>
+    /// Beyond the Kunos AI: a car ahead far slower than this one could drive here (a player who spun, crawls or stands, a wreck) is judged by
+    /// the speed it could have (<paramref name="freeSpeed"/>), not by the speed it has now. Else, once braked down behind it, the closing speed is
+    /// gone and it never pulls out (the AC AI stays behind or runs into it). It is looked for early enough to change lanes. Pulling out to
+    /// pass any car, it keeps the room it needs to steer out while still in that car's lane.
+    /// </remarks>
+    private (float Offset, float SpeedLimit, int SideBySide, bool BothSides) Awareness(RaceBot me, KunosAi ai, float myS, float lineOffset, float freeSpeed)
     {
         float half = me.Car.Width / 2;
         float v = me.Speed;
@@ -197,6 +203,7 @@ public sealed partial class RaceWorld
         bool leftSide = false, rightSide = false;
         Neighbor? ahead = null;
         float aheadGap = float.MaxValue;
+        bool aheadInLane = false;
         foreach (var o in _neighbors)
         {
             // the car it was passing is behind now: done
@@ -212,18 +219,28 @@ public sealed partial class RaceWorld
             if (MathF.Abs(ds) > 60 || MathF.Abs(dOff) > 8) continue;
             n++;
             float longClear = (me.Car.Length + o.Length) / 2;
-            bool alongside = MathF.Abs(ds) < 15 && MathF.Atan2(MathF.Abs(dOff), MathF.Abs(ds)) > 25 * MathF.PI / 180;
-            if (alongside)
+            bool kunos = MathF.Abs(ds) < 15 && MathF.Atan2(MathF.Abs(dOff), MathF.Abs(ds)) > 25 * MathF.PI / 180;
+            // the room to the side also when the two overlap lengthwise at all (nose by the other's rear quarter is under 25°, the AC AI
+            // steers into it); the AI's push and grip only change for the Kunos ones
+            if (kunos || MathF.Abs(ds) < longClear + 0.5f)
             {
-                beside++;
                 float closing = MathF.Abs(o.Speed - v);
                 float spacing = (1 + 0.03f * closing) * 1.5f * (half + o.Width / 2);
-                if (dOff > 0) { sideMax = MathF.Min(sideMax, o.Offset - spacing); rightSide = true; }
-                else { sideMin = MathF.Max(sideMin, o.Offset + spacing); leftSide = true; }
+                if (dOff > 0) sideMax = MathF.Min(sideMax, o.Offset - spacing);
+                else sideMin = MathF.Max(sideMin, o.Offset + spacing);
+                if (kunos)
+                {
+                    beside++;
+                    if (dOff > 0) rightSide = true; else leftSide = true;
+                }
                 continue;
             }
             float gap = ds - longClear;
-            if (ds > 0 && gap < aheadGap) { ahead = o; aheadGap = gap; }
+            if (ds <= 0) continue;
+            // the car in its own lane first: one in the next lane is no reason to miss a slower one in its way behind it
+            bool lane = MathF.Abs(dOff) < half + o.Width / 2 + 0.3f;
+            if (lane && (!aheadInLane || gap < aheadGap)) { ahead = o; aheadGap = gap; aheadInLane = true; }
+            else if (!aheadInLane && gap < aheadGap) { ahead = o; aheadGap = gap; }
         }
 
         // a car ahead: pass it on the side with more room, or follow it
@@ -232,11 +249,14 @@ public sealed partial class RaceWorld
             float closing = v - a.Speed;
             float reach = (v * 0.07f + 8) * (1 + 0.05f * n);
             float oHalf = a.Width / 2, units = half + oHalf;
+            bool obstacle = freeSpeed - a.Speed > 5 && a.Speed < 0.7f * freeSpeed;
+            float pullOut = MathF.Max(closing, freeSpeed - a.Speed);
+            if (obstacle) reach = MathF.Max(reach, MathF.Min(120, 8 + pullOut * (2.5f * units / 3 + 0.5f)));
             float room = (1 + 0.2f * n) * 1.25f * units;
             float sPlus = a.Offset + 1.875f * units, sMinus = a.Offset - 1.875f * units;
             float freePlus = Line.RoomPlusAt(a.S) - (a.Offset + oHalf), freeMinus = (a.Offset - oHalf) + Line.RoomMinusAt(a.S);
             bool committed = ai.PassingId == a.Id && aheadGap < reach * 1.5f;
-            if (aheadGap < reach && (committed || closing > 0.3f))
+            if (aheadGap < reach && (committed || closing > 0.3f || obstacle))
             {
                 float side = ai.PassingId == a.Id ? MathF.Sign(ai.DesiredOffset - a.Offset) : freePlus >= freeMinus ? 1 : -1;
                 if (side == 0) side = 1;
@@ -250,7 +270,7 @@ public sealed partial class RaceWorld
                     float catchUp = closing > 0.1f ? 0.8f * v * MathF.Max(0, aheadGap - 3) / closing : float.MaxValue;
                     float pinch = NarrowAhead(me.Offset, myS, side, units);
                     float cornerSpeed = MathF.Max(1, CornerSpeed(me, Line.IndexAt(myS + MathF.Min(pinch, 200)), target, Settings.GripFactor * me.CarGrip));
-                    ok = (tti <= 0 || move < tti || tti == float.MaxValue)
+                    ok = (obstacle || tti <= 0 || move < tti || tti == float.MaxValue)
                          && (catchUp < pinch || pinch > 200 || v / cornerSpeed < me.Driver.Aggression);
                 }
                 if (ok)
@@ -263,17 +283,25 @@ public sealed partial class RaceWorld
             else if (ai.PassingId == a.Id && aheadGap > reach * 1.5f) ai.PassingId = -1;
 
             // behind it in its lane: its speed 7.5 m behind it
-            bool inLane = MathF.Abs(a.Offset - me.Offset) < units + 0.3f && MathF.Abs(a.Offset - want) < units + 0.3f;
-            if (inLane)
+            bool inLane = MathF.Abs(a.Offset - me.Offset) < units + 0.3f;
+            if (inLane && !(me.GhostUntil > _now))
             {
                 float decel = me.Car.BrakeAt(v, Settings.GripFactor * me.CarGrip, me.MassRatio) * 0.8f;
-                limit = MathF.Sqrt(a.Speed * a.Speed + 2 * decel * MathF.Max(0, aheadGap - 7.5f));
-                if (aheadGap < 7.5f) limit = MathF.Max(0, a.Speed - (7.5f - aheadGap) * 0.5f);
+                bool following = MathF.Abs(a.Offset - want) < units + 0.3f;
+                // following: its speed 7.5 m behind it (Kunos). Pulling out to pass: still in its lane it may close in only as fast as it
+                // gets out of the way sideways (~3 m/s) before it reaches it, and with the room to steer out at walking pace (~6 m turning
+                // radius); else it dives out late into the tail of a car braking ahead of it, or ends up nose to tail with no room to turn
+                float rest = MathF.Max(0, units + 0.3f - MathF.Abs(a.Offset - me.Offset));
+                float keep = following ? 7.5f : 1.5f + MathF.Sqrt(12 * rest);
+                limit = MathF.Sqrt(a.Speed * a.Speed + 2 * decel * MathF.Max(0, aheadGap - keep));
+                if (aheadGap < keep) limit = MathF.Max(0, a.Speed - (keep - aheadGap) * 0.5f);
+                if (!following) limit = MathF.Max(limit, a.Speed + MathF.Max(0, aheadGap - 0.5f) / MathF.Max(0.1f, rest / 3));
             }
         }
         else ai.PassingId = -1;
 
-        if (leftSide && rightSide) want = (sideMin + sideMax) / 2;
+        // cars on both sides (or no room between them): the middle
+        if ((leftSide && rightSide) || sideMin > sideMax) want = (sideMin + sideMax) / 2;
         else want = Math.Clamp(want, sideMin, sideMax);
         return (Math.Clamp(want, lo, hi), limit, beside, leftSide && rightSide);
     }
@@ -335,7 +363,7 @@ public sealed partial class RaceWorld
         bool mistake = ai.InMistake(_now);
 
         // ---- where and how fast (the plan, every world step)
-        var (want, carLimit, beside, both) = Awareness(me, ai, s0, 0);
+        var (want, carLimit, beside, both) = Awareness(me, ai, s0, 0, PlanSpeed(me, me.Offset));
         float push = Push(me, s0, beside + 1, both);
         float target = MathF.Min(PlanSpeed(me, me.Offset, push), carLimit);
         // wide of the line or beside another car: the AI moves with at most 3-4 m/s, back to its line slowly
@@ -432,10 +460,11 @@ public sealed partial class RaceWorld
         float held = Math.Clamp(me.Offset, -Line.RoomMinusAt(sNow) + half - allow, Line.RoomPlusAt(sNow) - half + allow);
         if (MathF.Abs(held - me.Offset) > 1e-3f)
         {
+            float back = MathF.Sign(held - me.Offset);
             me.Offset = st.N = held;
-            st.Vy *= 0.3f;
-            st.Psi *= 0.7f;
-            me.LateralSpeed = 0;
+            WallHit(me, back);
+            float c = MathF.Cos(st.Psi), sn = MathF.Sin(st.Psi);
+            me.LateralSpeed = st.Vx * sn + st.Vy * c;
         }
         if (TraceBotId == me.Id && Trace != null && (int)(_now * 4) != (int)((_now - dt) * 4))
             Trace(FormattableString.Invariant($"t={_now:F2} s={sNow:F0} v={st.Vx * 3.6f:F0} tgt={target * 3.6f:F0} car={(carLimit < 999 ? carLimit * 3.6f : 0):F0} push={push:F3} off={st.N:F2}/{desired:F2} pass={ai.PassingId} beside={beside} thr={me.Throttle:F2} brk={me.Brake:F2} g={me.Gear} rpm={st.EngineRpm:F0} steer={st.Steer * 57.3f:F1} psi={st.Psi * 57.3f:F1} slipF={st.FrontSlip:F2} slipR={st.RearSlip:F2} lim={me.LimitDist:F0}/{me.LimitSpeed * 3.6f:F0} mistake={mistake}"));

@@ -43,10 +43,18 @@ public sealed class ExternalCar
     /// <summary>Sideways speed (m/s, + = towards positive offset) and forward acceleration (m/s², from the last updates).</summary>
     public float LateralSpeed { get; internal set; }
     public float Accel { get; internal set; }
+    /// <summary>Heading against the line (rad, + = turned towards positive offset).</summary>
+    public float Psi { get; internal set; }
     /// <summary>World time (s) the position belongs to; the bots extrapolate from there to their own time.</summary>
     public double At { get; internal set; } = double.NaN;
     internal float PrevSpeed;
     internal double PrevAt = double.NaN;
+    /// <summary>
+    /// What a contact with a bot did to this car (line frame, m/s) until its own packets show it: its client has bounced it off at once, the
+    /// server only sees that later; without it the car would go on pushing the bot until then as if it were immovable.
+    /// </summary>
+    internal Vector2 Bounce;
+    internal double BounceUntil = double.NegativeInfinity;
     /// <summary>Completed laps of this car in the current race (set from outside).</summary>
     public int Laps { get; set; }
     internal int HintIndex = -1;
@@ -131,9 +139,6 @@ public sealed class RaceBot
     /// <summary>Last time the car overlapped another one (touching).</summary>
     internal double LastOverlapAt = double.NegativeInfinity;
     internal int LastContactWith = -1;
-    /// <summary>The body on its springs over the road under the wheels (lift m, pitch and roll rad, and their rates per second).</summary>
-    internal float PoseLift, PosePitch, PoseRoll, PoseLiftRate, PosePitchRate, PoseRollRate;
-    internal bool PoseValid;
     public int ContactCount { get; internal set; }
     public int Overtakes { get; internal set; }
     /// <summary>Emergency ghost (no collisions) until this time.</summary>
@@ -509,7 +514,8 @@ public sealed partial class RaceWorld
     /// <summary>Feeds the current state of a human car.</summary>
     /// <param name="at">World time of this state (the player's timestamp); NaN = now. The bots extrapolate from there
     /// with speed and acceleration, so they see where the player is at every step, not where his last packet said.</param>
-    public void UpdateExternal(ExternalCar car, Vector3 position, Vector3 velocity, bool active = true, double at = double.NaN)
+    /// <param name="forward">The car's heading (null: from its direction of travel).</param>
+    public void UpdateExternal(ExternalCar car, Vector3 position, Vector3 velocity, bool active = true, double at = double.NaN, Vector3? forward = null)
     {
         if (!active)
         {
@@ -525,6 +531,8 @@ public sealed partial class RaceWorld
         car.Offset = p.Offset;
         car.Speed = Vector3.Dot(velocity, Line.Forward[p.Index]);
         car.LateralSpeed = Vector3.Dot(velocity, Line.LateralAt(p.S));
+        var f = forward ?? (velocity.LengthSquared() > 4 ? velocity : Line.Forward[p.Index]);
+        car.Psi = MathF.Atan2(Vector3.Dot(f, Line.LateralAt(p.S)), Vector3.Dot(f, Line.Forward[p.Index]));
         // acceleration from the speed change between two updates (smoothed; braking shows up within ~2 packets)
         if (!double.IsNaN(car.PrevAt) && at - car.PrevAt > 0.015 && at - car.PrevAt < 0.5)
         {
@@ -543,29 +551,34 @@ public sealed partial class RaceWorld
         car.Valid = p.Offset > -Line.RoomMinus[i] - 4 && p.Offset < Line.RoomPlus[i] + 4 && MathF.Abs(p.Height) < 6;
     }
 
-    /// <summary>A human car touched this bot (the client's collision message): the bot's car is knocked, like a contact in the physics.</summary>
+    /// <summary>
+    /// A human car touched this bot (the client's collision message). The server finds most contacts itself from the cars' footprints
+    /// (<see cref="ResolveContacts"/>); this one only counts where it missed it (the player's positions arrive late, on his screen the bot
+    /// was somewhere else): then the bot gets the hit on the side facing the player's car, with the client's impact speed, as from a car as
+    /// heavy as itself.
+    /// </summary>
     public void OnContact(RaceBot bot, Vector3 otherPosition, float impactSpeed, ExternalCar? other = null)
     {
         if (!bot.OnTrack) return;
-        var p = Line.Project(otherPosition, Line.IndexAt((float)bot.Distance));
-        float dOff = bot.Offset - p.Offset;
-        float ds = Line.Delta(p.S, Line.WrapS((float)bot.Distance)); // > 0: the bot is ahead
-        float impact = Math.Clamp(impactSpeed, 0, 30);
+        bool seen = other != null && bot.LastContactWith == other.Id && _now - bot.LastContactAt < 0.5;
         bot.LastContactAt = _now;
+        bot.LastOverlapAt = _now;
+        if (other != null) bot.LastContactWith = other.Id;
+        if (seen) return;
         bot.ContactCount++;
-        // with a vehicle model: a real hit from the player's car (mass unknown: taken as heavy as the bot). The client's impact speed is the
-        // closing speed at the contact: the server's positions come later, the player's car has already bounced off on his screen (to him
-        // the bot is a wall that only moves with its packets), so all of the push has to come from here
-        var fromOther = Vector2.Normalize(new Vector2(ds, dOff) + new Vector2(1e-4f, 0));
-        if (bot.Car.Physics is { } d && bot.Phys != null)
-        {
-            Impulse(bot, fromOther, ContactPoint(bot, -fromOther), impact, d.Mass * bot.MassRatio);
-            return;
-        }
-        bool side = MathF.Abs(dOff) > 0.6f * bot.Car.Width && MathF.Abs(ds) < bot.Car.Length;
-        if (side) bot.LateralSpeed = MathF.Sign(dOff) * (0.6f + 0.08f * impact);
-        else if (ds > 0) bot.Speed += MathF.Min(2, 0.3f * impact);
-        else bot.Speed = MathF.Max(0, bot.Speed - 0.6f * impact);
+        if (bot.Phys is not { } st || bot.Car.Physics is not { } d) return;
+        var p = Line.Project(otherPosition, Line.IndexAt((float)bot.Distance));
+        // where the other car is, in the bot's body frame: the face it hit and the point on it
+        var rel = new Vector2(Line.Delta(Line.WrapS((float)bot.Distance), p.S), p.Offset - bot.Offset);
+        float c = MathF.Cos(st.Psi), sn = MathF.Sin(st.Psi);
+        float x = rel.X * c + rel.Y * sn, y = -rel.X * sn + rel.Y * c;
+        float hl = bot.Car.Length / 2, hw = bot.Car.Width / 2;
+        Vector2 nBody, rBody;
+        if (MathF.Abs(x) / hl > MathF.Abs(y) / hw) { nBody = new(-MathF.Sign(x), 0); rBody = new(MathF.Sign(x) * hl, Math.Clamp(y, -hw, hw)); }
+        else { nBody = new(0, -MathF.Sign(y)); rBody = new(Math.Clamp(x, -hl, hl), MathF.Sign(y) * hw); }
+        Vector2 ToLine(Vector2 v) => new(v.X * c - v.Y * sn, v.X * sn + v.Y * c);
+        float m = d.Mass * bot.MassRatio;
+        ApplyImpulse(bot, ToLine(nBody) * ((1 + ContactRestitution) * Math.Clamp(impactSpeed, 0, 30) * m / 2), ToLine(rBody));
     }
 
     // ------------------------------------------------------------------ simulation
@@ -639,13 +652,10 @@ public sealed partial class RaceWorld
             }
         }
 
-        ResolveOverlaps();
+        ResolveContacts();
         foreach (var bot in Bots)
             if (bot.Phase is BotPhase.Racing or BotPhase.CoolDown)
-            {
                 UpdateTiming(bot);
-                UpdateBody(bot, dt);
-            }
     }
 
     private void BuildNeighbors()
@@ -658,7 +668,7 @@ public sealed partial class RaceWorld
             {
                 Id = b.Id, IsBot = true, Bot = b,
                 S = Line.WrapS((float)b.Distance), Offset = b.Offset, Speed = b.Speed,
-                Length = b.Car.Length, Width = b.Car.Width,
+                Length = Turned(b.Car.Length, b.Car.Width, b.Phys?.Psi ?? 0), Width = Turned(b.Car.Width, b.Car.Length, b.Phys?.Psi ?? 0),
                 Progress = b.LapsCompleted * Line.Length + Line.WrapS((float)b.Distance - Settings.StartLineS)
             });
         }
@@ -673,11 +683,15 @@ public sealed partial class RaceWorld
             {
                 Id = e.Id, IsBot = false, External = e,
                 S = Line.WrapS(s), Offset = e.Offset + e.LateralSpeed * dt, Speed = v,
-                Length = e.Length, Width = e.Width,
+                Length = Turned(e.Length, e.Width, e.Psi), Width = Turned(e.Width, e.Length, e.Psi),
                 Progress = e.Laps * Line.Length + Line.WrapS(e.S - Settings.StartLineS)
             });
         }
     }
+
+    /// <summary>How long a car's footprint is along the line (<paramref name="along"/> = its length) or wide across it, turned by its heading: a car
+    /// spun across the road blocks its length.</summary>
+    private static float Turned(float along, float across, float psi) => MathF.Abs(MathF.Cos(psi)) * along + MathF.Abs(MathF.Sin(psi)) * across;
 
     /// <summary>A player's car (external) in the pit lane.</summary>
     public bool ExternalInPitLane(int id)
@@ -727,74 +741,250 @@ public sealed partial class RaceWorld
 
     // ------------------------------------------------------------------ contacts
 
-    /// <summary>
-    /// The cars are bodies of their own (AC's collisions live on the clients): after moving, anything overlapping is pushed apart. Side by
-    /// side the two slide apart, nose to tail the car behind falls back, a player behind pushes the bot.
-    /// </summary>
-    private void ResolveOverlaps()
+    /// <summary>Car against car: restitution and friction of the bodywork (little bounce, sliding along), the overlap pushed out per step.</summary>
+    private const float ContactRestitution = 0.3f, ContactFriction = 0.3f, MaxPushPerStep = 0.05f;
+
+    /// <summary>A car's footprint and motion in the line's frame (s along, n across) for the contacts.</summary>
+    private struct Body
     {
-        foreach (var me in Bots)
+        public RaceBot? Bot;
+        public ExternalCar? External;
+        public int Id;
+        public float S, N, Psi, Vs, Vn, W, HalfL, HalfW, InvM, InvI;
+        public Vector2 U => new(MathF.Cos(Psi), MathF.Sin(Psi));
+        public Vector2 V => new(-MathF.Sin(Psi), MathF.Cos(Psi));
+        public float Radius(Vector2 axis) => HalfL * MathF.Abs(Vector2.Dot(U, axis)) + HalfW * MathF.Abs(Vector2.Dot(V, axis));
+        /// <summary>Is <paramref name="p"/> (relative to this car's centre) inside the footprint.</summary>
+        public bool Inside(Vector2 p) => MathF.Abs(Vector2.Dot(p, U)) <= HalfL && MathF.Abs(Vector2.Dot(p, V)) <= HalfW;
+    }
+
+    private bool BodyOf(in Neighbor o, out Body b)
+    {
+        b = default;
+        if (o.IsBot)
         {
-            if (me.Phase is not (BotPhase.Racing or BotPhase.CoolDown) || OffTrackInPits(me)) continue;
-            float myS = Line.WrapS((float)me.Distance);
-            foreach (var o in _neighbors)
+            var bot = o.Bot!;
+            if (bot.Phase is not (BotPhase.Racing or BotPhase.CoolDown) || OffTrackInPits(bot) || bot.GhostUntil > _now) return false;
+            if (!BotBody(bot, out b))
             {
-                if (o.IsBot && o.Id == me.Id) continue;
-                if (me.GhostUntil > _now || (o.IsBot && o.Bot!.GhostUntil > _now)) continue;
-                if (o.IsBot && OffTrackInPits(o.Bot!)) continue;
-                float oS = o.IsBot ? Line.WrapS((float)o.Bot!.Distance) : o.S;
-                float oOff = o.IsBot ? o.Bot!.Offset : o.Offset;
-                float ds = Line.Delta(myS, oS);
-                float dOff = oOff - me.Offset;
-                float longClear = (me.Car.Length + o.Length) / 2;
-                float latClear = (me.Car.Width + o.Width) / 2;
-                if (MathF.Abs(ds) >= longClear || MathF.Abs(dOff) >= latClear) continue;
+                // no vehicle model (pit lane): it drives on its own line and doesn't give way
+                b.Bot = bot;
+                b.S = Line.WrapS((float)bot.Distance);
+                b.N = bot.Offset;
+                b.HalfL = bot.Car.Length / 2;
+                b.HalfW = bot.Car.Width / 2;
+                b.Vs = bot.Speed;
+                b.Vn = bot.LateralSpeed;
+            }
+        }
+        else
+        {
+            var e = o.External!;
+            b.External = e;
+            b.S = o.S;
+            b.N = o.Offset;
+            b.Psi = e.Psi;
+            if (_now > e.BounceUntil) e.Bounce = Vector2.Zero;
+            b.Vs = o.Speed + e.Bounce.X;
+            b.Vn = e.LateralSpeed + e.Bounce.Y;
+            b.HalfL = e.Length / 2;
+            b.HalfW = e.Width / 2;
+        }
+        b.Id = o.Id;
+        return true;
+    }
 
-                float longPen = longClear - MathF.Abs(ds);
-                float latPen = latClear - MathF.Abs(dOff);
-                // touching: the AC AI's spring to its line rests for a second (AC: car+0x3508, the last collision)
-                me.LastOverlapAt = _now;
-                if (o.IsBot) o.Bot!.LastOverlapAt = _now;
+    /// <summary>A bot's vehicle model as a body (false without one).</summary>
+    private bool BotBody(RaceBot bot, out Body b)
+    {
+        b = default;
+        if (bot.Phys is not { } st || bot.Car.Physics is not { } d) return false;
+        float c = MathF.Cos(st.Psi), sn = MathF.Sin(st.Psi);
+        b.Bot = bot;
+        b.Id = bot.Id;
+        b.S = Line.WrapS((float)bot.Distance);
+        b.N = bot.Offset;
+        b.HalfL = bot.Car.Length / 2;
+        b.HalfW = bot.Car.Width / 2;
+        b.Psi = st.Psi;
+        b.Vs = st.Vx * c - st.Vy * sn;
+        b.Vn = st.Vx * sn + st.Vy * c;
+        // yaw rate against the line (its frame turns with the curvature)
+        float k = Line.CurvatureAt(b.S);
+        b.W = st.R - k * b.Vs / MathF.Max(0.2f, 1 - k * bot.Offset);
+        b.InvM = 1 / (d.Mass * bot.MassRatio);
+        b.InvI = 1 / (d.YawInertia * bot.MassRatio);
+        return true;
+    }
 
-                if (o.IsBot && latPen > 0.03f && longPen > 0.05f)
+    /// <summary>
+    /// The cars are bodies of their own (AC's collisions live on the clients): after every step two footprints that overlap (rectangles
+    /// turned by their heading against the line) touch like rigid bodies: an impulse along the contact normal at the contact point and friction
+    /// across it change speed, direction and yaw rate of the vehicle models, and the overlap is pushed out (at most 5 cm per step, so the clients
+    /// see no jump). A player's car only moves on his own client (to him the bot is a moving wall): here it weighs as much as the bot, and only
+    /// the bot takes its share.
+    /// </summary>
+    private void ResolveContacts()
+    {
+        // a ghost (stuck, no collisions for a moment) stays one while it still overlaps a car, else the two are stuck in each other
+        foreach (var g in Bots)
+        {
+            if (!(g.GhostUntil > _now) || g.GhostUntil > _now + 0.1 || !BotBody(g, out var gb)) continue;
+            foreach (var o in _neighbors)
+                if (!(o.IsBot && o.Bot == g) && (o.IsBot ? BotBody(o.Bot!, out var ob) : BodyOf(o, out ob)) && Overlap(gb, ob, out _, out _, out _))
                 {
-                    bool side = latPen < longPen;
-                    if (side || ds > 0) BotContact(me, o.Bot!, side, dOff);
-                    else BotContact(o.Bot!, me, false, -dOff);
+                    g.GhostUntil = _now + 0.5;
+                    break;
                 }
-                if (latPen < longPen && MathF.Abs(dOff) > 0.05f)
-                {
-                    // side by side: slide apart, at most 8 cm per step (a deep overlap resolved at once is a jump on the clients' screens)
-                    float push = MathF.Min(o.IsBot ? latPen / 2 : latPen, 0.08f);
-                    PushSideways(me, -MathF.Sign(dOff) * push);
-                    if (o.IsBot) PushSideways(o.Bot!, MathF.Sign(dOff) * push);
-                    float otherLat = o.IsBot ? o.Bot!.LateralSpeed : o.External!.LateralSpeed;
-                    if ((me.LateralSpeed - otherLat) * MathF.Sign(dOff) > 0) me.LateralSpeed = otherLat - MathF.Sign(dOff) * 0.3f;
-                    if (o.IsBot && (o.Bot!.LateralSpeed - me.LateralSpeed) * MathF.Sign(dOff) < 0) o.Bot.LateralSpeed = me.LateralSpeed + MathF.Sign(dOff) * 0.3f;
-                }
-                else if (ds > 0)
-                {
-                    // I'm behind: fall back (at most 30 cm per step, the speed does the rest)
-                    me.Distance -= MathF.Min(longPen, 0.3f);
-                    me.Speed = MathF.Min(me.Speed, o.Speed * 0.97f);
-                }
-                else if (!o.IsBot)
-                {
-                    // a player is behind me and overlapping: he pushes me, I take his speed
-                    me.Distance += longPen * 0.5f;
-                    me.Speed = MathF.Max(me.Speed, o.Speed);
-                }
+        }
+        for (int i = 0; i < _neighbors.Count; i++)
+        {
+            if (!BodyOf(_neighbors[i], out var a)) continue;
+            for (int k = i + 1; k < _neighbors.Count; k++)
+            {
+                if (!BodyOf(_neighbors[k], out var b)) continue;
+                // A is a bot with a vehicle model (the one that reacts), B the other
+                if (a.InvM == 0 && b.InvM == 0) continue;
+                if (a.InvM == 0) Touch(b, a); else Touch(a, b);
+                BodyOf(_neighbors[i], out a);
             }
         }
     }
 
-    /// <summary>Pushed sideways by another car: not past what the car may use beside the road, but never pulled back from beyond it.</summary>
-    private void PushSideways(RaceBot bot, float delta)
+    /// <summary>
+    /// Do the footprints overlap: separating axes (the four sides' directions), the one with the least overlap is the contact normal (from B
+    /// to A); <paramref name="d"/> is A's centre from B's.
+    /// </summary>
+    private bool Overlap(in Body a, in Body b, out Vector2 d, out Vector2 n, out float depth)
     {
-        float s = Line.WrapS((float)bot.Distance);
-        float half = bot.Car.Width / 2, allow = Settings.GrassAllowance;
-        float limited = Math.Clamp(bot.Offset + delta, -Line.RoomMinusAt(s) + half - allow, Line.RoomPlusAt(s) - half + allow);
-        bot.Offset = delta > 0 ? MathF.Max(bot.Offset, limited) : MathF.Min(bot.Offset, limited);
+        d = new Vector2(Line.Delta(b.S, a.S), a.N - b.N);
+        n = Vector2.Zero;
+        depth = float.MaxValue;
+        float reach = MathF.Sqrt(a.HalfL * a.HalfL + a.HalfW * a.HalfW) + MathF.Sqrt(b.HalfL * b.HalfL + b.HalfW * b.HalfW);
+        if (d.LengthSquared() > reach * reach) return false;
+        foreach (var axis in new[] { a.U, a.V, b.U, b.V })
+        {
+            float pen = a.Radius(axis) + b.Radius(axis) - MathF.Abs(Vector2.Dot(d, axis));
+            if (pen <= 0) return false;
+            if (pen < depth) { depth = pen; n = Vector2.Dot(d, axis) >= 0 ? axis : -axis; }
+        }
+        return true;
+    }
+
+    private void Touch(Body a, Body b)
+    {
+        if (!Overlap(a, b, out var d, out var n, out float depth)) return;
+        // contact point (relative to B's centre): the middle of where the two overlap along the contact face, halfway into the overlap. Two
+        // cars side by side touch along their sides (a push at the middle of that), a corner into a side at the corner
+        var t0 = new Vector2(-n.Y, n.X);
+        float ct = Vector2.Dot(d, t0), lo = MathF.Max(ct - a.Radius(t0), -b.Radius(t0)), hi = MathF.Min(ct + a.Radius(t0), b.Radius(t0));
+        var p = t0 * ((lo + hi) / 2) + n * (b.Radius(n) - depth / 2);
+        Vector2 ra = p - d, rb = p;
+
+        var bot = a.Bot!;
+        var other = b.Bot;
+        bot.LastOverlapAt = _now;
+        if (other != null) other.LastOverlapAt = _now;
+
+        // a car held at the edge of the run-off (a wall, the end of the gravel) can't give way in that direction: it is the wall
+        bool aWall = Pinned(bot, n.Y), bWall = other != null && Pinned(other, -n.Y);
+        if (aWall && bWall) aWall = bWall = false;
+        if (aWall)
+        {
+            if (other == null || b.InvM == 0) { MoveBy(bot, Vector2.Zero); return; }
+            (a, b, n, ra, rb, bot, other) = (b, a, -n, rb, ra, other, bot);
+            bWall = true;
+        }
+        // the other's share: a player's car or a car without a vehicle model counts as heavy as this one, a car against a wall as the wall
+        float invMb = bWall ? 0 : b.InvM > 0 ? b.InvM : a.InvM, invIb = bWall ? 0 : b.InvI > 0 ? b.InvI : a.InvI;
+        static float Cross(Vector2 r, Vector2 v) => r.X * v.Y - r.Y * v.X;
+        var va = new Vector2(a.Vs - a.W * ra.Y, a.Vn + a.W * ra.X);
+        var vb = new Vector2(b.Vs - b.W * rb.Y, b.Vn + b.W * rb.X);
+        var rel = va - vb;
+        float vn = Vector2.Dot(rel, n);
+        // (between bots only with BotContacts; else they just slide apart)
+        if (vn < 0 && (other == null || Settings.BotContacts))
+        {
+            float kn = a.InvM + a.InvI * Cross(ra, n) * Cross(ra, n) + invMb + invIb * Cross(rb, n) * Cross(rb, n);
+            float j = -(1 + ContactRestitution) * vn / kn;
+            var t = new Vector2(-n.Y, n.X);
+            float kt = a.InvM + a.InvI * Cross(ra, t) * Cross(ra, t) + invMb + invIb * Cross(rb, t) * Cross(rb, t);
+            float jt = Math.Clamp(-Vector2.Dot(rel, t) / kt, -ContactFriction * j, ContactFriction * j);
+            var imp = n * j + t * jt;
+            ApplyImpulse(bot, imp, ra);
+            if (other != null && b.InvM > 0 && !bWall) ApplyImpulse(other, -imp, rb);
+            if (b.External is { } ext)
+            {
+                ext.Bounce -= imp * invMb;
+                ext.BounceUntil = _now + 0.2;
+            }
+            // (a hit, not the rubbing of two cars side by side; AC damage starts at 4 km/h)
+            if (-vn > 1.1f) ContactEvent(a, b, -vn, ra, rb);
+        }
+        // push the overlap out: a bot takes all of it against a player (he can't be moved from here), half of it against another bot
+        float corr = MathF.Min(MathF.Max(0, depth - 0.01f), MaxPushPerStep);
+        float share = b.InvM > 0 && !bWall ? a.InvM / (a.InvM + b.InvM) : 1;
+        MoveBy(bot, n * (corr * share));
+        if (other != null && b.InvM > 0) MoveBy(other, -n * (corr * (1 - share)));
+    }
+
+    /// <summary>
+    /// The car hit the edge of the run-off (a wall, the end of the gravel; <paramref name="back"/> = the sign of the way back to the road):
+    /// an impulse at its corner out there against an immovable wall, restitution 0.2 and friction 0.4, so it bounces, scrubs speed and turns
+    /// like against a barrier.
+    /// </summary>
+    private void WallHit(RaceBot bot, float back)
+    {
+        if (!BotBody(bot, out var b)) return;
+        var n = new Vector2(0, back);
+        // the corner furthest out
+        var r = Vector2.Zero;
+        for (int c = 0; c < 4; c++)
+        {
+            var q = b.U * ((c < 2 ? 1 : -1) * b.HalfL) + b.V * ((c % 2 == 0 ? 1 : -1) * b.HalfW);
+            if (Vector2.Dot(q, n) < Vector2.Dot(r, n)) r = q;
+        }
+        var v = new Vector2(b.Vs - b.W * r.Y, b.Vn + b.W * r.X);
+        float vn = Vector2.Dot(v, n);
+        if (vn >= 0) return;
+        static float Cross(Vector2 a, Vector2 c) => a.X * c.Y - a.Y * c.X;
+        var t = new Vector2(1, 0);
+        float j = -1.2f * vn / (b.InvM + b.InvI * Cross(r, n) * Cross(r, n));
+        float jt = Math.Clamp(-Vector2.Dot(v, t) / (b.InvM + b.InvI * Cross(r, t) * Cross(r, t)), -0.4f * j, 0.4f * j);
+        ApplyImpulse(bot, n * j + t * jt, r);
+        bot.LastContactAt = _now;
+    }
+
+    /// <summary>Is the car held at the edge of what it may use beside the road, towards <paramref name="dir"/> (sign of the offset change).</summary>
+    private bool Pinned(RaceBot bot, float dir)
+    {
+        float s = Line.WrapS((float)bot.Distance), half = bot.Car.Width / 2, allow = Settings.GrassAllowance;
+        return dir > 0.3f ? bot.Offset >= Line.RoomPlusAt(s) - half + allow - 0.02f
+             : dir < -0.3f && bot.Offset <= -Line.RoomMinusAt(s) + half - allow + 0.02f;
+    }
+
+    /// <summary>An impulse (line frame, N·s) at <paramref name="r"/> (line frame, from the car's centre) on a car's vehicle model.</summary>
+    private void ApplyImpulse(RaceBot bot, Vector2 imp, Vector2 r)
+    {
+        if (bot.Phys is not { } st || bot.Car.Physics is not { } d) return;
+        float m = d.Mass * bot.MassRatio, iz = d.YawInertia * bot.MassRatio;
+        float c = MathF.Cos(st.Psi), s = MathF.Sin(st.Psi);
+        st.Vx += (imp.X * c + imp.Y * s) / m;
+        st.Vy += (-imp.X * s + imp.Y * c) / m;
+        st.R += (r.X * imp.Y - r.Y * imp.X) / iz;
+        // pushed off its line: the driver takes it from where he is now instead of steering straight back into the other car
+        if (imp.Length() / m > 0.5f) AiOf(bot).DesiredOffset = st.N;
+    }
+
+    /// <summary>Moves a car (line frame) without the vehicle model taking it as a placement from outside.</summary>
+    private static void MoveBy(RaceBot bot, Vector2 delta)
+    {
+        bot.Distance += delta.X;
+        bot.Offset += delta.Y;
+        if (bot.Phys is not { } st) return;
+        st.S = bot.Distance;
+        st.N = bot.Offset;
+        st.WrittenOffset = bot.Offset;
     }
 
     /// <summary>High beams only with nobody ahead (players or bots); switched on a moment after the road got free.</summary>
@@ -878,7 +1068,7 @@ public sealed partial class RaceWorld
             return PitPose(bot);
 
         float s = Line.WrapS((float)bot.Distance);
-        var (pos, normal, fwd, lat) = Frame(bot, s, heights: !(bot.Phys != null && bot.PoseValid));
+        var (pos, normal, fwd, lat) = Frame(bot, s, heights: bot.Phys == null);
         Vector3 vel, dir;
         if (bot.Phys is { } ph)
         {
@@ -893,19 +1083,22 @@ public sealed partial class RaceWorld
             // standstill doesn't turn the car 90° for a moment
             dir = Rotate(Vector3.Normalize(fwd * MathF.Max(bot.Speed, 4f) + lat * bot.LateralSpeed), lat, bot.Yaw);
         }
-        // (the body's own roll and pitch are the clients' business: their physics animate the suspension)
         var rotation = new Vector3(
             MathF.Atan2(dir.Z, dir.X) - MathF.PI / 2,
             (MathF.Atan2(new Vector2(dir.Z, dir.X).Length(), dir.Y) - MathF.PI / 2) * -1f,
             Line.CamberAt(s));
-        if (bot.Phys != null && bot.PoseValid)
+        if (bot.Phys is { } body && bot.Car.Physics is { } vd)
         {
-            // the body on its springs over kerbs and bumps (UpdateBody); its vertical speed goes along, so the clients' extrapolation
-            // between two packets follows it instead of snapping at the next one
-            pos.Y += bot.PoseLift;
-            vel.Y += bot.PoseLiftRate;
-            rotation.Y = bot.PosePitch;
-            rotation.Z = bot.PoseRoll;
+            // the body as the vehicle model has it: its CG height over the road under the car (kerbs and bumps through the wheels and springs)
+            // and its own pitch and roll on top of the road's. The clients keep the sent height above the ground under the car's centre and hang
+            // the wheels from the body, each within ±0.1 m of its rest (acs.exe NetCarStateProvider::step: hub at BASEY, contact at BASEY −
+            // radius): the height has to be the car's own, the line's points are ~0.1 m lower (another car recorded them) and the wheels sank
+            var p0 = Line.PositionAt(s, 0);
+            float? road = Road?.HeightAt(p0.X, p0.Z, p0.Y);
+            pos += road is { } h0 ? Vector3.UnitY * (h0 - p0.Y) + normal * body.H : normal * (body.H - vd.CgHeight);
+            vel += normal * body.HDot;
+            rotation.Y -= body.Pitch;
+            rotation.Z += RollSign * body.Roll;
         }
 
         float wheel = Math.Clamp((bot.Phys?.Steer ?? 0) * 180 / MathF.PI, -32, 32);
@@ -929,61 +1122,6 @@ public sealed partial class RaceWorld
         var normal = Vector3.Normalize(Vector3.Lerp(Line.Normal[a], Line.Normal[b], t));
         pos += normal * (Settings.HeightOffset + (heights ? Heights?.At(s, bot.Offset) ?? 0 : 0));
         return (pos, normal, Line.ForwardAt(s), Line.LateralAt(s));
-    }
-
-    /// <summary>Body frequency (Hz) and damping ratio of the shown body over the road: quick enough that the wheels don't sink into a kerb
-    /// while it rises (3 Hz lagged ~0.1 s), slow enough to smooth single triangles and packet steps.</summary>
-    public const float BodyHz = 6f, BodyDamping = 0.8f;
-
-    /// <summary>
-    /// The car standing on the real road under its four wheels (kerbs, crown, bumps; the road mesh, not the AI line's flat road): height from
-    /// their mean, pitch from front against rear, roll from side to side. A wheel off the road stands on the grass/gravel mesh, beyond all
-    /// meshes on the line's plane. The body follows on a spring and damper every world step (<see cref="BodyHz"/>), like on its suspension:
-    /// a kerb's edge lifts it over ~40 ms, it never jumps from one packet to the next.
-    /// </summary>
-    private void UpdateBody(RaceBot bot, float dt)
-    {
-        if (bot.Phys is not { } st || bot.Car.Physics is not { } d || Road == null || bot.InPitLane) { bot.PoseValid = false; return; }
-        float s = Line.WrapS((float)bot.Distance);
-        var (c, _, fwd, lat) = Frame(bot, s, heights: false);
-        // the line's points sit above the road (the recorded car's height there): the road plane under the car is the line's plane moved
-        // down to the road under the line point
-        var p0 = Line.PositionAt(s, 0);
-        if (Road.HeightAt(p0.X, p0.Z, p0.Y) is not { } h0) { bot.PoseValid = false; return; }
-        var dir = Rotate(fwd, lat, st.Psi);
-        var fh = Vector3.Normalize(new Vector3(dir.X, 0, dir.Z));
-        var side = Vector3.Normalize(new Vector3(-fh.Z, 0, fh.X));
-        if (Vector3.Dot(side, lat) < 0) side = -side;
-        float baseY = c.Y - Settings.HeightOffset + h0 - p0.Y;
-        float H(float x, float y)
-        {
-            var p = c + fh * x + side * y;
-            float lineY = baseY + lat.Y * y + dir.Y * x;
-            return Road!.HeightAt(p.X, p.Z, lineY) ?? OffTrack?.HeightAt(p.X, p.Z, lineY) ?? lineY;
-        }
-        float fp = H(d.A, d.TrackFront / 2), fm = H(d.A, -d.TrackFront / 2), rp = H(-d.B, d.TrackRear / 2), rm = H(-d.B, -d.TrackRear / 2);
-        // the car moves by how much higher or lower its wheels stand than that plane (crown, kerbs, bumps)
-        float lift = Math.Clamp((fp + fm + rp + rm) / 4 - baseY, -0.5f, 0.5f);
-        float pitch = MathF.Atan2((fp + fm - rp - rm) / 2, d.A + d.B);
-        // (the same sign as the line's camber: asin of the lateral's tilt, checked on TM/NS/RBR)
-        float track = (d.TrackFront + d.TrackRear) / 2;
-        float roll = MathF.Asin(Math.Clamp((fp + rp - fm - rm) / 2 / track, -0.5f, 0.5f));
-        if (!bot.PoseValid)
-        {
-            bot.PoseLift = lift; bot.PosePitch = pitch; bot.PoseRoll = roll;
-            bot.PoseLiftRate = bot.PosePitchRate = bot.PoseRollRate = 0;
-            bot.PoseValid = true;
-            return;
-        }
-        float w = 2 * MathF.PI * BodyHz;
-        static void Spring(ref float x, ref float v, float target, float w, float dt)
-        {
-            v += dt * (w * w * (target - x) - 2 * BodyDamping * w * v);
-            x += dt * v;
-        }
-        Spring(ref bot.PoseLift, ref bot.PoseLiftRate, lift, w, dt);
-        Spring(ref bot.PosePitch, ref bot.PosePitchRate, pitch, w, dt);
-        Spring(ref bot.PoseRoll, ref bot.PoseRollRate, roll, w, dt);
     }
 
     /// <summary>
@@ -1010,6 +1148,9 @@ public sealed partial class RaceWorld
         }
         return (0, (int)idle, 0);
     }
+
+    /// <summary>The vehicle model's roll (+ = the + offset side down) against the pose's (+ = that side up).</summary>
+    internal static float RollSign = -1;
 
     private static Vector3 Rotate(Vector3 dir, Vector3 lat, float yaw)
     {
