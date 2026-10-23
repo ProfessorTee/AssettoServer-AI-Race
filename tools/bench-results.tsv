@@ -67,3 +67,5 @@
 2026-10-13	69a5e7d+	contact: keep pushed line	1.34	1122	80	18.27	502	19
 2026-10-13	095b2c9+	road: top layer, body 6 Hz	1.28	1185	99	18.11	546	9
 2026-10-23	b65a259+	physical contacts, obstacles, body pose from model	0.78	982	262	16.25	488	225
+2026-10-23	52e6040+	stability beta term, pit turn	1.02	1037	178	17.50	509	231
+2026-10-23	52e6040+	recover spun, body held, NaN guard	1.09	1030	189	16.97	502	265
