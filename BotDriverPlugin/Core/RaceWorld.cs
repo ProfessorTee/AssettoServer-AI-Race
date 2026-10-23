@@ -104,6 +104,7 @@ public sealed class RaceBot
     public Vector3 ParkForward { get; internal set; } = Vector3.UnitZ;
     /// <summary>Time the bot has been (nearly) standing still while racing, for the stuck detection.</summary>
     internal double StoppedSince = double.NaN;
+    internal double RecoverUntil = double.NegativeInfinity;
     /// <summary>Clutch up at the start (reaction time).</summary>
     internal double LaunchAt = double.NaN;
     /// <summary>
@@ -168,6 +169,7 @@ public sealed class RaceBot
     public float PitBoxOffset { get; internal set; }
     internal float PitS;
     internal float PitLateral;
+    internal float PitLateralSpeed;
     internal double PitStoppedAt;
     internal bool PitServiced;
     internal double PitServiceUntil;
@@ -631,7 +633,7 @@ public sealed partial class RaceWorld
                     if (bot.Car.Physics == null) { bot.Speed = 0; break; } // no car data: can't drive
                     if (bot.Speed < 1f) { if (double.IsNaN(bot.StoppedSince)) bot.StoppedSince = now; }
                     else if (bot.Speed > 5f) bot.StoppedSince = double.NaN;
-                    WatchStuck(bot);
+                    WatchStuck(bot, dt);
                     if (bot.InPitLane)
                     {
                         PitStep(bot, dt);
@@ -721,23 +723,47 @@ public sealed partial class RaceWorld
     }
 
     /// <summary>
-    /// Stuck: standing on the track for <see cref="GhostAfter"/> seconds (a car in its way, facing the wrong way): no collisions for a few
-    /// seconds, and a car facing backwards is turned round.
+    /// Stuck: standing on the track for <see cref="GhostAfter"/> seconds (a car in its way): no collisions for a few seconds. A car that stands
+    /// across the road or held at the wall (spun, it drives into the barrier or the gravel's end and stays there: the AI has no reverse) is
+    /// turned back onto the road after <see cref="RecoverAfter"/> s, in place like a driver shunting round, and led back inside the run-off.
     /// </summary>
-    private void WatchStuck(RaceBot bot)
+    private void WatchStuck(RaceBot bot, float dt)
     {
-        if (GhostAfter <= 0 || bot.InPitLane || double.IsNaN(bot.StoppedSince) || _now - bot.StoppedSince < GhostAfter) return;
-        if (bot.GhostUntil > _now) return;
+        if (bot.InPitLane) return;
+        if (bot.Phys is { } st && bot.RecoverUntil > _now)
+        {
+            // ~60°/s back to the road's direction, ~1 m/s off the wall
+            st.Psi = MathF.IEEERemainder(st.Psi, 2 * MathF.PI);
+            float turn = MathF.Min(MathF.Abs(st.Psi), 1.0f * dt);
+            st.Psi -= MathF.Sign(st.Psi) * turn;
+            st.Vy = 0;
+            st.R = 0;
+            st.Vx = MathF.Min(st.Vx, 1);
+            // (off the wall: half a metre inside the edge of the run-off)
+            float s = Line.WrapS((float)bot.Distance), half = bot.Car.Width / 2, allow = Settings.GrassAllowance - 0.5f;
+            float lo = -Line.RoomMinusAt(s) + half - allow, hi = Line.RoomPlusAt(s) - half + allow;
+            if (lo < hi) bot.Offset = st.N = bot.Offset + Math.Clamp(Math.Clamp(bot.Offset, lo, hi) - bot.Offset, -dt, dt);
+            AiOf(bot).DesiredOffset = bot.Offset;
+            if (MathF.Abs(st.Psi) < 0.05f && bot.Offset >= lo - 0.02f && bot.Offset <= hi + 0.02f) bot.RecoverUntil = double.NegativeInfinity;
+            return;
+        }
+        if (double.IsNaN(bot.StoppedSince)) return;
+        if (bot.Phys is { } ph && _now - bot.StoppedSince >= RecoverAfter && bot.TargetSpeed > 3 && bot.GhostUntil <= _now
+            && (MathF.Abs(MathF.IEEERemainder(ph.Psi, 2 * MathF.PI)) > 0.6f || Pinned(bot, 1) || Pinned(bot, -1)))
+        {
+            bot.RecoverUntil = _now + 6;
+            if (GhostAfter > 0) { bot.GhostUntil = _now + 4; bot.GhostCount++; }
+            bot.StoppedSince = double.NaN;
+            return;
+        }
+        if (GhostAfter <= 0 || _now - bot.StoppedSince < GhostAfter || bot.GhostUntil > _now) return;
         bot.GhostUntil = _now + 4;
         bot.GhostCount++;
         bot.StoppedSince = double.NaN;
-        if (bot.Phys is { } st && MathF.Abs(st.Psi) > 1.2f)
-        {
-            st.Psi = 0;
-            st.Vy = 0;
-            st.R = 0;
-        }
     }
+
+    /// <summary>Seconds a car stands across the road or at the wall before it is turned back (see <see cref="WatchStuck"/>).</summary>
+    public float RecoverAfter { get; set; } = 4f;
 
     // ------------------------------------------------------------------ contacts
 

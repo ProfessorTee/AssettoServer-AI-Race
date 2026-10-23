@@ -75,6 +75,7 @@ public sealed partial class RaceWorld
         bot.Pit = PitPhase.InLane;
         bot.PitS = bot.PitBoxS;
         bot.PitLateral = bot.PitBoxOffset;
+        bot.PitLateralSpeed = 0;
         bot.PitServiced = true;
         bot.PittedThisLap = true;
         bot.PitEnteredAt = _now;
@@ -316,6 +317,7 @@ public sealed partial class RaceWorld
         // start with the current lateral position and blend over to the pit lane
         bot.LateralSpeed = 0;
         bot.PitLateral = bot.Offset - lane.TrackOffset[0];
+        bot.PitLateralSpeed = 0;
     }
 
     private void PitStep(RaceBot bot, float dt)
@@ -427,11 +429,14 @@ public sealed partial class RaceWorld
         if (bot.PitBoxS >= 0)
         {
             float toBox = bot.PitBoxS - bot.PitS;
-            if (!bot.PitServiced && toBox < 25) latTarget = bot.PitBoxOffset * Smooth(1 - toBox / 25);
-            else if (bot.PitServiced && -toBox < 20) latTarget = bot.PitBoxOffset * Smooth(1 + toBox / 20);
+            if (!bot.PitServiced && toBox < 35) latTarget = bot.PitBoxOffset * Smooth(1 - toBox / 35);
+            else if (bot.PitServiced && -toBox < 25) latTarget = bot.PitBoxOffset * Smooth(1 + toBox / 25);
         }
-        float maxLatStep = MathF.Max(1.2f, bot.Speed * 0.08f) * dt;
-        bot.PitLateral += Math.Clamp(latTarget - bot.PitLateral, -maxLatStep, maxLatStep);
+        // a car moves sideways only by steering: at most ~15° off the lane (a little at walking pace), the pose turns with it
+        float maxLatSpeed = MathF.Max(0.3f, bot.Speed * 0.27f);
+        float latSpeed = Math.Clamp((latTarget - bot.PitLateral) / MathF.Max(dt, 1e-3f), -maxLatSpeed, maxLatSpeed);
+        bot.PitLateralSpeed += (latSpeed - bot.PitLateralSpeed) * MathF.Min(1, 4 * dt);
+        bot.PitLateral += bot.PitLateralSpeed * dt;
 
         // keep the track position (distance, lap timing, what the other cars see) in sync
         float trackS = lane.TrackSAt(bot.PitS, Line);
@@ -460,12 +465,18 @@ public sealed partial class RaceWorld
     private BotPose PitPose(RaceBot bot)
     {
         var lane = PitLane!;
-        var pos = lane.PositionAt(bot.PitS, bot.PitLateral) + Vector3.UnitY * Settings.HeightOffset;
+        var pos = lane.PositionAt(bot.PitS, bot.PitLateral);
+        // standing on the ground under it at its rest height (the lane's points are another car's, ~0.1 m low: the wheels sank)
+        if (Road?.HeightAt(pos.X, pos.Z, pos.Y) is { } ground && bot.Car.Physics is { } vd) pos.Y = ground + vd.CgHeight;
+        else pos += Vector3.UnitY * Settings.HeightOffset;
         var fwd = lane.ForwardAt(bot.PitS);
-        var vel = fwd * bot.Speed;
+        lane.Interp(bot.PitS, out int li, out _, out _);
+        var vel = fwd * bot.Speed + lane.Lateral[li] * bot.PitLateralSpeed;
+        // heading along its path: moving over into the box or out of it turns the car
+        var dir = Rotate(fwd, lane.Lateral[li], MathF.Atan2(bot.PitLateralSpeed, MathF.Max(bot.Speed, 2f)));
         var rotation = new Vector3(
-            MathF.Atan2(fwd.Z, fwd.X) - MathF.PI / 2,
-            (MathF.Atan2(new Vector2(fwd.Z, fwd.X).Length(), fwd.Y) - MathF.PI / 2) * -1f,
+            MathF.Atan2(dir.Z, dir.X) - MathF.PI / 2,
+            (MathF.Atan2(new Vector2(dir.Z, dir.X).Length(), dir.Y) - MathF.PI / 2) * -1f,
             0);
         float k = lane.Curvature[lane.IndexAt(bot.PitS)];
         float wheel = MathF.Atan(bot.Car.Wheelbase * k) * 180 / MathF.PI;

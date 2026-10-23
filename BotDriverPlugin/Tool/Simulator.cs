@@ -162,6 +162,7 @@ public static class Simulator
 
         // --poses: how smooth the poses the clients get are (jumps against the sent velocity, yaw jitter, heading against travel)
         var poses = o.Has("poses") ? new PoseProbe() : null;
+        var stuckSince = new Dictionary<int, double>();
         world.Advance(0);
         playerWorld?.Advance(0);
         double firstPass = double.NaN;
@@ -182,6 +183,17 @@ public static class Simulator
             world.Advance(now);
             stats.Sample(now);
             if (poses != null && now > 5) poses.Sample(world, dt);
+            // a bot standing on the track for 5 s after the start (against a wall, stuck in another car): where and how
+            if (now > 30 && (int)now != (int)(now - dt))
+                foreach (var b in world.Bots)
+                {
+                    if (b.Phase != BotPhase.Racing || b.InPitLane || b.Speed > 2) { stuckSince.Remove(b.Id); continue; }
+                    if (!stuckSince.TryAdd(b.Id, now) && now - stuckSince[b.Id] is > 5 and < 6)
+                    {
+                        float ss = world.Line.WrapS((float)b.Distance);
+                        Console.WriteLine(FormattableString.Invariant($"stuck t={now:F0} {b.Name} s={ss:F0} off={b.Offset:F2} want={b.Ai?.DesiredOffset:F2} room={world.Line.RoomMinusAt(ss):F1}/{world.Line.RoomPlusAt(ss):F1} psi={(b.Phys?.Psi ?? 0) * 57.3f:F0} v={b.Speed * 3.6f:F1} tgt={b.TargetSpeed * 3.6f:F0} thr={b.Throttle:F2} brk={b.Brake:F2} g={b.Gear} ghost={b.GhostCount}"));
+                    }
+                }
             // --start: what the clients get off the line (gear, revs, throttle, wheel surface speed against the car's)
             if (o.Has("start") && now < 4 && (int)(now * 10) != (int)((now - dt) * 10))
                 foreach (var b in world.Bots.Take(4))
@@ -437,8 +449,10 @@ public static class Simulator
 
         public void Sample(RaceWorld world, float dt)
         {
+            _t += dt;
             foreach (var b in world.Bots)
             {
+                PitSample(world, b, dt);
                 if (b.Phase != BotPhase.Racing || b.InPitLane || b.Speed < 5) { _prev.Remove(b.Id); continue; }
                 var p = world.GetPose(b);
                 float yaw = p.Rotation.X;
@@ -466,6 +480,35 @@ public static class Simulator
                 else _prev[b.Id] = (p.Position, p.Velocity, yaw, float.NaN);
                 ClientWheels(world, b, p);
             }
+        }
+
+        // pit lane and the first seconds after it: body against travel, jumps between packets, and how the car comes out of the pit exit
+        private readonly Dictionary<int, (Vector3 P, Vector3 V, float Yaw, bool Pit, double Out)> _pitPrev = new();
+        private readonly List<float> _pitSlip = new(), _exitSlip = new(), _pitJump = new(), _pitHeight = new();
+        private readonly List<string> _pitWorst = new();
+        private double _t;
+
+        private void PitSample(RaceWorld world, RaceBot b, float dt)
+        {
+            if (b.Phase != BotPhase.Racing) { _pitPrev.Remove(b.Id); return; }
+            bool pit = b.InPitLane;
+            _pitPrev.TryGetValue(b.Id, out var q);
+            bool known = _pitPrev.ContainsKey(b.Id);
+            double outAt = pit || !known ? double.NaN : q.Pit ? _t : q.Out;
+            bool exit = !pit && !double.IsNaN(outAt) && _t - outAt < 10;
+            var p = world.GetPose(b);
+            if (pit && world.Road?.HeightAt(p.Position.X, p.Position.Z, p.Position.Y, 2f) is { } g) _pitHeight.Add(p.Position.Y - g);
+            if (known && (pit || q.Pit || exit) && b.Speed > 3)
+            {
+                var dir = p.Position - q.P;
+                float slip = MathF.Abs(MathF.IEEERemainder(p.Rotation.X - (MathF.Atan2(dir.Z, dir.X) - MathF.PI / 2), 2 * MathF.PI)) * 57.3f;
+                float jump = (p.Position - (q.P + q.V * dt)).Length();
+                (pit ? _pitSlip : _exitSlip).Add(slip);
+                _pitJump.Add(jump);
+                if ((slip > 5 || jump > 0.3f) && _pitWorst.Count < 4000)
+                    _pitWorst.Add(FormattableString.Invariant($"{(pit ? "pit " : q.Pit ? "EXIT" : "out ")} {b.Name} pitS={b.PitS:F0} lat={b.PitLateral:F2} s={world.Line.WrapS((float)b.Distance):F0} off={b.Offset:F2} room={world.Line.RoomMinusAt(world.Line.WrapS((float)b.Distance)):F1}/{world.Line.RoomPlusAt(world.Line.WrapS((float)b.Distance)):F1} v={b.Speed * 3.6f:F0} slip={slip:F1} jump={jump:F2} psi={(b.Phys?.Psi ?? 0) * 57.3f:F1}"));
+            }
+            _pitPrev[b.Id] = (p.Position, p.Velocity, p.Rotation.X, pit, outAt);
         }
 
         private readonly List<float> _wheel = new(), _wheelKerb = new(), _centre = new(), _model = new();
@@ -519,6 +562,8 @@ public static class Simulator
 
         public void Print()
         {
+            Console.WriteLine($"pit lane: body vs travel deg {Q(_pitSlip)}; 10 s after the exit {Q(_exitSlip)}; jumps m {Q(_pitJump)}; height over the ground m {Q(_pitHeight)}");
+            foreach (var r in _pitWorst.Where((_, i) => i % Math.Max(1, _pitWorst.Count / 30) == 0)) Console.WriteLine("   " + r);
             Console.WriteLine($"poses: extrapolation error m {Q(_jump)}, over 0.5 m {_big}x");
             Console.WriteLine($"poses: height step m {Q(_dz)}, roll vs line camber deg {Q(_roll)}, |pitch| deg {Q(_pitch)}");
             foreach (var r in _rollAt.Where((_, i) => i % 25 == 0)) Console.WriteLine("   roll " + r);

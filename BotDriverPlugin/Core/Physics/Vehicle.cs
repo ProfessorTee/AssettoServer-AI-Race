@@ -543,6 +543,11 @@ public static class Vehicle
         st.Pitch += st.PitchRate * dt;
         st.RollRate += dt * mRoll / (d.RollInertia * massRatio * bodyShare);
         st.Roll += st.RollRate * dt;
+        // a GT car neither tips over nor wheelies: the body is held within -0.25/+0.6 m of its rest height (crests let it go light) and 8° of
+        // pitch and roll. The model has no rollover: sliding sideways or spinning its wheels against a wall it pumped itself up until it flew apart
+        Hold(ref st.H, ref st.HDot, d.CgHeight - 0.25f, d.CgHeight + 0.6f);
+        Hold(ref st.Pitch, ref st.PitchRate, d.StaticPitch - 0.14f, d.StaticPitch + 0.14f);
+        Hold(ref st.Roll, ref st.RollRate, -0.14f, 0.14f);
 
         // move along the line
         float lineDenom = MathF.Max(0.2f, 1 - inp.Curvature * st.N);
@@ -555,6 +560,12 @@ public static class Vehicle
     }
 
     private static float Sq(float x) => x * x;
+
+    private static void Hold(ref float x, ref float rate, float lo, float hi)
+    {
+        if (x < lo) { x = lo; rate = MathF.Max(rate, 0); }
+        else if (x > hi) { x = hi; rate = MathF.Min(rate, 0); }
+    }
 
     /// <summary>A differential's locking between two wheels: the torque that evens out their speeds this step, up to the locking torque.</summary>
     private static void LockPair(VehicleState st, Span<float> inertia, int a, int b, float lockTorque, float dt)

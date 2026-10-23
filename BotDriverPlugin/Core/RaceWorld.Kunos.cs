@@ -320,6 +320,9 @@ public sealed partial class RaceWorld
     // ------------------------------------------------------------------ driving
 
     /// <summary>One world step of a bot on the track: the AI decides (every 5th physics step), the vehicle model drives.</summary>
+    /// <summary>Stability help: how hard a slide is turned back onto the direction of travel (1/s per rad) and the most yaw acceleration (rad/s²).</summary>
+    internal static float StabilityBetaGain = 2f, StabilityMaxYawAccel = 6f;
+
     private void Drive(RaceBot me, float dt)
     {
         var d = me.Car.Physics!;
@@ -418,12 +421,14 @@ public sealed partial class RaceWorld
             // a car sliding more than 2-5° (body against travel) is turned back to the yaw rate of its path (our tyre model lets go under
             // trail braking where AC's holds; the SP AI never slides like that)
             inp.ExtraMz = 0;
-            float beta = MathF.Abs(MathF.Atan2(st.Vy, MathF.Max(v, 1)));
+            float betaSigned = MathF.Atan2(st.Vy, MathF.Max(v, 1)), beta = MathF.Abs(betaSigned);
             if (v * 3.6f > 20 && !mistake && beta > 2 / 57.3f && _now - me.LastContactAt > 2)
             {
-                float rRef = v * Line.CurvatureAt(s) / MathF.Max(0.2f, 1 - Line.CurvatureAt(s) * st.N);
+                // the path's yaw rate plus a turn of the body back onto the direction of travel (dβ/dt = ay/v − r: more yaw rate takes the
+                // slip angle away), else a slide held at the path's yaw rate stays a slide
+                float rRef = v * Line.CurvatureAt(s) / MathF.Max(0.2f, 1 - Line.CurvatureAt(s) * st.N) + StabilityBetaGain * betaSigned;
                 float blend = Math.Clamp((beta - 2 / 57.3f) / (3 / 57.3f), 0, 1);
-                inp.ExtraMz = -d.YawInertia * me.MassRatio * Math.Clamp(5 * (st.R - rRef), -4, 4) * blend;
+                inp.ExtraMz = -d.YawInertia * me.MassRatio * Math.Clamp(5 * (st.R - rRef), -StabilityMaxYawAccel, StabilityMaxYawAccel) * blend;
             }
             inp.ExtraFx = 0;
             if (me.LimitDist < 50 && v > me.LimitSpeed)
@@ -441,6 +446,14 @@ public sealed partial class RaceWorld
             inp.GravityY = latRoad.LengthSquared() > 1e-6f ? -CarSpec.G * Vector3.Normalize(latRoad).Y : 0;
             SampleRoad(me, st);
             Vehicle.Step(d, st, inp, h);
+        }
+
+        // a model that blew up (it never should) starts again from where the car was, standing, rather than taking the world down with it
+        if (!float.IsFinite(st.Vx + st.Vy + st.R + st.Psi + st.H + st.N) || !double.IsFinite(st.S))
+        {
+            me.Phys = null;
+            me.Speed = me.LateralSpeed = me.Accel = 0;
+            return;
         }
 
         // ---- back to the race world

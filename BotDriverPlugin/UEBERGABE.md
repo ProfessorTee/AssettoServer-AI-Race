@@ -30,7 +30,7 @@ steht auf `main` und ist hier bewusst weggelassen.
 - Nutzer-Regeln: kurz auf Deutsch antworten, Code/Commits Englisch, keine Zwischenmeldungen; Builds/Sims **immer `nice -n 19`**
   (Nutzer spielt AC am selben PC), alle Kerne ok. Nach jedem getesteten Schritt committen + pushen (Co-Authored-By-Zeilen).
   Update-Pakete: neuer Ordner `~/Downloads/Server_Files/Update_<n>_Physik_Test/plugins/BotDriverPlugin/BotDriverPlugin.dll` + `LIESMICH.txt`
-  (zuletzt **Update_47**). Bauen: `tools/build.sh` (-> `out-linux-x64/`). Prüfen: `Tool selftest`, `sim ... --poses`, `tools/bench.sh`, `tools/passtest.sh`.
+  (zuletzt **Update_48**). Bauen: `tools/build.sh` (-> `out-linux-x64/`). Prüfen: `Tool selftest`, `sim ... --poses`, `tools/bench.sh`, `tools/passtest.sh`.
 - Echter Server laut Nutzer: Spitze 2 % CPU, 400 MB RAM bei voller Bot-Zahl → Rechenzeit ist kein Thema, Details dürfen mehr kosten.
 - AC-Binary-Reverse: `acs.exe` + `acs.pdb` unter `/mnt/GameDrive/SteamLibrary/steamapps/common/assettocorsa`; REA-MCP (Ghidra) zum
   Dekompilieren, Adressen über `llvm-pdbutil dump --publics` (VA = 0x140001000 + Offset), `llvm-objdump -d` für Assembler-Suche.
@@ -51,6 +51,16 @@ steht auf `main` und ist hier bewusst weggelassen.
   0x140119fe0): Körperhöhe = Raycast-Boden unter der Mitte + (gesendetes Y − Boden unter gesendeter Position); Räder an (±TRACK/2, BASEY,
   (1−CG)·WB / −CG·WB), Raycast je Rad, Kontakt nur ±0,1 m um BASEY − Radius. `sim --poses` emuliert das ("client wheels").
 - Stärke: `AiStrength` % = KI-Level (`StrengthCalibration.PaceFor`), Kalibrierung nur für Zielrunden.
+
+### Update 48 (2026-10-23, nach Nutzer-Test von 47: Rutschen in Kurven, Boxengasse seitlich/durch Wände, stuck an der Wand)
+- Stabilitätshilfe `ExtraMz` zielt jetzt auf Pfad-Gierrate + `StabilityBetaGain`·β (vorher hielt sie einen Drift bei Pfad-Gierrate fest;
+  TM Kurve 2250: −11° mit Gegenlenken jede Runde). Sim TM: Körper gegen Fahrtrichtung >8° 3,6 % → 0,3 %.
+- Boxengasse: seitlicher Versatz in die Box nur so schnell wie mit Lenken möglich (≤ ~15°, `PitLateralSpeed`), Pose dreht mit (vorher bis 20°
+  quer geschoben); Höhe = Boden unter dem Auto + CgHeight statt Linienhöhe. `sim --poses` zeigt „pit lane:“.
+- Fahrzeugmodell: Aufbau auf −0,25/+0,6 m um die Ruhehöhe und ±8° Nicken/Wanken begrenzt (`Hold`); quer im Knäuel mit Vollgas pumpte er sich auf
+  (H 500 m, Last 10⁷ N, dann NaN → Absturz). NaN-Schutz in `Drive` (Modell neu ab Stand). NS-GT3-Sim: Kontakte etwa halbiert.
+- `WatchStuck`: quer stehend (>34°) oder an der Wand gehalten, nach `RecoverAfter` = 4 s mit Gaswunsch: dreht mit ~60°/s auf die Fahrbahnrichtung
+  und rückt von der Wand weg (Geist, wenn `GhostAfter` > 0). Sim meldet „stuck …“ (5 s gestanden).
 
 ### Offen (Update 47 noch nicht vom Nutzer im Spiel getestet)
 Update 47: Einsinken (gesendete Höhe war die KI-Linie, 12–20 cm zu tief; Sim: Räder außerhalb Federweg 71–100 % → 2–5 %), Bots hinter
