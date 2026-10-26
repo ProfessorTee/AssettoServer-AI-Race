@@ -6,6 +6,9 @@ Freunde können dazukommen und jedes Auto wählen. Wenn nötig, macht ein Bot Pl
 
 Erstes Ziel: **Nordschleife** (`ks_nordschleife`, Layout `nordschleife`) mit **GT3**-Autos.
 
+> **Physik-Rewrite:** Auf dem Branch [`bots-physics`](https://github.com/ProfessorTee/AssettoServer-AI-Race/tree/bots-physics)
+> fahren die Bots mit einem echten Fahrzeugmodell und dem aus `acs.exe` nachgebauten Kunos-Fahrer statt kinematisch. Noch in Arbeit.
+
 > **Entstehung:** Dieses Projekt hat **Claude**, eine KI von [Anthropic](https://www.anthropic.com), im Auftrag von und
 > zusammen mit [ProfessorTee](https://github.com/ProfessorTee) entwickelt (Claude Code, Modell `claude-opus-5-5`).
 > Claude hat den Core-Patch, die Plugins BotDriver, WebPortal, ServerTools und DriverRecorder, das Test-Werkzeug `BotDriverTool`, die Tests, die Build-Skripte und die
