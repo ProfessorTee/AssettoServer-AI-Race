@@ -69,3 +69,4 @@
 2026-10-23	b65a259+	physical contacts, obstacles, body pose from model	0.78	982	262	16.25	488	225
 2026-10-23	52e6040+	stability beta term, pit turn	1.02	1037	178	17.50	509	231
 2026-10-23	52e6040+	recover spun, body held, NaN guard	1.09	1030	189	16.97	502	265
+2026-10-24	949cb90+	kerbs CURB/CRB + tick grid	1.09	1030	189	17.14	461	243

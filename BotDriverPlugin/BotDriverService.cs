@@ -417,9 +417,24 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         }
     }
 
+    // the bots' clock: steps of exactly one send interval. The AC client doesn't trust a packet's timestamp, it pulls it 70 % towards
+    // "previous + sequence steps × send interval" (NetCarStateProvider::onRemoteStateReceived 0x14011b1e0): a pose taken a few ms off that
+    // grid (late wake-up, the bots' own tick time) is drawn where the car isn't and snaps back with the next packet
+    private long _tickMs;
+
+    private long NextTickMs()
+    {
+        long server = _sessionManager.ServerTimeMilliseconds;
+        long interval = 1000 / Math.Max((int)_serverConfig.Server.RefreshRateHz, 1);
+        // off the grid by a whole interval (a stall, the idle loop without players): start a new grid
+        _tickMs = Math.Abs(server - (_tickMs + interval)) >= interval ? server : _tickMs + interval;
+        return _tickMs;
+    }
+
     private void Tick(RaceWorld world)
     {
-        double now = Now;
+        long tickMs = NextTickMs();
+        double now = tickMs / 1000.0;
         var session = _sessionManager.CurrentSession;
 
         // race start (the bots on the grid know when the lights go out: revs, jump starts)
@@ -484,7 +499,8 @@ public sealed partial class BotDriverService : IHostedService, IDrivenCars
         _grid.FinishSessionEarly(session);
         world.Advance(now);
 
-        long serverTime = _sessionManager.ServerTimeMilliseconds;
+        // stamped with the time the poses were worked out for, not the time after the bots' tick
+        long serverTime = tickMs;
         var lights = Lights();
         var wipers = Wipers();
         bool debug = DebugOn, sample = TelemetryDue(now);

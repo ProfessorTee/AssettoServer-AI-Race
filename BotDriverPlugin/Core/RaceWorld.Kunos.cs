@@ -630,7 +630,7 @@ public sealed partial class RaceWorld
                 var rs = Road.SurfaceAt(p.X, p.Z, baseY);
                 bump = hw - baseY;
                 // further off the line's road plane than a kerb (25 cm) or, on plain road, 10 cm is a mesh artefact (another surface, a seam)
-                bool kerb = rs?.Key.Contains("KERB", StringComparison.OrdinalIgnoreCase) == true;
+                bool kerb = rs?.IsKerb == true;
                 if (MathF.Abs(bump) > (kerb ? 0.25f : 0.1f)) bump = 0;
                 if (rs != null) grip = rs.Value.Friction;
             }

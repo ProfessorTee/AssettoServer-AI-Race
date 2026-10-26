@@ -10,7 +10,12 @@ namespace BotDriverPlugin.Core;
 public sealed class RoadSurface
 {
     /// <summary>A surface of surfaces.ini: grip (FRICTION, 1 = road) and the speed it eats (DAMPING, gravel and sand).</summary>
-    public readonly record struct Surface(string Key, float Friction, float Damping, bool Valid);
+    public readonly record struct Surface(string Key, float Friction, float Damping, bool Valid)
+    {
+        /// <summary>A kerb: tracks name them KERB, CURB, CRB or CUTKRB (Nordschleife), surfaces.ini has no flag for it.</summary>
+        public bool IsKerb => Key.Contains("KERB", StringComparison.OrdinalIgnoreCase) || Key.Contains("CURB", StringComparison.OrdinalIgnoreCase)
+            || Key.Contains("CRB", StringComparison.OrdinalIgnoreCase) || Key.Contains("KRB", StringComparison.OrdinalIgnoreCase);
+    }
 
     private const float Cell = 4f;
     private readonly List<float> _tri = new(); // 9 floats per triangle

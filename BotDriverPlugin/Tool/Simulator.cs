@@ -546,7 +546,7 @@ public static class Simulator
                 if (g is not { } gy) continue;
                 float delta = gy - rest;
                 _wheel.Add(delta);
-                bool kerb = world.Road.SurfaceAt(w.X, w.Z, rest + 0.5f, 5.5f)?.Key.Contains("KERB", StringComparison.OrdinalIgnoreCase) == true;
+                bool kerb = world.Road.SurfaceAt(w.X, w.Z, rest + 0.5f, 5.5f)?.IsKerb == true;
                 if (kerb) _wheelKerb.Add(delta);
                 if (delta > 0.1f && _sinkAt.Count < 400)
                     _sinkAt.Add(FormattableString.Invariant($"{b.Name} s={world.Line.WrapS((float)b.Distance):F0} off={b.Offset:F1} wheel {i} {(kerb ? "kerb" : "road")} sinks {(delta - 0.1f) * 100:F0} cm, roll {p.Rotation.Z * 57.3f:F1} pitch {p.Rotation.Y * 57.3f:F1}"));
