@@ -1,85 +1,87 @@
-# AssettoServer AI Race – Renn-KI für AssettoServer
+# AssettoServer AI Race – racing AI for AssettoServer
 
-KI-Gegner für Assetto Corsa auf einem **AssettoServer**, wie im Einzelspieler, aber online. Bots fahren Training, Qualifying
-und Rennen mit und stehen in der echten Startaufstellung. Ihre Rundenzeiten erscheinen in Leaderboard und Ergebnissen.
-Freunde können dazukommen und jedes Auto wählen. Wenn nötig, macht ein Bot Platz.
+**English** · [Deutsch](README.de.md)
 
-Erstes Ziel: **Nordschleife** (`ks_nordschleife`, Layout `nordschleife`) mit **GT3**-Autos.
+AI opponents for Assetto Corsa on an **AssettoServer**, like in single player, but online. Bots take part in practice,
+qualifying and the race and line up on the real starting grid. Their lap times show up in the leaderboard and results.
+Friends can join and pick any car. If needed, a bot makes room.
 
-> **Physik-Rewrite:** Auf dem Branch [`bots-physics`](https://github.com/ProfessorTee/AssettoServer-AI-Race/tree/bots-physics)
-> fahren die Bots mit einem echten Fahrzeugmodell und dem aus `acs.exe` nachgebauten Kunos-Fahrer statt kinematisch. Noch in Arbeit.
+First target: the **Nordschleife** (`ks_nordschleife`, layout `nordschleife`) with **GT3** cars.
 
-> **Entstehung:** Dieses Projekt hat **Claude**, eine KI von [Anthropic](https://www.anthropic.com), im Auftrag von und
-> zusammen mit [ProfessorTee](https://github.com/ProfessorTee) entwickelt (Claude Code, Modell `claude-opus-5-5`).
-> Claude hat den Core-Patch, die Plugins BotDriver, WebPortal, ServerTools und DriverRecorder, das Test-Werkzeug `BotDriverTool`, die Tests, die Build-Skripte und die
-> Dokumentation geschrieben. ProfessorTee hat mit dem echten Spiel getestet, die Richtung vorgegeben und Rückmeldung gegeben.
+> **Physics rewrite:** On the branch [`bots-physics`](https://github.com/ProfessorTee/AssettoServer-AI-Race/tree/bots-physics)
+> the bots drive with a real vehicle model and the Kunos driver rebuilt from `acs.exe` instead of kinematically. Work in progress.
+
+> **Origin:** This project was developed by **Claude**, an AI by [Anthropic](https://www.anthropic.com), on behalf of and
+> together with [ProfessorTee](https://github.com/ProfessorTee) (Claude Code, model `claude-opus-5-5`).
+> Claude wrote the core patch, the plugins BotDriver, WebPortal, ServerTools and DriverRecorder, the test tool `BotDriverTool`,
+> the tests, the build scripts and the documentation. ProfessorTee tested with the real game, set the direction and gave feedback.
 >
-> Basis ist [AssettoServer](https://github.com/compujuckel/AssettoServer) von compujuckel und Mitwirkenden, Lizenz
-> **AGPL-3.0** (siehe `LICENSE`). Die ursprüngliche README steht in [`README.AssettoServer.md`](README.AssettoServer.md).
+> It is based on [AssettoServer](https://github.com/compujuckel/AssettoServer) by compujuckel and contributors, license
+> **AGPL-3.0** (see `LICENSE`). The original README is in [`README.AssettoServer.md`](README.AssettoServer.md).
 
-## Was die Bots können
+## What the bots can do
 
-- Sie fahren auf der Kunos-Ideallinie (`fast_lane.ai`) und nutzen **Fahrzeugdaten wie Content Manager** direkt aus `data.acd`:
-  Gewicht, Motor, Getriebe, Reifen, Aero.
-- **Stärke in %** mit ± Streuung (`AiStrength`, `AiStrengthSpread`). Die Kalibrierung rechnet das pro Auto in eine Zielzeit um.
-- **Wie Menschen:** Schwächere Bots bremsen früher, gehen später aufs Gas und machen Fehler: zu spät gebremst, zu viel Gas am
-  Kurvenausgang, ab und zu zwei Räder auf dem Gras, selten ein Dreher mit Warnblinker.
+- They drive the Kunos racing line (`fast_lane.ai`) and use **car data like Content Manager**, read directly from `data.acd`:
+  weight, engine, gearbox, tyres, aero.
+- **Strength in %** with ± spread (`AiStrength`, `AiStrengthSpread`). Calibration turns this into a target lap time per car.
+- **Human-like:** weaker bots brake earlier, get on the throttle later and make mistakes: braking too late, too much throttle on
+  corner exit, now and then two wheels on the grass, rarely a spin with hazard lights.
 - **Racecraft:**
-  - Windschatten, Angriff, Verteidigung, Innenbahn-Vorrecht.
-  - Ungeduld mit Lichthupe, wenn ein Bot hinter einem langsameren Auto festhängt.
-  - Blaue Flagge: Der Überrundete fährt an den Rand und setzt den Blinker.
-  - Gelbe Flagge: Warnblinker, langsamer, kein Überholen.
-  - Leichte Berührungen in engen Zweikämpfen.
-- **Endurance:** Sprit, Reifenverschleiß, **Schaden** mit Reparatur und **Boxenstopps** über `pit_lane.ai`, mit Strategie.
-- **Wetter:** Regen macht die Strecke rutschig. Optional kommt echtes Wetter von Open-Meteo über CSP WeatherFX (Sol/Pure).
-- **Fahrer-Klone:** Das Plugin `DriverRecorderPlugin` zeichnet Spieler auf, die mit `/rec on` zustimmen (CSP-Skript, das der Server
-  mitschickt). Daraus entsteht ein Klon, der ihre Linie und ihr Tempo fährt. Verliert ein Spieler im Rennen die Verbindung, fährt
-  sein Klon sein Auto weiter, bis er zurück ist. Siehe [`DriverRecorderPlugin/README.md`](DriverRecorderPlugin/README.md).
-- **Admin-Seite** im Browser mit Live-Karte, Beitreten-Seite für Freunde, Live-Timing und Neustart/Update aus der Ferne.
-- Jede Funktion lässt sich in der yml des Plugins abschalten und als Admin auch live per `/bots_set`.
+  - Slipstream, attacking, defending, inside-line priority.
+  - Impatience with headlight flashing when a bot is stuck behind a slower car.
+  - Blue flag: the lapped car moves to the side and signals.
+  - Yellow flag: hazard lights, slower, no overtaking.
+  - Light contact in close battles.
+- **Endurance:** fuel, tyre wear, **damage** with repairs and **pit stops** via `pit_lane.ai`, with strategy.
+- **Weather:** rain makes the track slippery. Optionally real weather from Open-Meteo via CSP WeatherFX (Sol/Pure).
+- **Driver clones:** the plugin `DriverRecorderPlugin` records players who opt in with `/rec on` (CSP script sent by the server).
+  This produces a clone that drives their line and pace. If a player loses connection during a race, their clone keeps driving
+  their car until they are back. See [`DriverRecorderPlugin/README.md`](DriverRecorderPlugin/README.md).
+- **Admin page** in the browser with live map, join page for friends, live timing and remote restart/update.
+- Every feature can be switched off in the plugin's yml, and live via `/bots_set` as admin.
 
-Die Doku jedes Plugins steht in seinem Ordner. Der Stand für Entwickler: [`BotDriverPlugin/UEBERGABE.md`](BotDriverPlugin/UEBERGABE.md).
+Each plugin's documentation is in its folder. Developer status: [`BotDriverPlugin/UEBERGABE.md`](BotDriverPlugin/UEBERGABE.md) (German).
 
-## Aufbau
+## Structure
 
-Vier Plugins, jedes läuft allein und ergänzt die anderen, wenn sie da sind (Schnittstellen im Kern, `AssettoServer/Server/Extensions/`).
+Four plugins; each runs on its own and complements the others when present (interfaces in the core, `AssettoServer/Server/Extensions/`).
 
-| Pfad | Inhalt |
+| Path | Contents |
 |---|---|
-| `AssettoServer/…` | **Core-Patch**: externe KI-Slots, offizielle Runden für Bots, Preset-Ebenen, Uhr-Sync, Plugin-Schnittstellen, Übernahme alter Konfiguration |
-| [`BotDriverPlugin/`](BotDriverPlugin/README.md) | Die Bots: Fahren, Duelle, Klone, Übernahme bei Verbindungsabbruch. `Core/` ist die KI ohne AssettoServer-Abhängigkeit, `Tool/` das Offline-Werkzeug |
-| [`WebPortalPlugin/`](WebPortalPlugin/README.md) | Webseiten: `/join`, `/live`, `/stats`, `/admin` |
-| [`ServerToolsPlugin/`](ServerToolsPlugin/README.md) | Rotation, Klassen, Statistik/Safety Rating, echtes Wetter, Neustart, gemeinsame Einstellungen |
-| [`DriverRecorderPlugin/`](DriverRecorderPlugin/README.md) | Zeichnet Spieler mit Zustimmung auf (`/rec on`), Grundlage der Fahrer-Klone |
-| `Shared/` | Quellcode, den mehrere Plugins mitkompilieren (Streckengeometrie, Klassen, Admin-Zugriff, Config-Schreiber) |
-| `examples/nordschleife-gt3/` | Beispielkonfiguration: 4 Spieler-Slots, 16 Bots |
-| `tools/` | Build, Testserver ohne .NET SDK (`setup-testserver.sh`, `update-server.sh`, `start-server.sh`), vorgebaute DLLs |
+| `AssettoServer/…` | **Core patch**: external AI slots, official laps for bots, preset layers, clock sync, plugin interfaces, migration of old configuration |
+| [`BotDriverPlugin/`](BotDriverPlugin/README.md) | The bots: driving, battles, clones, takeover on disconnect. `Core/` is the AI without AssettoServer dependency, `Tool/` the offline tool |
+| [`WebPortalPlugin/`](WebPortalPlugin/README.md) | Web pages: `/join`, `/live`, `/stats`, `/admin` |
+| [`ServerToolsPlugin/`](ServerToolsPlugin/README.md) | Rotation, classes, statistics/safety rating, real weather, restart, shared settings |
+| [`DriverRecorderPlugin/`](DriverRecorderPlugin/README.md) | Records players with consent (`/rec on`), basis of the driver clones |
+| `Shared/` | Source compiled into several plugins (track geometry, classes, admin access, config writer) |
+| `examples/nordschleife-gt3/` | Example configuration: 4 player slots, 16 bots |
+| `tools/` | Build, test server without .NET SDK (`setup-testserver.sh`, `update-server.sh`, `start-server.sh`), prebuilt DLLs |
 
-Alte Server mit `RaceAiPlugin` laufen ohne Änderung weiter: `RaceAiPlugin` in `EnablePlugins` lädt die neuen Plugins, und
-`plugin_race_ai_cfg.yml` wird beim ersten Start auf `plugin_bot_driver_cfg.yml`, `plugin_web_portal_cfg.yml` und
-`plugin_server_tools_cfg.yml` aufgeteilt. Der alte Ordner `plugins/RaceAiPlugin` wird nicht mehr geladen und kann weg.
+Old servers with `RaceAiPlugin` keep working unchanged: `RaceAiPlugin` in `EnablePlugins` loads the new plugins, and
+`plugin_race_ai_cfg.yml` is split into `plugin_bot_driver_cfg.yml`, `plugin_web_portal_cfg.yml` and
+`plugin_server_tools_cfg.yml` on first start. The old folder `plugins/RaceAiPlugin` is no longer loaded and can be deleted.
 
-## Schnellstart (Linux, ohne .NET SDK)
+## Quick start (Linux, without .NET SDK)
 
 ```bash
-tools/setup-testserver.sh /pfad/zu/steamapps/common/assettocorsa   # lädt AssettoServer v0.0.55-pre42 und richtet alles ein
-tools/install-desktop-entry.sh                                      # Starter ins Startmenü und auf den Desktop
-tools/server-desktop.sh                                             # Server + Admin-Seite starten
+tools/setup-testserver.sh /path/to/steamapps/common/assettocorsa   # downloads AssettoServer v0.0.55-pre42 and sets everything up
+tools/install-desktop-entry.sh                                      # launcher in the start menu and on the desktop
+tools/server-desktop.sh                                             # start server + admin page
 ```
 
-Nach einem `git pull` spielt `tools/update-server.sh` die neuen Plugins ein und ergänzt die Konfiguration.
+After a `git pull`, `tools/update-server.sh` installs the new plugins and extends the configuration.
 
-Beitreten in Content Manager: *Online → LAN* oder die Favoriten mit `IP:8081`. CSP muss installiert sein.
-Für Freunde von außen: im Router die Ports 9600 TCP+UDP und 8081 TCP an deinen PC weiterleiten.
+Joining in Content Manager: *Online → LAN* or favourites with `IP:8081`. CSP must be installed.
+For friends from outside: forward ports 9600 TCP+UDP and 8081 TCP on your router to your PC.
 
-## Bauen (sauberer Weg)
+## Building (the clean way)
 
-Mit dem .NET 11 SDK: `tools/build.sh` (oder `tools/build.sh win-x64`) baut Server und Plugins nach `out-linux-x64/`.
+With the .NET 11 SDK: `tools/build.sh` (or `tools/build.sh win-x64`) builds server and plugins into `out-linux-x64/`.
 
 ```bash
 dotnet run --project BotDriverPlugin/Tool -- selftest
 ```
 
-## Lizenz
+## License
 
-AGPL-3.0, wie AssettoServer. Alle Änderungen gegenüber dem Original stehen in der Git-Historie (Commits ab `e92d253`).
+AGPL-3.0, like AssettoServer. All changes compared to the original are in the Git history (commits from `e92d253`).
